@@ -1,0 +1,99 @@
+// livebuyWidgetVisibility — opt-in host→SDK 橋接:讓 host 宣告承載 widget 預覽的畫面是否被覆蓋。
+//
+// RN parity of Android `LivebuyWidgetVisibility`（`android-refui-widget-host-visibility-pause`,
+// commit e3fcfc39）。`rn-refui-widget-preview-lifecycle-pause` 已讓 widget 循環預覽
+// `LoopingVideoView` 在兩種 SDK **能自足偵測**的情況暫停:(1) `AppState` 背景暫停、
+// (2) `measureInWindow` 零重疊的滾出 viewport 離屏暫停。但它誠實留下一塊**無法自足偵測**
+// 的殘餘漏洞——「切 tab 被覆蓋」:host 把首頁 widget **仍 laid-out 但被別的畫面覆蓋**
+// (最典型:全螢幕直播播放器 overlay,蓋在底下首頁之上)時——
+//   • `measureInWindow` 看到的 window-relative frame **仍與 window 重疊**(z-order 覆蓋
+//     偵測不到 → 判定 on-screen);
+//   • App 仍 `active`(沒進背景 → `AppState` 收不到 `background`/`inactive`);
+//   → 兩個自足 gate 都失效 → 首頁 N 支預覽仍全速硬解,疊加正在播的全螢幕 player。
+//
+// 這與 PiP 是**同性質的平台/架構限制**:RN `measureInWindow` 只反映 layout 座標,看不到
+// z-order 覆蓋;被同層 overlay 覆蓋時 App 仍 `active`。SDK widget 層沒有任何自足管道能
+// 觀察到「host 把我蓋住了」——**只有 host 導航層知道**。故由 host 明確轉發。
+//
+// 誰呼叫 setWidgetsCovered — 兩條整合路徑(依你怎麼呈現播放器選一條):
+//   • 主路徑(大多數 host):drop-in 收合 presenter `CollapsibleLivebuyPlayer` 已依相位自動
+//     驅動,host **不需也不應**自己呼叫。契約 `covered ⟺ 全螢幕相位 full`(`hasVideo &&
+//     !isMinimized`):全螢幕時宣告 covered(首頁預覽讓出解碼器),縮成浮卡 / 關閉時 un-cover。
+//     若你又在 presenter 之上自己呼叫 setWidgetsCovered,只會與它打架(兩者寫同一個 level)。
+//     見 `CollapsibleLivebuyPlayer` + `rn-refui-presenter-widget-cover-by-phase` /
+//     `refui-widget-visibility-kdoc-presenter-owned`。
+//   • 手動路徑(少數 host):**只有**用裸(非收合)`LivebuyPlayer`、或完全自管導覽 / 自製覆蓋
+//     (不經收合 presenter)的 host 才自己呼叫:
+//       import { LivebuyWidgetVisibility } from 'livebuy-react-native-reference-ui';
+//       LivebuyWidgetVisibility.setWidgetsCovered(true);   // 全螢幕覆蓋首頁時
+//       LivebuyWidgetVisibility.setWidgetsCovered(false);  // 關閉、首頁重新可見時
+//     把 true/false 對映到「首頁**是否真的被全螢幕覆蓋**」。裸非收合播放器**沒有 floating 相位**,
+//     故 `presentedVideo != null` 在該情境才恰好正確;但若 host 自製了 minimize/floating,**不要**
+//     用 `presentedVideo != null`(浮卡期仍非 null → 會 OVER-pause 當時可見的首頁預覽),須自行
+//     區分全螢幕 vs 收合。(收合 presenter 已以相位驅動避開此 over-pause。)
+//
+// 向後相容:無人接(沒有 presenter、host 也不呼叫 `setWidgetsCovered`)時,`LoopingVideoView`
+// 的 play-gate 第三維 `notCovered` 恆為 true,退化為既有 `foreground && onScreen`,行為與現況
+// **逐位元組相同**。此殘餘漏洞在無人接時**依然存在**——SDK 只提供入口,不宣稱已自足涵蓋
+// (covered 判定為 presenter,或手動 host 的職責)。
+//
+// 與 Android 同構,但傳的是**有狀態的可見性 level**(covered 布林),非一次性 edge:一支在
+// 「已覆蓋」期間才掛載的 widget 預覽,**必須立刻知道當前是 covered** 才不會播。故本橋接
+// **保存 `covered`**,且 `register` 時**立即以當前值 replay** 給新掛載的 widget。這是與傳
+// 一次性 edge、`register` 不 replay 的橋接(如 PiP 類)的唯一結構差異。
+//
+// 純模組:不 import `react-native` / `react-native-video`,可獨立單元測(注入閉包記錄呼叫
+// 即可驗真值,不需 render)。JS listener 閉包有 identity,可放 `Set` 並以同一 reference 移除。
+//
+// 命名注意:本檔匯出 `LivebuyWidgetVisibility`,與同套件既有 `widgetVisibility.ts`(urlless-live
+// 隱藏,**另一個功能**)刻意不撞名、不混用。
+
+/** 目前是否被覆蓋(有狀態 level;module 單例保存,`register` 時 replay 給新掛載卡)。 */
+let covered = false;
+
+/** 掛載中的 `LoopingVideoView` 的覆蓋 listener 集合(閉包 identity → 可移除)。 */
+const listeners = new Set<(covered: boolean) => void>();
+
+/**
+ * opt-in 覆蓋橋接模組單例。**大多數 host 不需直接碰它**:drop-in 收合 presenter
+ * `CollapsibleLivebuyPlayer` 已擁有 {@link setWidgetsCovered} 並依相位驅動(`covered ⟺ full`);
+ * 只有裸(非收合)`LivebuyPlayer` / 自管導覽的 host 才自己呼叫(見檔頭兩路徑與 `presentedVideo
+ * != null` caveat)。每支 `LoopingVideoView` 掛載時 `register`、卸載時 `unregister`。與 Android
+ * `LivebuyWidgetVisibility` 同構,但傳有狀態 level → `register` 立即 replay 當前 covered。
+ */
+export const LivebuyWidgetVisibility = {
+  /**
+   * Host: 宣告承載 Livebuy widget 預覽的畫面**目前是否被覆蓋**(true = 被別的畫面 / 全螢幕
+   * overlay 蓋住、對使用者不可見)。**有狀態**:單例保存當前 `covered` level;值改變時才
+   * fan-out(edge-triggered,不 churn),在任何狀態呼叫皆為安全操作。
+   */
+  setWidgetsCovered(next: boolean): void {
+    if (covered !== next) {
+      covered = next;
+      // 快照 fan-out:避免 listener 在回呼內 register/unregister 造成迭代期間變動。
+      for (const listener of Array.from(listeners)) {
+        listener(next);
+      }
+    }
+  },
+
+  /**
+   * @internal `LoopingVideoView` 掛載時呼叫:加入 listener 集合並**立即以當前 `covered` 值
+   * replay 一次**(★ 與無狀態 edge 橋接的關鍵差異;在「已覆蓋」期間才掛載的卡立即套用暫停)。
+   */
+  register(listener: (covered: boolean) => void): void {
+    listeners.add(listener);
+    listener(covered);
+  },
+
+  /** @internal `LoopingVideoView` 卸載時呼叫:安全移除 listener(未知 listener 為 no-op)。 */
+  unregister(listener: (covered: boolean) => void): void {
+    listeners.delete(listener);
+  },
+
+  /** @internal 測試重設:清 listeners + 重設 `covered = false`。 */
+  resetForTesting(): void {
+    listeners.clear();
+    covered = false;
+  },
+};

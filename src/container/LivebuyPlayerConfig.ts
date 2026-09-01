@@ -1,0 +1,393 @@
+// LivebuyPlayerConfig — per-instance wiring for the drop-in `LivebuyPlayer`
+// container (introduce-dropin-player-container-rn, D-3).
+//
+// Parity source: iOS `LivebuyPlayerConfig` (struct). EVERY interaction callback
+// is OPTIONAL with a documented sensible default — a host that passes nothing
+// still gets a working player ("不 wire 也能跑"); passing a callback REPLACES that
+// one default (the container does `config.onX ?? (built-in default)`). RN's
+// per-family host callbacks are finer-grained than iOS's closures, but each maps
+// 1:1 to an `attachment` forwarder or a `playerRef` method.
+//
+// This module is PURE TypeScript (type-only react-native imports), so it stays
+// reliably testable in a plain node environment and avoids dragging the RN
+// runtime into jest.
+
+import type { ViewStyle } from 'react-native';
+import type { LBVideoItem } from 'livebuy-react-native';
+import type { LBSdkEvent, LBWinner, LBProduct } from 'livebuy-react-native';
+import type { LBUIOptions, LBSideRailKind } from 'livebuy-react-native-ui';
+import type { SDKConfig } from 'livebuy-react-native';
+import type { HotRow } from '../moments/MomentsModel';
+import type { ReferenceUIDesign } from './ReferenceUIDesign';
+
+/**
+ * Per-instance wiring for {@link LivebuyPlayer}. All callbacks optional; each has
+ * a documented built-in default the container supplies when the callback is
+ * omitted. Passing a callback REPLACES that single default; the rest stay default.
+ */
+export interface LivebuyPlayerConfig {
+  // -- Optional explicit data overrides (turnkey defaults if omitted) ----------
+
+  /**
+   * The merchant SDKConfig used to attach the template + resolve the theme. When
+   * omitted, the container fetches it via `LivebuySDK.getSdkConfig()` (the host
+   * has already `configure()`d). Provide it to skip the async fetch (e.g. tests).
+   */
+  sdkConfig?: SDKConfig | null;
+  /** Host UI options forwarded into the theme resolver. Default: `LivebuyUI.hostOptions`. */
+  hostOptions?: LBUIOptions | null;
+
+  /**
+   * The design that composes the whole player overlay (the design seam — parity with
+   * iOS `LivebuyPlayerConfig.design`). Default: `MinimalDesign` (the existing minimal
+   * composition). A host injects its own `ReferenceUIDesign` to change the WHOLE overlay
+   * layout (not just the theme palette). The container delegates to
+   * `resolveDesign(config.design).playerOverlay(context)` and knows nothing about any
+   * concrete design.
+   */
+  design?: ReferenceUIDesign;
+
+  // -- Global -----------------------------------------------------------------
+
+  /**
+   * An extra unified-event listener registered for the host (via core
+   * `registerListener`). Does NOT replace the template's built-in routing —
+   * `attachPlayerTemplate` keeps routing events to the surfaces; this just lets
+   * the host observe every event too. Default: none.
+   *
+   * Delivery contract (rn-fold-host-listener-into-single-slot): the container folds this listener
+   * and its own internal handling into ONE core registration, and delivers **internal → host**, so
+   * the container's invariants (swipe baseline / collapsible sync / PiP tracking) are already
+   * up to date when this listener runs. Swapping the listener identity between renders is free —
+   * it never re-registers and never disturbs the container. A throw from this listener is caught
+   * and swallowed (it must not break the container or escape into the native emitter), so do your
+   * own try/catch + logging if you need to see the error.
+   *
+   * PREFER this over calling core `registerListener` yourself: core keeps a SINGLE active handler,
+   * so a direct host registration and the reference-ui containers still replace each other. This
+   * seam is the supported path.
+   */
+  eventListener?: (event: LBSdkEvent) => void;
+
+  // -- player-shell -----------------------------------------------------------
+
+  /**
+   * Top-right minimize tap. Default (D-4 / R2): forwards `playerRef.minimize()` —
+   * the architecturally-correct seam (today a safe no-op stub; activates when core
+   * ships the deferred in-app PiP). The in-app floating-preview collapse is a HOST
+   * presentation concern, so a host that wants it overrides `onMinimize`.
+   */
+  onMinimize?: () => void;
+  /**
+   * Tap the video to toggle mute. Default: `playerRef.setMuted(!muted)` so first
+   * tap unmutes. (The mute truth lives in the template's `handleMutedChange`,
+   * host-forwarded — see design R3.)
+   */
+  onToggleMute?: (muted: boolean) => void;
+  /**
+   * Side-rail / LIVE-bottom-bar item tap, by kind.
+   *
+   * Default（rb-rn-like-tap-wire，parity Android `defaultRailTap` / Flutter `_routeRailItem`）——
+   * 各 kind 在容器裡的真實分工：
+   * - **`Like`** → `playerRef.simulateLikeTap()`（→ core `operationPanel.simulateLikeTap()` → 既有
+   *   250ms throttle → 按讚 API）。修法前這裡是純 no-op，於是 LIVE 底部 bar 的愛心只播本地飄心動畫、
+   *   **從未真正按讚**。飄心動畫由 `PlayerShellView` 自己的 state 驅動，不受本 seam 影響。
+   * - `Goods` → **到不了本 callback**：容器先攔截它並開商品列表 overlay。
+   * - `Share` / `ServiceLink` / `GuestNameEdit` → **到不了本 callback**：分別由專用 seam
+   *   {@link LivebuyPlayerConfig.onShare} / {@link LivebuyPlayerConfig.onServiceLink} 與容器本地的
+   *   設定暱稱 modal 先行處理。
+   * - `More` → **保留路徑，目前不可達**：沒有任何呼叫端發出這個 kind（rail 不畫、底部 bar 無此鈕、
+   *   seed 為 disabled）。`PlayerShellView.handleRailTap` 雖有 `more` 分支，但無人觸發；資訊面板實際
+   *   由 header host pill 與公告橫幅開啟。
+   * - `Chat` → RN reference-ui 沒有對應的 UI 進場點。
+   * - `Subtitle`（CC）→ **仍為 no-op，已知且刻意**：它同屬死按鈕形態，但 RN reference-ui 目前沒有任何
+   *   字幕渲染面，接上 core toggle 後的可見結果是未決問題，屬後續 reference-ui change。host 想要現在
+   *   就有 CC 行為，可自行設本 callback 攔截。
+   *
+   * host 設此 closure 則**完全取代**上述預設（愛心也不再由容器轉發，單一路由來源）。
+   */
+  onTapRailItem?: (kind: LBSideRailKind) => void;
+  /** LIVE「留言...」pill. Default: open + focus the on-demand chat composer. */
+  onComment?: () => void;
+  /**
+   * 聯絡商家（`ContactMerchantModalView` 確認框「確定」之後的動作）. Default
+   * (dropin-service-link-default-browser-rn): 以容器 `<LivebuyPlayerCore onChannelChange>` 收到的最新
+   * `LBPlayerChannelInfo.serviceLink`（`channel.shop.serviceLink`）經
+   * `LivebuySDK.openInAppBrowser` 開站內瀏覽器；`serviceLink` 為空 → no-op（不開空白頁，也不退回
+   * `onTapRailItem`）。host 設此 closure 完全覆蓋（不開瀏覽器，改跑 host 自己的流程）。
+   */
+  onServiceLink?: () => void;
+
+  /**
+   * Whether `PlayerShellView` paints its opaque background placeholder. Default
+   * `false` (the container overlays a real native video surface; painting it
+   * would cover the video).
+   */
+  paintsBackgroundPlaceholder?: boolean;
+  /** Whether to show the one-time gesture hint. Default `false`. */
+  showGestureHints?: boolean;
+  /**
+   * 訂閱徽章（header 頭像上的 +/✓ 小圓標）要不要顯示 (rb-rn-subscribe-favorite-visibility-toggle)。
+   *
+   * 訂閱走既有 core `simulateSubscribeTap`（經 {@link LivebuyPlayerConfig.onTapRailItem} 以外的獨立
+   * seam，未登入時先走本地登入 gate），純 client 端狀態，與後端 `sdkConfig` 無關——這個旗標只決定
+   * 「畫不畫得出訂閱徽章」，不改變該 seam 本身在已掛載時的行為。
+   *
+   * **Default（省略）＝ `false`（隱藏）**——與訂閱鈕先前恆顯示的行為相反，是使用者明確要求的行為變更
+   * （host app 要把訂閱功能改成預設關閉隱藏，可設定開啟顯示）。host 需顯式傳 `true` 才會顯示訂閱徽章。
+   * 關閉時徽章節點完全不掛載（不是掛載但停用），頭像版位尺寸不受影響（徽章是絕對定位疊加層）。
+   */
+  showSubscribe?: boolean;
+
+  /**
+   * 播放器頂欄影片標題「長標題是否以跑馬燈捲動」（rb-rn-marquee-title-scroll，design R15）。
+   *
+   * 收的是後端 `POST /sdk/config` 回應 `data.extensions.video_title_scroll` 的 **raw 值**
+   * （Int 0/1，來源後台 `/admin/additional` 的設定項 `video_title_display`——⚠️ **wire key 與來源
+   * 設定項不同名**，以 wire 欄位語意為準）。`extensions` 是 opaque raw bag，SDK 不解讀其語意
+   * （`sdk-config` capability），所以由 **host** 讀出後注入這裡；容器**不會**自行讀 `sdkConfig`。
+   * 型別刻意是 `unknown`，因為 RN core 的 `SDKConfig.extensions` 就是 `Record<string, unknown>`：
+   *
+   * ```ts
+   * const cfg = await LivebuySDK.getSdkConfig();
+   * <LivebuyPlayer config={{ titleScroll: cfg.extensions['video_title_scroll'] }} … />
+   * ```
+   *
+   * 不需要 cast、也不需要 host 自己補預設——正規化只發生在 reference-ui 唯一的入口
+   * `normalizeTitleScroll`（由本套件 re-export）：只有 `false` / 數值 `0` / **逐字** `'0'` 關閉，
+   * 其餘一切（省略 / `null` / `1` / `'1'` / `''` / `' 0 '` / `'false'`）一律允許捲動。比較是
+   * **嚴格相等**（不 trim、不 case-fold），與設計稿 `normalizeTitleScroll` 逐字一致。
+   *
+   * **Default（省略）＝ 允許捲動**。與 `showStock` 不同，這個 fallback **可以**、而且應該用後端
+   * 預設來說明：後端契約對 `video_title_scroll` 明文「**未設定時為 `1`**」
+   * （`openspec/specs/backend/sdk-config.md`）。
+   *
+   * 與內容量測是 **AND**：本旗標只回答「**允不允許**捲」，「有沒有東西可捲」由標題是否覆蓋容器的
+   * 量測決定（`showsMarqueeTitle` = `titleScroll && marqueeTitleOverflows(...)`）。短標題設 `1`
+   * 也不會捲。
+   *
+   * ⚠️ **MUST NOT 被讀成標題的可見性開關**——後端契約明文禁止。關閉時標題照常以單行 + tail
+   * ellipsis、**完全不透明**顯示，且與開啟時**同高**（其下的主持人名 / LIVE 膠囊 / 觀看人數不會位移）。
+   *
+   * ⚠️ 範圍僅限**播放器頂欄標題**。widget 影片卡標題（`CarouselCard`）本來就單行截斷、從不捲動，
+   * 設計稿 R15 明載本設定是否涵蓋該處**無證據**，故不受本旗標影響。
+   */
+  titleScroll?: unknown;
+
+  // -- product-sheets ---------------------------------------------------------
+
+  /**
+   * 商品點擊。**四個**進場點共用此一 seam：(a) 商品列表列的名稱/價格欄與明細鈕
+   * （`actionMode='detail'`）、(b) 同列的加購鈕（in-stock，`actionMode='addToCart'`）、
+   * (c) 售完列的補貨鈴鐺（`actionMode='restock'`；經 `ProductSheetsView.handleOpenRestock`
+   * 記下模式後仍走這條出口）、(d) VOD now-introducing 卡片輪播。
+   *
+   * 注意 (c) 的 `ProductList` 層 `onNotifyRestock`（吃 `LBProduct`，開 sheet 的入口）與本 config
+   * 的 {@link LivebuyPlayerConfig.onNotifyRestock}（吃 `goodsGpn: string`，訂閱 toggle）**同名但
+   * 不同層、不同簽章**，不要混淆。
+   *
+   * Default（rb-rn-product-tap-wire，parity iOS `performProductTap` / Android `defaultProductTap` /
+   * Flutter `productOverlay.simulateProductTap`）：**兩個出口都做**——先
+   * `playerRef.simulateProductTap(product)`（→ core `productOverlay.simulateProductTap` → native 派
+   * `INFO_PRODUCT_VIEW` + `goods_pv` + `PRODUCT_CLICK`），再
+   * `attachment.handleProductTap(product, 0)`（帶完整 `LBProduct` 開商品明細 sheet）。缺任一個都會退回
+   * 死按鈕：只做前者則 sheet 不開（native 回流的 `PRODUCT_CLICK` 是 light payload、`handleProductTap`
+   * 讀不到 `id` 即 early-return），只做後者則三件 telemetry 全不送。
+   *
+   * host 設此 closure 則**完全取代**預設（上述兩個出口都不再由容器呼叫），自行決定要不要補 telemetry。
+   *
+   * **已知限制**：`diversion` 固定傳 `0`（＝開站內明細）。iOS / Android 傳的是**頻道級**
+   * `channel.diversion`，而 RN 橋接的 `LBPlayerChannelInfo` 不含該欄位、RN 也沒有其他管道取得。導購頻道
+   * （`diversion == 1`）的分支需先由 core 橋接吐出該欄位，屬 `-core` 層、另行提案。容器**不會**以
+   * `product.diversionUrl` 是否非空來推導 diversion（導購為頻道級決定，那樣推導會誤開外部瀏覽器）。
+   *
+   * 注意這與同名但不同層的 `PlayerShellView.onOpenProduct`（no-arg，容器接成
+   * `setProductListPresented(true)`、開商品**列表** overlay）不是同一件事。
+   */
+  onOpenProduct?: (product: LBProduct) => void;
+  /** Cart-CTA「開啟購物車」. Default: `attachment.openCart()`. */
+  onOpenCart?: () => void;
+  /** Variant chip tap. Default: `attachment.selectVariant(gi, oi)`. */
+  onSelectVariant?: (groupIndex: number, optionIndex: number) => void;
+  /** Direct qty set. Default: `attachment.setQty(qty)`. */
+  onSetQty?: (qty: number) => void;
+  /** Qty `+`. Default: `attachment.incQty()`. */
+  onInc?: () => void;
+  /** Qty `-`. Default: `attachment.decQty()`. */
+  onDec?: () => void;
+  /** 加入購物車. Default: `attachment.addToCart()`. */
+  onAddToCart?: () => void;
+  /** 收藏（到貨追蹤 type=1）toggle. Default: forward to the host (no-op if unset). */
+  onToggleFavorite?: (goodsGpn: string) => void;
+  /** 補貨通知（type=2）toggle. Default: forward to the host (no-op if unset). */
+  onNotifyRestock?: (goodsGpn: string) => void;
+  /**
+   * 頻道 / detail-footer 分享. Default (dropin-player-default-share-sheet-rn): 以 `channel.share_url`
+   * （`playerHeaderState.shareUrl`）經 react-native `Share.share` 開系統分享；空 url → no-op；頻道級不附
+   * `?t=`. host 設此 closure 完全覆蓋（自畫 sheet / 流程，零變更）。RN 無同步 native `performShare()` 回傳
+   * （§3182 DEFERRED）——host 攔截分享的 seam 即此 `onShare`.
+   */
+  onShare?: () => void;
+  /**
+   * 商品列表列**縮圖**點擊 → 影片跳轉到該商品介紹時間（issue 5）. Default:
+   * `playerRef.seek(product.beginTime)`（`beginTime == null` 不 seek；core seek 僅 replay 生效）.
+   */
+  onSeekToProductIntro?: (product: LBProduct) => void;
+  /**
+   * 商品列表列**分享鈕**點擊 → 系統分享，連結帶該商品介紹時間 `?t=beginTime`（issue 6）. Default:
+   * no-op——RN reference-ui 把 per-product 系統分享委派 host（與 `onShare` 一致，純 JS 層不直接呼叫
+   * 原生分享）；host override 以套件純函式 `productShareUrlString` 組連結 + RN `Share.share` 呈現.
+   */
+  onShareProduct?: (product: LBProduct) => void;
+  /**
+   * 商品明細「更多商品」推薦格（rb-rn-product-detail-recommendations，design R21）播放圖示 tap →
+   * 换片。Default: `playerRef.load(videoId)` then `switchVideo(videoId)`——比照容器層既有的
+   * `onPickHot` 模式（`seams.ts` `buildMomentHandlers`），但**不**呼叫 `dismissDetail()` 等效行為
+   * ——商品明細 sheet stack 由 `ProductSheetsView` 保證維持開啟（design.md D3）。`LBProductRecommendation`
+   * 沒有 cover/title/duration，故不比照 `onPickHot` 手動組 `LBVideoItem`；`switchVideo` 內建的
+   * cover-empty fallback（與 swipe 換片同一條）已經處理「沒有完整 item 可帶」這件事。
+   */
+  onSwitchProductVideo?: (videoId: string) => void;
+  /**
+   * 商品 sheet 的「只剩庫存 N 組」文案要不要顯示（rb-rn-show-stock-caption-toggle，design R15）。
+   *
+   * 收的是後端 `POST /sdk/config` 回應 `data.extensions.show_stock` 的 **raw 值**（Int 0/1，來源
+   * 後台 `/admin/additional` 的設定項 `stock`）。`extensions` 是 opaque raw bag，SDK 不解讀其語意
+   * （`sdk-config` capability），所以由 **host** 讀出後注入這裡；容器**不會**自行讀 `sdkConfig`。
+   * 型別刻意是 `unknown`，因為 RN core 的 `SDKConfig.extensions` 就是 `Record<string, unknown>`：
+   *
+   * ```ts
+   * const cfg = await LivebuySDK.getSdkConfig();
+   * <LivebuyPlayer config={{ showStock: cfg.extensions['show_stock'] }} … />
+   * ```
+   *
+   * 不需要 cast、也不需要 host 自己補預設——正規化只發生在 reference-ui 唯一的入口
+   * `normalizeShowStock`（由本套件 re-export）：只有 `false` / 數值 `0` / **逐字** `'0'` 關閉，
+   * 其餘一切（省略 / `null` / `1` / `'1'` / `''` / `' 0 '` / `'false'`）一律顯示。比較是**嚴格
+   * 相等**（不 trim、不 case-fold），與設計稿逐字一致。
+   *
+   * **Default（省略）＝ 顯示**，行為與本設定存在之前完全相同（既有 host 零改動）。fallback 落在
+   * 「顯示」的理由是「缺值時不讓既有畫面突然少一段文字」——**不是**因為後端預設為 1：後端契約對
+   * `show_stock` 明文不宣告預設值（與同表 `show_pv_num` / `video_title_scroll` 不同）。
+   *
+   * 與售完是 **AND**：售完商品本來就不畫庫存數字，此旗標對它是 no-op。與 `NotifyRestockSheet` 的
+   *「尚無庫存」（售完狀態文案）及任何「已售完」標籤無關，那些不受本設定影響。
+   *
+   * ⚠️ 與 core `LBVideoItem.showStock`（`POST /sdk/widget` 的 per-video `show_stock`）**同名但不同
+   * 來源**，本設定既不讀取也不衍生自它。
+   */
+  showStock?: unknown;
+
+  /**
+   * 商品明細 sheet 的收藏鈕（到貨追蹤 type=1）要不要顯示 (rb-rn-subscribe-favorite-visibility-toggle)。
+   *
+   * 收藏走既有 {@link LivebuyPlayerConfig.onToggleFavorite} → core `toggleAwait(goodsGpn)`，純 client
+   * 端狀態，與後端 `sdkConfig` 無關——這個旗標只決定「畫不畫得出收藏鈕」，不改變該 seam 本身在已掛載時
+   * 的行為，也與 `isLive`（分享鈕隱藏旗標）正交。
+   *
+   * **Default（省略）＝ `false`（隱藏）**——與收藏鈕先前恆顯示的行為相反（`ProductDetailSheetView` 舊
+   * 版文件曾寫「the favorite button is UNAFFECTED — it always renders」，現已由本旗標接管可見性），是
+   * 使用者明確要求的行為變更。host 需顯式傳 `true` 才會顯示收藏鈕。只影響商品明細 sheet 的 `.detail`
+   * （完整瀏覽）呈現——`.addToCart`（加購）呈現本來就不畫收藏鈕，此旗標對它是 no-op。
+   */
+  showFavorite?: boolean;
+
+  // -- feed-win ---------------------------------------------------------------
+
+  /**
+   * Event-join「加入」— a host OBSERVE hook, NOT the funnel. Default: **no-op**.
+   *
+   * The authoritative funnel is `FeedWinModel.joinEvent`, which consults the container-injected
+   * three-tier gate (rb-rn-event-join-gate) before forwarding. This hook is called **if and only
+   * if** that forward actually happened (rn-event-join-gate-suppress-host-callback) — a gated tap
+   * (guest not logged in / no nickname yet) notifies nothing, so the host never sees a join that
+   * did not occur. A nickname-gate continuation (設名後自動接續) DOES notify, since that join is real.
+   */
+  onJoin?: (eid: number, keyword: string) => void;
+  /**
+   * Win-claim「確認領獎」CARRYING the user-entered email (rb-rn-win-claim-email-flow).
+   * Default: `attachment.template.submitAwardClaim(winner, email)` → core
+   * `requestAwardClaim(winner, { email })`.
+   */
+  onSubmitClaim?: (winner: LBWinner, email: string) => void;
+  /**
+   * Win-claim「領取」(EMAIL-LESS).
+   *
+   * @deprecated EMAIL-LESS 領獎在未被 host 攔截時**必然失敗**（core 預設領獎路徑 `email`
+   * 必填，缺 email 直接 fail-fast、**連 `POST /sdk/video/claim` 都不送**）。改用
+   * {@link onSubmitClaim}。形狀刻意維持不變以保源碼相容：**已設定它的 host 行為完全不變**
+   * （turnkey 預設仍走它、email 收不到 —— 該 host 本來就自行接管領獎流程）。將於下一個
+   * major 移除（`docs/contract-governance.md` I6 / 情境 F）。
+   */
+  onClaim?: (winner: LBWinner) => void;
+  /** Claim-modal open. Default: presentation only (the container governs the modal). */
+  onOpenClaim?: (winner: LBWinner) => void;
+  /** Claim-modal ✕ /「關閉視窗」/ `done` 點 scrim. Default: presentation only. */
+  onDismissClaim?: () => void;
+  /**
+   * `done`（discount）折扣碼「複製」. Default: no-op —— 本層保留版面 + 本地「已複製」回饋，
+   * 實際寫入剪貼簿委派 host（RN 核心 `Clipboard` 已 deprecated，外部剪貼簿套件違反本層零外部
+   * 依賴原則；與 `onShareProduct` 的既有委派慣例一致）。
+   */
+  onCopyClaimCode?: (code: string) => void;
+
+  // -- moments ----------------------------------------------------------------
+
+  /** 立即觀看. Default: `playerRef.load(nextVideoId)` then `onVideoSwitched`. */
+  onWatchNext?: (nextVideoId: string) => void;
+  /** 熱門卡 tap. Default: `playerRef.load(hot.id)` then `onVideoSwitched`. */
+  onPickHot?: (hot: HotRow) => void;
+  /** 略過片頭. Default: `playerRef.skipStart()`. */
+  onSkip?: () => void;
+  /** 取消 (stop the auto-next countdown — NOT a dismiss). Default: `playerRef.cancelAutoNext()`. */
+  onCancel?: () => void;
+  /** 重試. Default: `playerRef.load(currentVideoId)` (reload what is showing). */
+  onRetry?: () => void;
+  /** Moment 返回 / 關閉. Default: host presentation no-op (the container can't dismiss itself). */
+  onDismiss?: () => void;
+
+  // -- gap-surfaces -----------------------------------------------------------
+
+  /** Auth-gate「前往登入」. Default: host-wired no-op (reference-ui NEVER logs in). */
+  onLogin?: () => void;
+  /**
+   * 設定暱稱 modal「送出」. Default (turnkey, rb-rn-nickname-taken-inline-error): calls the
+   * checkName-gated `playerRef.setGuestNicknameVerified(name)` — only on success does it dismiss
+   * the modal + (when entered from the 留言 gating) open the chat composer + complete any pending
+   * 加入活動 join. A rejection (name taken, or any other error) does NOT dismiss; the modal shows an
+   * inline error (via `NicknamePromptController.submitFailure`) and stays open for a retry. Sets the
+   * GUEST nickname, NEVER `setUser` (設名 ≠ 登入). An override REPLACES the default entirely — the
+   * override itself stays `(name: string) => void` (no Promise involved) and none of the
+   * `submitting` / `submitFailure` presentation state is touched by the container in that case.
+   */
+  onSubmitName?: (name: string) => void;
+
+  // -- in-place switch ---------------------------------------------------------
+
+  /**
+   * Fired when an IN-PLACE switch (hot-pick / watch-next) changes the shown video,
+   * with the NEW video id, so a host can keep its own "current video" state in sync.
+   * Default: undefined. (Vertical swipe is driven by the shell's built-in backend
+   * prev/next — there is no host-feed `swipeFeed`.)
+   */
+  onVideoSwitched?: (videoId: string) => void;
+
+  /**
+   * Fired ALONGSIDE {@link onVideoSwitched} on an IN-PLACE switch (swipe / hot-pick / watch-next),
+   * carrying the SWITCHED video as a full `LBVideoItem`. hot-pick / watch-next carry the REAL
+   * `cover` / `title` (from the `HotRow` / `MomentsModel.next[0]` that drove the switch); swipe
+   * carries a `cover`-empty fallback with the correct `id` (RN reference-ui has no channel
+   * adjacency nav rows in JS). The collapsible presenter (`CollapsibleLivebuyPlayer`) consumes it
+   * so a minimized floating preview shows the SWITCHED video, not the entry one. Additive, default
+   * undefined; {@link onVideoSwitched} (id-only) still fires unchanged. Parity iOS / Android
+   * `onVideoSwitchedItem` (rb-rn-collapsible-player-track-switch). NOTE: RN nav/hot sources carry
+   * no `preview`, so the floating card shows a static cover (no preview loop) — `LBVideoItem
+   * .preview` stays "".
+   */
+  onVideoSwitchedItem?: (item: LBVideoItem) => void;
+
+  // -- container styling ------------------------------------------------------
+
+  /** Optional style for the container's outer `View`. */
+  style?: ViewStyle;
+}

@@ -513,17 +513,38 @@ export function FeedWinView(props: FeedWinViewProps): ReactElement {
     setActivitySheetOpen(false);
   };
 
+  // rb-rn-activity-sheet-pagination (activity-sheet-pagination-reference-ui-rn) — flip to a
+  // specific page within `model.activities` (dot tap or a qualifying swipe inside
+  // `ActivitySheetView`). UNLIKE `handlePageClaim` above, this container does NOT hold a second
+  // local copy of the page index (no `useState` here) — the page index is already owned by the
+  // bound template (`DefaultPlayerTemplate.currentActivityPageIndex`, set via
+  // `setActivityPageIndex`, internally clamped). This forwarder just relays the intent; the
+  // template's own `notifyChange()` drives this container's EXISTING `subscribe()` tick re-read
+  // (the `useEffect` near the top of this component), so `model.currentActivityPageIndex` /
+  // `model.currentActivity` simply reflect the new value on the next render. No bounds-checking
+  // needed here (the template already clamps).
+  const handlePageActivity = (index: number): void => {
+    model.setActivityPageIndex(index);
+  };
+
   // Forward the「立即參加」CTA to the SAME `model.joinEvent` forwarder the merged feed's
   // `LBEventJoinLine`「加入活動」CTA already uses (design.md D4 — no second join path).
-  // Fire-and-forget: `joinEvent` has nothing to await, so there is no result to funnel back here
-  // (the sheet's own local `joined` flag is its entire visual feedback). `activity.keyword` is
-  // OPTIONAL on `LBActiveEvent` (native omits it when the activity carries no join keyword); this
-  // forwarder coalesces to `''` rather than widening `model.joinEvent`'s `keyword: string`
-  // parameter to accept `undefined` for this one caller.
+  // `activity.keyword` is OPTIONAL on `LBActiveEvent` (native omits it when the activity carries
+  // no join keyword); this forwarder coalesces to `''` rather than widening `model.joinEvent`'s
+  // `keyword: string` parameter to accept `undefined` for this one caller.
+  //
+  // rb-rn-activity-entry-cta-close (activity-entry-cta-close-rn): `model.joinEvent` returns a
+  // `boolean` — whether the intent actually forwarded to the template, i.e. the three-tier
+  // `event-join-gate` did NOT intercept it. `true` → close this sheet (`setActivitySheetOpen`
+  // false); the `ActivitySheet` component itself stays fire-and-forget (unaware of this result —
+  // it still flips its own local「已參加」state unconditionally). `false` → the gate intercepted
+  // the intent (a login / nickname modal is about to present) — leave the sheet OPEN so the user
+  // keeps the visual context of which activity they were joining while that modal is up.
   const handleJoinActivity = (): void => {
     const activity = model.currentActivity;
     if (activity == null) return;
-    model.joinEvent(activity.id, activity.keyword ?? '');
+    const forwarded = model.joinEvent(activity.id, activity.keyword ?? '');
+    if (forwarded) setActivitySheetOpen(false);
   };
 
   return (
@@ -651,7 +672,18 @@ export function FeedWinView(props: FeedWinViewProps): ReactElement {
           protects against the activity ending — via a future video-switch `clear()` — while the
           sheet happens to be open; `ActivitySheet.activity` is a REQUIRED, non-nullable prop, so
           this component is only ever mounted once a value exists). rb-rn-clean-mode-hide-chat-feed:
-          NOT gated by `cleanMode`, same boundary as `WinEntry` / `WinClaimSheetView` above. */}
+          NOT gated by `cleanMode`, same boundary as `WinEntry` / `WinClaimSheetView` above.
+
+          rb-rn-activity-sheet-pagination (activity-sheet-pagination-reference-ui-rn) —
+          `pageCount`/`pageIndex`/`onPage` thread `model.activities.length` /
+          `model.currentActivityPageIndex` / `handlePageActivity` through so the sheet can page
+          between simultaneously running activities (dots + swipe). UNLIKE Surface 3's
+          `WinClaimSheet` above, this does NOT need a `key`-forced remount on page flip: the page
+          index is owned entirely by the template (not a per-open container `useState` like
+          `openClaimWinner`), and `ActivitySheet` holds only ONE piece of local UI state (`joined`,
+          a fire-and-forget CTA flip) that a page flip is not expected to reset — paging to a
+          different simultaneously-running activity is not "a fresh open" the way tapping a new
+          winner is. */}
       {activitySheetOpen && model.currentActivity != null ? (
         <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}>
           <ActivitySheet
@@ -661,6 +693,9 @@ export function FeedWinView(props: FeedWinViewProps): ReactElement {
             onJoin={handleJoinActivity}
             onOpenTermsOfUse={(): void => openLegalLink(LBLegalLinks.termsOfUse)}
             onOpenPrivacyPolicy={(): void => openLegalLink(LBLegalLinks.privacyPolicy)}
+            pageCount={model.activities.length}
+            pageIndex={model.currentActivityPageIndex}
+            onPage={handlePageActivity}
           />
         </View>
       ) : null}

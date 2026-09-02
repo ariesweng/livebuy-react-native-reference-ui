@@ -71,6 +71,7 @@ import { shouldSyncAutoAdvance, videoSwitchToId } from './swipeTarget';
 import { ProvideTightText } from '../TightText';
 import { refreshSubtitleCuesIfUrlChanged, subtitleToggleEnabled } from './subtitlePipeline';
 import type { VTTCue } from '../playershell/VTTSubtitleParser';
+import { liveEntryGate } from './liveEntryLogic';
 
 export type { LivebuyPlayerConfig } from './LivebuyPlayerConfig';
 
@@ -195,6 +196,65 @@ function useResolvedTheme(
   );
 }
 
+/** Poll interval in SECONDS for {@link useLiveNowPoll} (parity iOS/Android's own 30s default —
+ *  kept as a SEPARATE constant, not imported from `liveEntryLogic.ts`'s
+ *  `LIVE_ENTRY_DEFAULT_POLL_INTERVAL`, because the two pollers are deliberately independent
+ *  surfaces that happen to share a cadence today, not a shared source of truth — see this
+ *  change's design.md Decision 1). */
+const LIVE_NOW_POLL_INTERVAL_SECONDS = 30;
+
+/**
+ * Poll `LivebuySDK.fetchLatestLive(shopId)` for the「現正直播」`LiveNowPillView` right-edge
+ * half-pill (rb-rn-live-now-pill), gated through the EXISTING pure `liveEntryGate` (only
+ * `liveStatus === 1` counts) — REUSES it rather than re-authoring the same gate a second time.
+ * `shopId == null` (`config.shopId` not wired) → PERMANENT no-op (zero extra `fetchLatestLive`
+ * calls, `liveNow` stays `null` forever, the pill never appears).
+ *
+ * `shopId` is NULLABLE here — unlike Android's Composable, which can conditionally `remember` a
+ * controller only when its `shopId != null`, a React hook by the Rules of Hooks MUST be called
+ * UNCONDITIONALLY on every render, so the "opt in or not" branch has to live INSIDE this hook
+ * (parity iOS `LiveNowPollController(shopId: String?)`'s nullable-ctor-internal-no-op shape, NOT
+ * Android's non-null-ctor-caller-decides shape — see design.md for the full comparison).
+ *
+ * Deliberately DOES NOT share an instance / state with `LivebuyLiveEntry`'s OWN `useLiveEntry`
+ * poll (defined in `LivebuyLiveEntry.tsx`) — the two drop-in surfaces stay independent (parity
+ * iOS/Android design.md Decision 1) — and deliberately omits `LiveEntryState`'s dismissed /
+ * ended-live-id / reset-on-new-live machinery: `LiveNowPillView` has no user-dismiss affordance
+ * and no "resurface a just-ended live" backend-lag guard requirement (`showsLiveNowPill`'s own
+ * `!cleanMode && !isScrubbing` conditions are the ONLY things that ever hide it once `hasLiveNow`
+ * is true) — it is a single reactive `liveNow: LBVideoItem | null` value, always the LATEST gated
+ * poll result.
+ */
+function useLiveNowPoll(shopId: string | null | undefined): LBVideoItem | null {
+  const [liveNow, setLiveNow] = useState<LBVideoItem | null>(null);
+  useEffect(() => {
+    if (shopId == null) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const wait = (ms: number) =>
+      new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, ms);
+      });
+    void (async () => {
+      while (!cancelled) {
+        try {
+          const video = await LivebuySDK.fetchLatestLive(shopId);
+          if (cancelled) return;
+          setLiveNow(liveEntryGate(video));
+          await wait(LIVE_NOW_POLL_INTERVAL_SECONDS * 1000);
+        } catch {
+          await wait(3000); // NOT_CONFIGURED / network → keep state, retry soon
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+      if (timer != null) clearTimeout(timer);
+    };
+  }, [shopId]);
+  return liveNow;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Props
 // ─────────────────────────────────────────────────────────────────────────────
@@ -274,6 +334,9 @@ export function LivebuyPlayer(props: LivebuyPlayerProps): ReactElement {
   const sdkConfig = useSdkConfig(config.sdkConfig);
   const theme = useResolvedTheme(sdkConfig, config.hostOptions);
   const attachment = useTemplateAttachment(sdkConfig, config.hostOptions, playerRef);
+  // 「現正直播」LiveNowPillView 輪詢（rb-rn-live-now-pill）：`config.shopId == null` → 永久 no-op
+  // （見 `useLiveNowPoll` doc comment）。
+  const liveNow = useLiveNowPoll(config.shopId);
 
   // rb-rn-live-activity-sheet — latest `attachment` for the once-registered (`[]` deps)
   // `activeEvents()` backfill effect below. `attachment` only becomes non-null asynchronously
@@ -506,6 +569,7 @@ export function LivebuyPlayer(props: LivebuyPlayerProps): ReactElement {
             switchVideo,
             serviceLink: (): string => serviceLinkRef.current,
             subtitleCues,
+            liveNow,
           })
         : null}
       </View>

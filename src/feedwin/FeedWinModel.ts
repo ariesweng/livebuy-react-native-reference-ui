@@ -181,6 +181,43 @@ export class FeedWinModel {
     return this.template?.currentActivity ?? null;
   }
 
+  /**
+   * The full running-activity list (rb-rn-activity-sheet-pagination /
+   * `activity-sheet-pagination-reference-ui-rn`, `DefaultPlayerTemplate.activities` — a thin
+   * readonly delegate, same style as {@link currentActivity} above). `ActivitySheet` reads
+   * `activities.length` as its `pageCount` prop. Demo / unbound instances (`template == null`)
+   * return `[]` (no pagination) — NOT a demo seed, so a standalone / preview `FeedWinView`
+   * instance with no bound template keeps rendering byte-identically (matches
+   * {@link currentActivity}'s own "no seed" convention).
+   */
+  get activities(): readonly LBActiveEvent[] {
+    return this.template?.activities ?? [];
+  }
+
+  /**
+   * The currently displayed activity page index (0-based, `DefaultPlayerTemplate.
+   * currentActivityPageIndex`). `ActivitySheet` reads this as its `pageIndex` prop. Demo / unbound
+   * instances → `0` (the only valid index for an empty {@link activities} list anyway).
+   */
+  get currentActivityPageIndex(): number {
+    return this.template?.currentActivityPageIndex ?? 0;
+  }
+
+  /**
+   * Forward a page switch (dot tap / qualifying swipe inside `ActivitySheetView`) to the bound
+   * template (`DefaultPlayerTemplate.setActivityPageIndex(index)` — internally clamped, diff-
+   * then-notify). No-op for demo instances (`?.` short-circuits — no explicit guard needed, unlike
+   * {@link submitClaim} which has two call shapes to disambiguate).
+   *
+   * The page index itself is NOT mirrored as a second copy of state anywhere in this read-only
+   * model or its container — the template is the single authoritative source
+   * ({@link currentActivityPageIndex} always re-reads it), so there is nothing to keep in sync
+   * here beyond forwarding the intent.
+   */
+  setActivityPageIndex(index: number): void {
+    this.template?.setActivityPageIndex(index);
+  }
+
   // -- Surface 3: WinClaimSheet ← claim result feedback -----------------------
 
   /**

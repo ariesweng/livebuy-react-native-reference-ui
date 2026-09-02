@@ -44,6 +44,7 @@ import {
   buildMomentHandlers,
   buildWatchNextHandler,
   buildGapHandlers,
+  buildGoLiveHandler,
   applyEventJoinGate,
 } from './seams';
 import type { PlayerRefLike, SeamDeps } from './seams';
@@ -72,6 +73,15 @@ export interface LivebuyPlayerOverlaysProps {
    * D1）。預設 `[]`。
    */
   subtitleCues?: readonly VTTCue[];
+  /**
+   * 容器「現正直播」輪詢結果（rb-rn-live-now-pill）——`LivebuyPlayer.tsx` 的 `useLiveNowPoll
+   * (config.shopId)` 持有的 React state，已經過既有純函式 `liveEntryGate` 過濾（只認
+   * `liveStatus === 1`）。`null`（未接 `config.shopId` 或目前沒有偵測到另一場直播）→
+   * `LiveNowPillView` 永不出現。本元件由此值推導 `hasLiveNow` 布林 + 建構
+   * `onGoLive` tap handler（`seams.ts` `buildGoLiveHandler`）餵給 `PlayerShellView`。預設
+   * `undefined`。
+   */
+  liveNow?: LBVideoItem | null;
 }
 
 /**
@@ -92,6 +102,7 @@ export function LivebuyPlayerOverlays(props: LivebuyPlayerOverlaysProps): ReactE
     switchVideo,
     serviceLink,
     subtitleCues = [],
+    liveNow = null,
   } = props;
   const template = attachment.template;
 
@@ -176,6 +187,11 @@ export function LivebuyPlayerOverlays(props: LivebuyPlayerOverlaysProps): ReactE
   const feed = buildFeedHandlers(deps);
   const moment = buildMomentHandlers(deps);
   const gap = buildGapHandlers(deps);
+
+  // 「現正直播」LiveNowPillView tap 預設（rb-rn-live-now-pill，parity onPickHot 形狀）：
+  // `deps.switchVideo` 已在上方 `SeamDeps` 建構好，`liveNow` resolver 直接讀本元件持有的
+  // `liveNow` prop（容器 `LivebuyPlayer.tsx` 的輪詢結果，唯一權威來源）。
+  const goLive = buildGoLiveHandler(deps, () => liveNow);
 
   // rb-rn-event-join-gate:「加入活動」抽獎 CTA 三層閘（parity iOS / Android）。唯一到得了 core 的
   // chokepoint 是 FeedWinModel.joinEvent（FeedWinView.handleJoin 經 model.joinEvent → template）；容器
@@ -263,6 +279,11 @@ export function LivebuyPlayerOverlays(props: LivebuyPlayerOverlaysProps): ReactE
           // iOS/Android performServiceLink()）：容器注入 shell.onServiceLink（= config.onServiceLink ??
           // (serviceLink 非空時開站內瀏覽器)）；未攔截 host 得站內瀏覽器。
           onServiceLink={shell.onServiceLink}
+          // 「現正直播」right-edge half-pill（rb-rn-live-now-pill）：`hasLiveNow` 由容器輪詢結果
+          // 推導，`onGoLive` 為上方建構好的 tap handler（host `config.onGoLive` 覆蓋 或 預設
+          // in-place 換片，見 buildGoLiveHandler）。
+          hasLiveNow={liveNow != null}
+          onGoLive={goLive}
           onOpenProduct={(): void => setProductListPresented(true)}
           onComment={shell.onComment}
           // LIVE 底部 bar 暱稱按鈕 → 本地呈現 設定暱稱 modal（parity iOS / Android；不走 host 轉接的 rail 出口）。

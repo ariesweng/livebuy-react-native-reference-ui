@@ -396,6 +396,17 @@ export class PlayerShellModel {
     this.template?.seek(seconds);
   }
 
+  /**
+   * VOD/replay relative-seek forwarder (rb-rn-gesture-clean-mode-v2) — the EXISTING
+   * `template.seekBy(delta)` (`rn-vod-playback-progress-template`'s `requestSeekBy`
+   * forwarder; no new view-model API). Used by the double-tap seek ±10s gesture and the
+   * long-press 2x-speed-approximation tick. `delta` unchanged. No-op for demo instances.
+   * Mirrors iOS `PlayerShellModel.seekBy(_:)`.
+   */
+  seekBy(delta: number): void {
+    this.template?.seekBy(delta);
+  }
+
   // -- Read-only host intent (template-owned navigation, NOT a core simulate*) --
 
   /**

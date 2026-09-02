@@ -95,12 +95,22 @@ const HOST_CAPTION_LABEL = '主持人';
 /** Narrate-tag copy shown on the pinned card ("介紹中"). */
 const NARRATE_TAG_TEXT = '介紹中';
 /** Gesture-hint copy (static localized presentation strings). */
-const HINT_TAP = '點擊畫面 = 切換靜音';
-// rb-rn-gesture-clean-mode-rewrite (design R23): long-press now toggles「乾淨模式」, replacing the
-// prior press-and-hold pause/resume semantics — this copy fix is independent of the
-// `showGestureHints` visibility wiring (that boolean only decides whether the WHOLE hint group
-// draws; this only fixes what it says once it does).
-const HINT_HOLD = '長按畫面 = 切換乾淨模式';
+// rb-rn-gesture-clean-mode-v2 (design R29): a short tap now unconditionally toggles「乾淨模式」
+// (replacing the R23 mute-toggle semantics this copy used to describe) — fixed to a single
+// constant since the new behaviour no longer differs by LIVE/VOD (this component only ever
+// renders while genuinely live, see the file header's HOLD-HINT note below, but the copy itself
+// is written mode-agnostic to match the Requirement's wording).
+const HINT_TAP = '點擊畫面 = 切換乾淨模式';
+// HOLD-HINT REMOVED (rb-rn-gesture-clean-mode-v2): the R23 long-press-toggles-cleanMode copy this
+// constant used to hold is retired — R29's long-press instead starts a 2x-speed seek ONLY while
+// `isSeekable` (VOD / finished-live replay). This component is composed ONLY on the
+// `model.isLive === true` branch of `PlayerShellView` (see that file's render body — a finished-
+// live replay renders the VOD-side `NowIntroducingCarousel` chrome instead, an existing RN/iOS
+// architecture divergence, see this change's design.md Context), so `isSeekable` is UNCONDITIONALLY
+// `false` in every context this component ever renders in. Showing ANY long-press hint here would
+// therefore always describe a gesture that structurally cannot fire — so the hint pill (and its
+// backing string constant) is removed entirely rather than gated on a prop that would always
+// evaluate to "don't show" (see design.md Decision D7).
 const HINT_SWIPE = '上下滑動 = 切換影片';
 
 /** Props for the family-1 LIVE overlay chrome surface (SUB-VIEW INPUT PATTERN). */
@@ -547,15 +557,14 @@ function hostCaptionOverlay(theme: ReferenceUITheme, caption: string): ReactElem
 // ── LBPGestureHint — centered static gesture hints ──────────────────────────
 
 /**
- * Three centered dark hint pills (`LBPGestureHint`): tap-to-mute,
- * long-press-pause, swipe-to-switch. Pure static localized copy.
+ * Two centered dark hint pills (`LBPGestureHint`): tap-to-toggle-clean-mode, swipe-to-switch
+ * (rb-rn-gesture-clean-mode-v2 — the long-press hint pill is removed entirely, see `HINT_TAP`'s
+ * doc comment). Pure static localized copy.
  */
 function gestureHints(theme: ReferenceUITheme): ReactElement {
   return (
     <View style={{ alignItems: 'center' }}>
       {gestureHintPill(theme, '\u{1F446}', HINT_TAP)}
-      <View style={{ height: 8 }} />
-      {gestureHintPill(theme, '✋', HINT_HOLD)}
       <View style={{ height: 8 }} />
       {gestureHintPill(theme, '↕', HINT_SWIPE)}
     </View>

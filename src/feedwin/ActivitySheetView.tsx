@@ -41,10 +41,26 @@
 // `react-native-svg`'s `Svg`/`Path` for the shared two-tone gift glyph (`GiftGlyphPaths.ts`) — NO
 // ScrollView/FlatList/SectionList/VirtualizedList, NO network-uri Image, NO animation / randomness
 // (deterministic structural tree — this sheet's design mock has no confetti, unlike `LBWinSheet`).
+//
+// ─────────────────────────────────────────────────────────────────────────────
+// 分頁（rb-rn-activity-sheet-pagination / `activity-sheet-pagination-reference-ui-rn`）
+// ─────────────────────────────────────────────────────────────────────────────
+// Optional `pageCount?` / `pageIndex?` / `onPage?` props (parity `WinClaimSheetView`'s own
+// `rb-rn-win-claim-pagination`, and the SAME design source's `pageCount`/`pageIndex`/`onPage` on
+// `LBActivitySheet`). `pageCount > 1` draws a row of pagination dots below the CTA and enables
+// horizontal swipe paging via `swipePageDelta` — REUSED directly from `WinClaimSheetView.tsx`
+// (a plain numeric judgement with no win-claim-specific typing), not re-implemented here. The page
+// index itself is NOT a second local copy of state: the container (`FeedWinView`) forwards
+// `DefaultPlayerTemplate.activities.length` / `.currentActivityPageIndex` /
+// `.setActivityPageIndex` straight through — the template is the single authoritative source, this
+// component only presents whatever `pageIndex` it is handed. `pageCount <= 1` (the pre-pagination
+// default) draws no dots and makes swipe a no-op — a single-activity sheet's structure and
+// behavior are byte-identical to before this capability existed.
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import type { ReactElement } from 'react';
 import { View, Pressable } from 'react-native';
+import type { GestureResponderEvent } from 'react-native';
 import { Text } from '../TightText';
 import Svg, { Path } from 'react-native-svg';
 
@@ -52,6 +68,12 @@ import type { ReferenceUITheme } from '../theme';
 import type { LBActiveEvent } from 'livebuy-react-native';
 import { LBTestIDs } from '../testing/LBTestIDs';
 import { GIFT_OUTER_D, GIFT_INNER_D, GLYPH_INNER_COLOR } from './GiftGlyphPaths';
+// rb-rn-activity-sheet-pagination (activity-sheet-pagination-reference-ui-rn) — reuse the SAME
+// swipe-threshold pure function `WinClaimSheetView.tsx` already exports for its own R27 pagination
+// (`rb-rn-win-claim-pagination`). The function is a plain numeric judgement with no win-claim-
+// specific typing, so importing it here avoids porting a second literal copy of the design
+// source's `onSwipeEnd` logic (design.md D1).
+import { swipePageDelta } from './WinClaimSheetView';
 
 // MARK: - Decorative design tokens (literal minimal hex, lifted from moments.jsx · LBActivitySheet)
 //
@@ -66,6 +88,15 @@ const TEXT_DIM = '#6B6775';
 const SCRIM = 'rgba(0,0,0,0.6)';
 /** CTA disabled ("已參加") background (design `#C9CDD3`). */
 const CTA_DISABLED_BACKGROUND = '#C9CDD3';
+/**
+ * Pagination dot inactive color — design `LBActivitySheet`'s `S.border || '#D8DBE0'` fallback
+ * (this design token set never defines `surface.border`, so the literal fallback is what actually
+ * renders). Literal-copied from `WinClaimSheetView.PAGE_DOT_INACTIVE` (same value, same rationale
+ * — that constant is module-private, not exported) rather than a shared cross-file export,
+ * following this package's existing per-file "decorative design token" convention (parity
+ * `TEXT_DIM` / `SCRIM` above, design.md D4).
+ */
+const PAGE_DOT_INACTIVE = '#D8DBE0';
 
 // MARK: - Layout tokens (lifted from moments.jsx · LBActivitySheet)
 
@@ -131,6 +162,27 @@ export interface ActivitySheetProps {
   /** Footer「隱私政策」text tapped. Same contract as {@link onOpenTermsOfUse}, routed to
    *  `LBLegalLinks.privacyPolicy`. Default `undefined` — tap-safe inert. */
   readonly onOpenPrivacyPolicy?: () => void;
+  /**
+   * Total number of simultaneously running activities (rb-rn-activity-sheet-pagination, parity RN
+   * `WinClaimSheetProps.pageCount`). The container forwards `model.activities.length`. `> 1` draws
+   * a row of pagination dots below the CTA and enables horizontal swipe paging; `<= 1` (default)
+   * draws no dots and makes swipe a no-op — the pre-pagination render / behavior is unchanged.
+   * Appended at the END of the prop list (not reordered alongside `activity` above) — same
+   * convention `WinClaimSheetProps` used when R27 added its own pagination props.
+   */
+  readonly pageCount?: number;
+  /** The currently displayed page index (0-based, aligned to {@link pageCount}). Default `0`. */
+  readonly pageIndex?: number;
+  /**
+   * Page switch intent — called with the target page index on a dot tap or a qualifying swipe.
+   * The container (`FeedWinView.handlePageActivity`) forwards this straight to
+   * `model.setActivityPageIndex(index)`; the template is the single authoritative source for the
+   * page index (design.md D2), so this component does not need to know whether the call
+   * "succeeded" — the next re-render simply reflects whatever `currentActivityPageIndex` the
+   * template now reports. `undefined` (demo / structural snapshot / `pageCount <= 1`) — dot taps
+   * / swipes are then safe inert (no dots are drawn and swipe is already a no-op in that case).
+   */
+  readonly onPage?: (index: number) => void;
 }
 
 /**
@@ -139,8 +191,20 @@ export interface ActivitySheetProps {
  * on tap. Scrim tap ALWAYS dismisses (no alert layer, unlike the four-stage win-claim sheet).
  */
 export function ActivitySheet(props: ActivitySheetProps): ReactElement {
-  const { theme, activity, onClose, onJoin, onOpenTermsOfUse, onOpenPrivacyPolicy } = props;
+  const {
+    theme,
+    activity,
+    onClose,
+    onJoin,
+    onOpenTermsOfUse,
+    onOpenPrivacyPolicy,
+    pageCount = 1,
+    pageIndex = 0,
+    onPage,
+  } = props;
   const [joined, setJoined] = useState(false);
+  /** Pagination swipe — touch start `pageX` (design.md D1, parity `WinClaimSheetView`'s own ref). */
+  const touchStartXRef = useRef<number | null>(null);
 
   const prizeName = activity.award[0]?.name ?? PRIZE_NAME_FALLBACK;
 
@@ -149,8 +213,27 @@ export function ActivitySheet(props: ActivitySheetProps): ReactElement {
     onJoin?.();
   };
 
+  /** Pagination swipe — touch start: record the starting `pageX`. */
+  const handleTouchStart = (e: GestureResponderEvent): void => {
+    touchStartXRef.current = e.nativeEvent.pageX;
+  };
+
+  /** Pagination swipe — touch end: derive the next page (via the imported {@link swipePageDelta})
+   *  and forward it. `null` (sub-threshold / `pageCount <= 1` / out-of-bounds) is a no-op. */
+  const handleTouchEnd = (e: GestureResponderEvent): void => {
+    const startX = touchStartXRef.current;
+    touchStartXRef.current = null;
+    if (startX == null) return;
+    const next = swipePageDelta(startX, e.nativeEvent.pageX, pageCount, pageIndex);
+    if (next != null) onPage?.(next);
+  };
+
   return (
-    <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+    <View
+      style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
+    >
       {/* 全幅 scrim — tap ALWAYS dismisses (no stage machine to protect). Wrapped in a local
           closure (rather than passing `onClose` straight through) so `onPress` is ALWAYS a real
           function — parity `ActivityEntryView`'s `onPress={(): void => onOpen?.()}` — so an
@@ -238,6 +321,32 @@ export function ActivitySheet(props: ActivitySheetProps): ReactElement {
               {joined ? CTA_JOINED : CTA_JOIN}
             </Text>
           </Pressable>
+
+          {/* Pagination dots (rb-rn-activity-sheet-pagination) — drawn ONLY when `pageCount > 1`
+              (multiple simultaneously-running activities); `pageCount <= 1` (the pre-pagination
+              default) draws nothing here, so a single-activity sheet is byte-identical to before
+              this change. Each dot forwards its own index directly to `onPage` (mirrors the design
+              source's own bare `<button key={i}>` dot and `WinClaimSheetView.ClaimCardBody`'s
+              equivalent block — parity styling: 6×6, `borderRadius: 999`, 5px `gap`). Horizontal
+              swipe paging is handled by the root `View`'s `onTouchStart`/`onTouchEnd` above, not
+              here. */}
+          {pageCount > 1 ? (
+            <View style={{ marginTop: 14, flexDirection: 'row', justifyContent: 'center', gap: 5 }}>
+              {Array.from({ length: pageCount }, (_unused, i) => (
+                <Pressable
+                  key={`activity-sheet-page-dot-${i}`}
+                  accessibilityRole="button"
+                  onPress={(): void => onPage?.(i)}
+                  style={{
+                    width: 6,
+                    height: 6,
+                    borderRadius: 999,
+                    backgroundColor: i === pageIndex ? theme.accent : PAGE_DOT_INACTIVE,
+                  }}
+                />
+              ))}
+            </View>
+          ) : null}
 
           {/* Footer — 使用條款 / 隱私政策, each independently tappable (parity `WinClaimSheetView`'s
               `FooterRow`: two spans each wrapped in `Pressable`, forwarding「使用者點了哪一段」to

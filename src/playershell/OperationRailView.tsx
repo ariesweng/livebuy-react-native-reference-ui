@@ -62,8 +62,8 @@ const RAIL_PILL_BACKGROUND = 'rgba(20,20,24,0.55)';
 const RAIL_GAP = 10; // flex gap between pills (`LBPSideRail`)
 const PILL_SIZE = 40; // 40×40 round pill
 const PILL_GLYPH_SIZE = 18; // glyph size 18
-const BAG_SIZE = 48; // 48×48 floating bag (`LBPBagButton`)
-const BAG_GLYPH_SIZE = 34; // bag glyph size 34 (~70% of BAG_SIZE 48, design `LBPBagButton` Icons.bag size={34}; rb-rn-bag-icon-enlarge)
+const BAG_SIZE = 40; // 40×40 floating bag (`LBPBagButton`, rb-rn-gesture-clean-mode-v2 縮小 48→40)
+const BAG_GLYPH_SIZE = 22; // bag glyph size 22 (design `LBPBagButton` Icons.bag size={22}; rb-rn-gesture-clean-mode-v2 縮小 34→22)
 const BADGE_MIN_SIZE = 20; // count chip minWidth / height
 const BADGE_FONT_SIZE = 11; // fontSize 11, weight 800
 const BADGE_BORDER_WIDTH = 2; // 2px solid #fff border

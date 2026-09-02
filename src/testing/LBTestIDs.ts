@@ -65,6 +65,26 @@ export const LBTestIDs = {
   playbackProgressReadout: 'lb_playback_progress_readout',
   // rb-react-native-subtitle-vtt-caption-display — VOD CC 字幕 overlay.
   captionOverlay: 'lb_caption_overlay',
+  // rb-rn-live-now-pill — 「現正直播」right-edge half-pill. Value is 1:1 identical to iOS
+  // `LBAccessibilityID.liveNowPill` / Android `LBTestTags.LIVE_NOW_PILL` (cross-platform E2E id
+  // contract).
+  liveNowPill: 'lb_live_now_pill',
+  // player-gesture-feedback-overlays-rn — 中央暫停覆蓋層（PlaybackPausedOverlayView）的兩個互動按鈕.
+  // Values are 1:1 identical to iOS `LBAccessibilityID.pausedOverlayMuteButton` /
+  // `.pausedOverlayResumeButton` and Android `LBTestTags.PAUSED_OVERLAY_MUTE_BUTTON` /
+  // `.PAUSED_OVERLAY_RESUME_BUTTON` (cross-platform E2E id contract).
+  pausedOverlayMuteButton: 'lb_paused_overlay_mute_button',
+  pausedOverlayResumeButton: 'lb_paused_overlay_resume_button',
+  // player-gesture-feedback-overlays-rn — 0.7s 中央靜音提示 toast（GestureMuteToastView）. RN-only
+  // id — iOS/Android's sibling component currently carries no accessibility/test id of its own.
+  // Retained (component kept, retired-but-not-deleted) though no longer composed by
+  // `PlayerShellView` as of rb-rn-gesture-clean-mode-v2.
+  gestureMuteToast: 'lb_gesture_mute_toast',
+  // rb-rn-gesture-clean-mode-v2 — 頂列乾淨模式限定靜音鈕 + 退出乾淨模式鈕. Values are 1:1 identical
+  // to iOS `LBAccessibilityID.playerHeaderMuteButton` / `.cleanModeExitButton` (cross-platform
+  // E2E id contract).
+  playerHeaderMuteButton: 'lb_player_header_mute_button',
+  cleanModeExitButton: 'lb_clean_mode_exit_button',
 
   // ── Family 2 — feed + win ─────────────────────────────────────────────────
   chatFeed: 'lb_chat_feed',

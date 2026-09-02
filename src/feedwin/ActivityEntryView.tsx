@@ -57,8 +57,11 @@ const CORNER_RADIUS = 10;
  * equivalent `rgba(58, 58, 58, 0.3)`).
  */
 const ENTRY_BACKGROUND = 'rgba(58, 58, 58, 0.3)';
-/** Glyph render box size — kept identical to `WinEntryView.GLYPH_SIZE` (the same sibling button). */
-const GLYPH_SIZE = 22;
+/**
+ * Glyph render box size — kept identical to `WinEntryView.GLYPH_SIZE` (the same sibling
+ * button), aligned to the design's literal `29` (`winentry-icon-size-align-design-rn`).
+ */
+const GLYPH_SIZE = 29;
 /** Bottom label bar height (identical to `WinEntryView.LABEL_HEIGHT`). */
 const LABEL_HEIGHT = 14;
 /** Bottom label bar background — the SAME translucent dark bar as `WinEntryView` (both variants

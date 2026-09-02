@@ -118,6 +118,38 @@ export interface LivebuyPlayerConfig {
    */
   onServiceLink?: () => void;
 
+  // -- live-now-pill (rb-rn-live-now-pill) -------------------------------------
+
+  /**
+   * Shop ID whose ongoing live is polled for the「現正直播」`LiveNowPillView` right-edge half-pill
+   * (VOD 播放中 / 直播回放時偵測到「目前有其他直播正在進行」的紅色提示鈕). Default `undefined` →
+   * the poll is a PERMANENT no-op (zero extra `fetchLatestLive` calls, the pill never appears) —
+   * parity iOS `LivebuyPlayerConfig.shopId: String?` (nullable, internal no-op). RN's poll lives
+   * in a React hook (`LivebuyPlayer.tsx`'s file-local `useLiveNowPoll`), which by the Rules of
+   * Hooks MUST be called UNCONDITIONALLY on every render — unlike Android's Composable, which can
+   * conditionally `remember` a controller only when `shopId != null`, RN cannot conditionally
+   * call a hook keyed on this field. So RN mirrors iOS's nullable-input-internal-no-op shape
+   * rather than Android's caller-decides-whether-to-construct shape (see that change's design.md
+   * for the full comparison).
+   *
+   * Independent of `LivebuyLiveEntry`'s OWN required `shopId` prop — the two drop-in surfaces
+   * never share a poll instance (design decision carried over from iOS/Android): a host wanting
+   * BOTH the floating entry AND this pill passes the same shop id to both, and each polls on its
+   * own.
+   */
+  shopId?: string;
+
+  /**
+   * Tap on the「現正直播」`LiveNowPillView` — carries the detected ongoing `LBVideoItem`, parity
+   * `onPickHot`'s「host can override, else default in-place switch」shape (`seams.ts`
+   * `buildGoLiveHandler`). Default: `playerRef.load(video.id)` then `switchVideo(video.id, video)`
+   * — the SAME in-place-switch path `onPickHot`'s default uses, just carrying the already-complete
+   * `LBVideoItem` `fetchLatestLive` returned (no `switchedVideoItem(...)` reassembly needed the way
+   * `onPickHot`'s `HotRow` source requires). host override REPLACES the default entirely — the
+   * container does NOT also call `load` / `switchVideo` in that case.
+   */
+  onGoLive?: (video: LBVideoItem) => void;
+
   /**
    * Whether `PlayerShellView` paints its opaque background placeholder. Default
    * `false` (the container overlays a real native video surface; painting it

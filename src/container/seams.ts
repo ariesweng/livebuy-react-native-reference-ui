@@ -690,6 +690,41 @@ export function buildWatchNextHandler(
   };
 }
 
+/**
+ * 「現正直播」`LiveNowPillView` tap default (rb-rn-live-now-pill) — 完全比照
+ * {@link buildWatchNextHandler} 的既有形狀（同一個「host 可覆寫、否則走預設 in-place 換片」模式，
+ * `LivebuyPlayerConfig.onPickHot` 也是同一形狀）：`liveNow` resolver 由呼叫端注入（容器持有的唯一
+ * 權威來源——`LivebuyPlayer.tsx` 的 `useLiveNowPoll`），本函式**不**自己打 API、不自己輪詢。
+ *
+ * host 設 `config.onGoLive` → 完全接管（帶當下偵測到的完整 `LBVideoItem`，容器**不**額外呼叫
+ * `playerRef.load` / `switchVideo`）；未設 → 預設 `playerRef.load(item.id)` +
+ * `switchVideo(item.id, item)`——與 `onPickHot` 預設換片的**同一條路徑**，差別只在於這裡已經持有
+ * 完整的 `LBVideoItem`（來自 `fetchLatestLive`），不需要像 `onPickHot` 那樣用
+ * `switchedVideoItem(...)` 手動組裝一份簡化版（`HotRow` 缺欄位）。
+ *
+ * `liveNow == null`（尚未偵測到另一場直播，或該場直播已結束）→ no-op（tap 不可能發生在這個狀態，
+ * 因為 `showsLiveNowPill` 的顯示閘門本身就要求 `hasLiveNow === true` 鈕才會被組出，但仍防禦性
+ * 保留這個 null 檢查，比照 `buildWatchNextHandler` 同一慣例）。
+ */
+export function buildGoLiveHandler(
+  deps: Pick<SeamDeps, 'playerRef' | 'config' | 'switchVideo'>,
+  liveNow: () => LBVideoItem | null,
+): () => void {
+  const override = deps.config.onGoLive;
+  if (override != null) {
+    return (): void => {
+      const item = liveNow();
+      if (item != null) override(item);
+    };
+  }
+  return (): void => {
+    const item = liveNow();
+    if (item == null) return;
+    deps.playerRef.load(item.id);
+    deps.switchVideo(item.id, item);
+  };
+}
+
 /** gap-surfaces seam defaults (login / submit-name / dismiss). reference-ui NEVER logs in;
  *  the 設定暱稱 submit default uses the checkName-gated verified nickname set
  *  (rb-rn-nickname-taken-inline-error, `setGuestNicknameVerified`), NEVER `setUser`, and NEVER the

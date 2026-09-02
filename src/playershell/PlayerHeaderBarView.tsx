@@ -59,6 +59,7 @@ import type { ReferenceUITheme } from '../theme';
 import { RemoteImage } from '../productsheets/RemoteImage';
 import { LBTestIDs } from '../testing/LBTestIDs';
 import { MarqueeTitle } from './MarqueeTitleView';
+import { SpeakerSlashGlyph, SpeakerWaveGlyph } from './SpeakerGlyphs';
 
 // MARK: - Decorative design tokens (literal hex from live-chrome.jsx)
 //
@@ -146,12 +147,19 @@ export interface PlayerHeaderBarProps {
    * its OWN host pill should be hidden (see this change's design.md Decision 3).
    */
   readonly hidesHostBadge?: boolean;
+  /**
+   * The CURRENT mute state (`PlayerShellModel.muted`) — selects the header mute button's glyph
+   * (rb-rn-gesture-clean-mode-v2, design R29). Default `false`. Only meaningful while
+   * {@link onToggleMute} is non-`undefined` (the button is not rendered otherwise, so this value
+   * is otherwise unread).
+   */
+  readonly muted?: boolean;
 
   // -- 3. optional action callbacks (LAST, each defaulting to a no-op) --------
   //
-  // The top-right is a SINGLE minimize affordance → onMinimize; subscribe stays on
-  // the avatar badge. The shell owns NO action; the host wires taps to core
-  // `simulate*` (D-4). mute / share / info / close are NOT header controls.
+  // The top-right carries a minimize affordance → onMinimize, plus (clean-mode-only) a mute
+  // toggle → onToggleMute; subscribe stays on the avatar badge. The shell owns NO action; the
+  // host wires taps to core `simulate*` (D-4). share / info / close are NOT header controls.
 
   /** Tap on the top-right minimize button → host collapses the player into the
    *  bottom-right floating preview. Omitted → drawn but inert (host-wired). */
@@ -163,6 +171,15 @@ export interface PlayerHeaderBarProps {
    * replaced the removed rail「more」pill). Omitted → pill not tappable (demo / upcoming).
    */
   readonly onTapHostBadge?: () => void;
+  /**
+   * Clean-mode-limited mute toggle (rb-rn-gesture-clean-mode-v2, design R29) — the video-area
+   * single-tap gesture retired the tap-to-mute affordance in favour of unconditionally toggling
+   * `cleanMode`, so `PlayerShellView` re-surfaces the mute operation here, rendered ONLY while
+   * `cleanMode === true` (`onToggleMute` forwarded as `undefined` otherwise). `undefined` → the
+   * button MUST NOT render, MUST NOT occupy layout space — the existing non-clean-mode baseline
+   * stays structurally unchanged. Default `undefined` (source-compatible).
+   */
+  readonly onToggleMute?: () => void;
 }
 
 /**
@@ -181,7 +198,7 @@ export function PlayerHeaderBar(props: PlayerHeaderBarProps): ReactElement {
   // onToggleSubscribe via `props` (renderHostPill); the trailing frame wires the
   // single minimize button. Destructure only what this top-level frame wires
   // directly so the leading-vs-trailing layout stays readable.
-  const { theme, onMinimize, hidesHostBadge = false } = props;
+  const { theme, onMinimize, hidesHostBadge = false, muted = false, onToggleMute } = props;
 
   return (
     // rb-rn-live-chrome-gradient-removal: no decorative background here (design
@@ -217,6 +234,15 @@ export function PlayerHeaderBar(props: PlayerHeaderBarProps): ReactElement {
           </Pressable>
         )}
         <View style={{ width: 8 }} />
+        {/* 乾淨模式限定靜音鈕（rb-rn-gesture-clean-mode-v2）：`onToggleMute` 非 `undefined`（即
+            `cleanMode === true`）時才在 minimize 鈕左側多渲染這顆鈕；`undefined` 時整顆 MUST NOT
+            渲染、MUST NOT 佔位（`Group`-equivalent：純條件式 JSX，不留空 spacer）。 */}
+        {onToggleMute != null ? (
+          <>
+            {renderMuteButton(theme, muted, onToggleMute)}
+            <View style={{ width: 8 }} />
+          </>
+        ) : null}
         {renderMinimizeButton(theme, onMinimize)}
       </View>
     </View>
@@ -534,6 +560,39 @@ function renderMinimizeButton(theme: ReferenceUITheme, onMinimize?: () => void):
   return renderGlassIconButton(theme, 'minimize', '◳', onMinimize);
 }
 
+// MARK: - Clean-mode-limited mute button (rb-rn-gesture-clean-mode-v2)
+
+/** A 36×36 round glass icon button carrying the speaker glyph (parity `renderGlassIconButton`'s
+ *  visual size/style), rendered ONLY while the caller passes a non-`undefined` `onToggleMute`
+ *  (see the call site above). Glyph follows `muted` (slash when muted, wave otherwise) — same
+ *  convention as `GestureMuteToastView`. */
+function renderMuteButton(
+  theme: ReferenceUITheme,
+  muted: boolean,
+  onToggleMute: () => void,
+): ReactElement {
+  return (
+    <Pressable onPress={onToggleMute} testID={LBTestIDs.playerHeaderMuteButton}>
+      <View
+        style={{
+          width: 36,
+          height: 36,
+          borderRadius: 18,
+          backgroundColor: ICON_GLASS,
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        {muted ? (
+          <SpeakerSlashGlyph color={ON_GLASS} size={18} />
+        ) : (
+          <SpeakerWaveGlyph color={ON_GLASS} size={18} />
+        )}
+      </View>
+    </Pressable>
+  );
+}
+
 /** A 36×36 round glass icon button (live-chrome.jsx iconBtn). Always rendered so
  *  the chrome is visually complete; inert when its callback is omitted. The glyph
  *  is a deterministic Text glyph (no vector-icons dep). The `minimize` role carries the
@@ -557,7 +616,7 @@ function renderGlassIconButton(
           justifyContent: 'center',
         }}
       >
-        <Text style={{ color: ON_GLASS, fontSize: 18 * theme.fontScale }}>{glyph}</Text>
+        <Text style={{ color: ON_GLASS, fontSize: 20 * theme.fontScale }}>{glyph}</Text>
       </View>
     </Pressable>
   );

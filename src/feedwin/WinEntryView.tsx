@@ -87,11 +87,12 @@ const CORNER_RADIUS = 10;
  * Gift/trophy glyph render box size. The design renders the glyph at
  * `width="29" height="29"` (`viewBox="0 0 200 200"`) inside the 48×48 button
  * (icon-authoring.md rule 2: checked against the actual call-site size). This
- * component keeps its existing ≈22×22 slot — the same size the retired unicode
- * gift glyph rendered at — rather than switching to the design's literal 29,
- * mirroring iOS `WinEntryView.glyphSize` for the same reason (proposal.md).
+ * component matches that literal value — `winentry-icon-size-align-design-rn`
+ * replaced the prior ≈22×22 slot (a leftover from the retired unicode gift
+ * glyph's size) so this now aligns with Android `WinEntry.entryIconSize` and
+ * Flutter `win_entry._glyphSize`, both already `29`.
  */
-const GLYPH_SIZE = 22;
+const GLYPH_SIZE = 29;
 
 /** Bottom label bar height (`lineHeight: '14px'`, the label span's implied height). */
 const LABEL_HEIGHT = 14;

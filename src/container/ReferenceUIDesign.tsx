@@ -110,6 +110,18 @@ export interface PlayerOverlayContext {
    * `PlayerShellView.subtitleCues` (design.md D1). Default `[]`.
    */
   readonly subtitleCues?: readonly VTTCue[];
+  /**
+   * The container's「現正直播」poll result (rb-rn-live-now-pill) — container-held React state
+   * from `LivebuyPlayer.tsx`'s file-local `useLiveNowPoll(config.shopId)`, already gated through
+   * the existing pure `liveEntryGate` (only `liveStatus === 1` counts). `null` (no `config.shopId`
+   * wired, or no live currently detected) → `LiveNowPillView` never mounts. Threaded down through
+   * `LivebuyPlayerOverlays`, which derives `hasLiveNow` from it and builds the tap handler
+   * (`seams.ts` `buildGoLiveHandler`) — this context field carries the RAW value, not a boolean,
+   * so the design layer's `onGoLive` closure can resolve the FULL `LBVideoItem` at tap time (the
+   * single source of truth, parity iOS `coordinator.liveNowController.liveNow` / Android
+   * `liveNowController?.liveNow`). Default `undefined`.
+   */
+  readonly liveNow?: LBVideoItem | null;
 }
 
 /**
@@ -227,6 +239,7 @@ export const MinimalDesign: ReferenceUIDesign = {
         switchVideo={context.switchVideo}
         serviceLink={context.serviceLink}
         subtitleCues={context.subtitleCues}
+        liveNow={context.liveNow}
       />
     );
   },

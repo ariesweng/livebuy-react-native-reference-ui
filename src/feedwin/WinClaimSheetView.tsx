@@ -76,6 +76,7 @@ import type { ReactElement } from 'react';
 import { View, Pressable, TextInput, KeyboardAvoidingView, Platform } from 'react-native';
 import type { GestureResponderEvent } from 'react-native';
 import { Text } from '../TightText';
+import Svg, { Path } from 'react-native-svg';
 
 import type { ReferenceUITheme } from '../theme';
 import {
@@ -87,6 +88,7 @@ import type { AwardClaimResultState } from 'livebuy-react-native-ui';
 import type { LBWinner } from 'livebuy-react-native';
 import { LBTestIDs } from '../testing/LBTestIDs';
 import { WarningGlyph } from '../productsheets/WarningGlyph';
+import { GIFT_OUTER_D, GIFT_INNER_D, GLYPH_INNER_COLOR } from './GiftGlyphPaths';
 
 // MARK: - Stage 機（型別 + 純函式推導）
 
@@ -1228,7 +1230,8 @@ function FailCardBody(props: {
 /**
  * 禮物徽章 —— glyph **恆為 gift**，MUST NOT 依 `classification` 路由（對齊設計稿
  * `LBWinSheet` 的 `giftSvg` 與 iOS / Android / Flutter）。confetti 疊在它後面。
- * RN 無 gradient（本層零外部依賴）→ 徽章為 solid `theme.accent` + 白 glyph。
+ * 徽章為白底圓（`#fff`）+ 雙色 SVG glyph（外層 `fill={theme.accent}`、內層固定填白，
+ * 路徑取自 `./GiftGlyphPaths`），對齊設計稿字面值（`win-claim-badge-icon-align-design-rn`）。
  */
 function GiftBadge(props: { theme: ReferenceUITheme }): ReactElement {
   const { theme } = props;
@@ -1260,12 +1263,15 @@ function GiftBadge(props: { theme: ReferenceUITheme }): ReactElement {
           borderRadius: 30,
           borderWidth: 4,
           borderColor: theme.background,
-          backgroundColor: theme.accent,
+          backgroundColor: '#fff',
           alignItems: 'center',
           justifyContent: 'center',
         }}
       >
-        <Text style={{ color: '#FFFFFF', fontSize: 26 }}>{GLYPH_GIFT}</Text>
+        <Svg width={30} height={30} viewBox="0 0 200 200">
+          <Path fillRule="evenodd" fill={theme.accent} d={GIFT_OUTER_D} />
+          <Path fillRule="evenodd" fill={GLYPH_INNER_COLOR} d={GIFT_INNER_D} />
+        </Svg>
       </View>
     </View>
   );

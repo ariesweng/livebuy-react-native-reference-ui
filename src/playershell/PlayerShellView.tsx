@@ -88,6 +88,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactElement } from 'react';
 import { View, Pressable, PanResponder } from 'react-native';
+import type { GestureResponderEvent, LayoutChangeEvent } from 'react-native';
 import { Text } from '../TightText';
 
 import type { ReferenceUITheme } from '../theme';
@@ -104,6 +105,7 @@ import { HeartBurst } from './HeartBurst';
 import { LiveBottomBarView } from './LiveBottomBarView';
 import { UpcomingCountdownView } from './UpcomingCountdownView';
 import { PlaybackProgressBarView } from './PlaybackProgressBarView';
+import { LiveNowPillView } from './LiveNowPillView';
 import { CaptionOverlayView } from './CaptionOverlayView';
 import { VTTSubtitleParser } from './VTTSubtitleParser';
 import type { VTTCue } from './VTTSubtitleParser';
@@ -197,6 +199,19 @@ export interface PlayerShellViewProps {
    * 退回既有 rail 路由（`onTapRailItem?.(ServiceLink)`），像素不變。
    */
   readonly onServiceLink?: () => void;
+  /**
+   * Whether the container's poll detected「另一場正在進行的直播」(rb-rn-live-now-pill). Drives
+   * {@link showsLiveNowPill} together with the model's own snapshot fields — this view NEVER
+   * polls itself. Default `false` (demo / standalone / no `config.shopId` wired) → the pill never
+   * mounts. Parity iOS `hasLiveNow` init param / Android `hasLiveNow: Boolean = false`.
+   */
+  readonly hasLiveNow?: boolean;
+  /**
+   * Tap on the「現正直播」`LiveNowPillView`. NO-ARG — this view does not hold the detected live
+   * item; the turnkey container resolves it (parity iOS `onGoLive: (() -> Void)?` / Android
+   * `onGoLive: (() -> Unit)? `). `undefined` (demo / standalone) → inert no-op tap.
+   */
+  readonly onGoLive?: () => void;
   /**
    * LIVE 釘選卡卡體 tap. NO-ARG — it cannot carry the tapped product, so the turnkey
    * container wires it to `setProductListPresented(true)` (opens the product LIST
@@ -301,12 +316,16 @@ export interface PlayerShellViewProps {
 const SWIPE_THRESHOLD = 60;
 
 /**
- * Long-press hold duration (ms) that toggles `cleanMode` (rb-rn-gesture-clean-mode-rewrite,
- * design `screens.jsx` R23) — implemented via RN `Pressable`'s native `onLongPress` +
- * `delayLongPress`, NOT a hand-rolled timer (see this change's design.md Decision 1). Applies
- * uniformly regardless of `allowsTapToggleMute`'s LIVE/VOD tap-mute-vs-play-pause split.
+ * Long-press hold duration (ms) that starts the 2x-speed-approximation seek tick, ONLY while
+ * `isSeekable` (rb-rn-gesture-clean-mode-v2, design R29) — implemented via RN `Pressable`'s
+ * native `onLongPress` + `delayLongPress`, NOT a hand-rolled timer (see this change's design.md
+ * Decision 1). Value unchanged from the R23 predecessor (`LONG_PRESS_CLEAN_MODE_DELAY_MS`), only
+ * the ACTION it starts has changed (2x-speed seek instead of a `cleanMode` toggle). Non-seekable
+ * (live in progress / upcoming) passes `onLongPress={undefined}` at the call site — a
+ * STRUCTURAL no-op (RN never schedules an internal long-press timer at all), not a scheduled
+ * timer whose handler early-returns.
  */
-const LONG_PRESS_CLEAN_MODE_DELAY_MS = 450;
+const HOLD_SPEED_MODE_DELAY_MS = 450;
 
 /** The template-nav FALLBACK swipe action for a committed swipe toward one direction
  *  (swipe-nav-close-on-empty). */
@@ -345,89 +364,91 @@ export function allowsSwipeNav(isLive: boolean): boolean {
 }
 
 /**
- * PURE: whether a single tap on the video-area `Pressable` toggles MUTE (vs. play/pause)
- * (rb-rn-gesture-clean-mode-rewrite, design `screens.jsx` R23). `isLive === true` (actively live,
- * not upcoming, not a finished-live replay — same signal as {@link allowsSwipeNav}'s `isLive`)
- * → `true`, `onPress` calls the existing host-wired `onToggleMute`. `isLive === false` (VOD /
- * finished-live replay / any non-live-in-progress state) → `false`, `onPress` calls the existing
- * view-model forwarder `model.togglePlayPause()` (from `rn-vod-playback-progress-template`) instead
- * — no new mute / play-pause API either way. This is the EXACT logical complement of
- * {@link allowsSwipeNav} over the same single `isLive` signal
- * (`allowsTapToggleMute(x) === !allowsSwipeNav(x)`): while a stream is actively live, tap stays on
- * mute and swipe is suppressed; once it is not (upcoming / replay / VOD), tap flips to play/pause
- * and swipe drives navigation. A dedicated named function (rather than inlining
- * `!allowsSwipeNav(...)`) keeps the call site self-documenting, per this file's existing
- * convention of one named pure function per gesture decision point. Unit-testable without
- * rendering a gesture (per unit-test discipline).
+ * The horizontal half of the video area a tap/press landed in (rb-rn-gesture-clean-mode-v2,
+ * design R29). `'rewind'` = left half (double-tap seek -10s); `'forward'` = right half
+ * (double-tap seek +10s; ALSO the unconditional direction the long-press 2x-speed tick uses,
+ * regardless of zone — see {@link HOLD_SPEED_MODE_DELAY_MS}'s doc comment / design.md D4).
  */
-export function allowsTapToggleMute(isLive: boolean): boolean {
-  return isLive;
-}
+export type TapZone = 'rewind' | 'forward';
 
 /**
- * The double-tap-to-like time window (ms, rb-rn-live-double-tap-like), aligned with
- * `design/templates/minimal/screens.jsx`'s `sinceLast < 320`. Parity iOS `0.32` (TimeInterval,
- * seconds) / Android `windowMs: Long = 320L`.
- *
- * HISTORICAL NAME (rb-rn-live-double-tap-like-replay-extend): the name still reads "LIVE" but the
- * window's applicability was widened by that change to also cover a finished-live replay (see
- * {@link usesLiveHeartGesture}) — the constant itself, and its value, are unchanged, only which
- * modes call into it. Kept unrenamed deliberately (design.md Decision 3): it is the cross-platform
- * comparison string shared with Android's `internal val DOUBLE_TAP_LIKE_WINDOW_MS` /
- * iOS's `liveDoubleTapWindow`.
+ * PURE: whether the video-area gesture set (double-tap seek ±10s, long-press 2x-speed) is active
+ * for the current playback mode (rb-rn-gesture-clean-mode-v2, design R29's `seekable = isReplay
+ * || !isLive`). `isFinishedLiveReplay` (已結束直播回放) OR neither `isLive` nor `isUpcoming` (純
+ * VOD) → `true`. A stream actively live (`isLive`) OR a live preview countdown (`isUpcoming`) →
+ * `false` — those two flags are jointly the "live family" this predicate excludes, mirroring the
+ * design's `stateInLiveFamily` union. `isUpcoming` MUST be threaded through explicitly (not
+ * inferred from `!isLive`): `model.isLive` is the narrower "`liveStatus === 1`" signal, mutually
+ * exclusive with `isUpcoming` — using only `!isLive` would wrongly mark an upcoming countdown as
+ * seekable. `PlayerShellView`'s render body never actually reaches this predicate while upcoming
+ * (that branch early-returns before the gesture `Pressable` is even composed), but the exported
+ * pure function still models the full truth table so it stays independently testable and matches
+ * iOS `PlayerShellView.isSeekable(isLive:isUpcoming:isFinishedLiveReplay:)` 1:1. Unit-testable
+ * without rendering a gesture (per unit-test discipline).
  */
-export const DOUBLE_TAP_LIKE_WINDOW_MS = 320;
-
-/**
- * PURE: whether `nowMs` falls within {@link DOUBLE_TAP_LIKE_WINDOW_MS} of `lastTapAtMs` — the
- * video-area double-tap-to-like time-window decision (rb-rn-live-double-tap-like).
- * `lastTapAtMs == null` (no prior qualifying tap recorded yet — first tap ever, or first
- * LIVE/replay tap after a stretch that did not qualify) → `false` (a lone tap can never be a
- * double-tap). The comparison is strict `<` (a gap of EXACTLY `windowMs` does NOT count as a
- * double-tap). Unit-testable without rendering a gesture (per unit-test discipline). Parity iOS
- * `PlayerShellView`'s inline `sinceLast < 0.32` / Android top-level `internal fun isLiveDoubleTap`.
- *
- * Deliberately NOT merged with {@link allowsTapToggleMute} (see design.md Decision 3 of
- * `rb-rn-live-double-tap-like`) — this function expresses ONLY the time-window half of the
- * decision; WHICH modes it applies to at all is the separate, orthogonal
- * {@link usesLiveHeartGesture} decision (rb-rn-live-double-tap-like-replay-extend design.md
- * Decision 2). The video-area `Pressable`'s `onPress` still dispatches unmodified via
- * `allowsTapToggleMute(model.isLive)` for what a SINGLE tap does, and separately calls this
- * function inside whichever branch `usesLiveHeartGesture` allows.
- *
- * HISTORICAL NAME (rb-rn-live-double-tap-like-replay-extend): the name still reads "Live" but the
- * function itself never referenced liveness — it always was, and remains, a pure time-window
- * comparison over two timestamps. Kept unrenamed for the same cross-platform-string-match reason
- * as {@link DOUBLE_TAP_LIKE_WINDOW_MS}.
- */
-export function isLiveDoubleTap(
-  lastTapAtMs: number | null,
-  nowMs: number,
-  windowMs: number = DOUBLE_TAP_LIKE_WINDOW_MS,
+export function isSeekable(
+  isLive: boolean,
+  isUpcoming: boolean,
+  isFinishedLiveReplay: boolean,
 ): boolean {
-  return lastTapAtMs != null && nowMs - lastTapAtMs < windowMs;
+  return isFinishedLiveReplay || !(isLive || isUpcoming);
 }
 
 /**
- * PURE: whether the current playback mode uses the double-tap-to-like gesture at all
- * (rb-rn-live-double-tap-like-replay-extend). `true` for a stream actively live (`isLive`) OR a
- * finished-live replay (`isFinishedLiveReplay`) — the two are mutually exclusive, so this reduces
- * to a plain OR. `false` for pure VOD (`isLive === false && isFinishedLiveReplay === false`) —
- * double-tap there stays a no-op (unchanged from `rb-rn-live-double-tap-like`'s original,
- * LIVE-only scope); this Requirement deliberately does NOT reference — and is not conditioned on —
- * `openspec/specs/sdk/player.md`'s (separately owned) "快退 / 快進 10 秒" Requirement.
- *
- * Deliberately a SEPARATE, orthogonal decision from {@link allowsTapToggleMute} (which decides
- * what a SINGLE tap does — mute-toggle vs. play/pause — and is UNCHANGED by this function's
- * introduction): a finished-live replay's single tap keeps calling `model.togglePlayPause()`
- * (never `onToggleMute`) while ALSO now qualifying for the double-tap-to-like check via this
- * function. See design.md Decision 2 for the full rationale (parity concept to iOS's existing
- * `usesLiveChrome = isLive || isFinishedLiveReplay`, though RN has no pre-existing chrome-visibility
- * flag of that shape to reuse, hence the dedicated name here).
+ * PURE: classify a touch's horizontal offset within the video area into a {@link TapZone}
+ * (rb-rn-gesture-clean-mode-v2, design R29). `startX < containerWidth / 2` → `'rewind'` (left
+ * half), else `'forward'` (right half) — including the `containerWidth <= 0` edge case (before
+ * the container's `onLayout` has fired even once), which resolves to `'forward'` for any
+ * non-negative `startX` (RN never reports a negative `locationX`). Unit-testable without
+ * rendering a gesture (per unit-test discipline). Parity iOS `PlayerShellView.tapZone(startX:
+ * containerWidth:)`.
  */
-export function usesLiveHeartGesture(isLive: boolean, isFinishedLiveReplay: boolean): boolean {
-  return isLive || isFinishedLiveReplay;
+export function tapZone(startX: number, containerWidth: number): TapZone {
+  return startX < containerWidth / 2 ? 'rewind' : 'forward';
 }
+
+/**
+ * The double-tap seek time window (ms, rb-rn-gesture-clean-mode-v2, design R29), aligned with
+ * `design/templates/minimal/screens.jsx`'s `sinceLast < 320`. Value carried over unchanged from
+ * the retired `DOUBLE_TAP_LIKE_WINDOW_MS` (rb-rn-live-double-tap-like) — same visual timing
+ * budget, new purpose (seek instead of like). Parity iOS `doubleTapSeekWindow` (0.32s).
+ */
+export const DOUBLE_TAP_SEEK_WINDOW_MS = 320;
+
+/**
+ * PURE: whether this tap is a double-tap-seek hit — `lastSeekTapAtMs` non-null, `sameZone` true
+ * (the CALLER compares the current {@link TapZone} against the previous one — this function does
+ * not know about zones itself, keeping it a plain two-timestamp-plus-flag comparison, mirroring
+ * the retired `isLiveDoubleTap`'s shape), and `nowMs - lastSeekTapAtMs` strictly less than
+ * `windowMs` (a gap of EXACTLY `windowMs` does NOT count). `lastSeekTapAtMs == null` (no prior
+ * qualifying tap) → `false` (a lone tap can never be a double-tap). Unit-testable without
+ * rendering a gesture (per unit-test discipline). Parity iOS `PlayerShellView.isDoubleTapSeekHit
+ * (elapsedSinceLastSeekTap:sameZone:window:)`.
+ */
+export function isDoubleTapSeekHit(
+  lastSeekTapAtMs: number | null,
+  nowMs: number,
+  sameZone: boolean,
+  windowMs: number = DOUBLE_TAP_SEEK_WINDOW_MS,
+): boolean {
+  return lastSeekTapAtMs != null && sameZone && nowMs - lastSeekTapAtMs < windowMs;
+}
+
+/** Seconds a double-tap-seek hit moves the playhead (design R29, `model.seekBy(±10)`). */
+export const SEEK_STEP_SECONDS = 10;
+
+/**
+ * Long-press 2x-speed-approximation tick interval (ms, rb-rn-gesture-clean-mode-v2, design R29).
+ * Every tick calls `model.seekBy(SPEED_MODE_EXTRA_SEEK_PER_TICK_SECONDS)` ON TOP of the engine's
+ * own normal 1x playback — 0.5s of real time thus advances the playhead ~1.0s, approximating 2x.
+ * reference-ui has no playback-engine rate API to call instead (see design.md D4). Parity iOS
+ * `speedModeTickInterval`.
+ */
+export const SPEED_MODE_TICK_INTERVAL_MS = 500;
+
+/** Extra seconds seeked forward per {@link SPEED_MODE_TICK_INTERVAL_MS} tick while the long-press
+ *  2x-speed gesture is held. Parity iOS `speedModeExtraSeekPerTick`. */
+export const SPEED_MODE_EXTRA_SEEK_PER_TICK_SECONDS = 0.5;
 
 /**
  * Run a vertical-swipe in-place NAVIGATE then report the switched video id (swipe-video-switched-
@@ -490,6 +511,75 @@ export function showsPlaybackProgressBar(
 }
 
 /**
+ * PURE: whether {@link LiveNowPillView} should be composed (design `screens.jsx` `LBPPlayerScreen`
+ * mount block, `LBLiveNowPill`; rb-rn-live-now-pill): `hasLiveNow && (isMain ||
+ * isFinishedLiveReplay) && !isUpcoming && !cleanMode && !isScrubbing && (!isLive ||
+ * isFinishedLiveReplay)`.
+ *
+ * `hasLiveNow` is the container's poll result (`LivebuyPlayer.tsx`'s file-local
+ * `useLiveNowPoll`) — this is the real-data equivalent of the design's `tweaks.showLiveNowPill`
+ * canvas demo switch (the canvas has no real data layer); this function MUST NOT accept a
+ * SEPARATE static override for that switch.
+ *
+ * `isFinishedLiveReplay` MUST be fed `model.isFinishedLiveReplay` (已結束直播回放) — NOT
+ * `model.isReplay` (core's narrower behind-live-edge-while-still-live DVR concept, where
+ * `model.isLive` stays `true`) — same call-site discipline {@link showsPlaybackProgressBar}
+ * documents for its own `isReplay` disjunct. Named with the specific field name here (rather
+ * than a generic `isReplay` alias) — parity Android's `showsLiveNowPill` Decision 2, matching
+ * this file's OWN `shouldShowCaptionOverlay`'s specific-name convention rather than
+ * `showsPlaybackProgressBar`'s older generic-alias one.
+ *
+ * ⚠️ The trailing `(!isLive || isFinishedLiveReplay)` term is NOT decorative, and is NOT optional
+ * — it is the exact term whose ABSENCE is a confirmed, shipped defect on BOTH sibling platforms.
+ * `isMain` (`isMainPlaybackPhase` at the call site — see the render body below) excludes ONLY the
+ * intro-MP4 / cold-start loading / splash sequence; it says NOTHING about whether the stream is
+ * genuinely live right now, and a genuinely-live broadcast is neither of those excluded phases —
+ * so `isMainPlaybackPhase` is STILL `true` while actively live. A formula built ONLY from
+ * `hasLiveNow && (isMain || isFinishedLiveReplay) && !isUpcoming && !cleanMode && !isScrubbing`
+ * (i.e. this function WITHOUT the trailing term) would therefore wrongly show the pill ON TOP OF
+ * a real live broadcast the instant the poll detects "another" live in progress.
+ *
+ * **This already happened, independently, on both siblings.** iOS's `rb-ios-live-now-pill`
+ * shipped exactly that formula and needed a follow-up fix,
+ * `fix-ios-live-now-pill-active-live-leak` — its own regression test only hand-fed
+ * `isMain: false` to the PURE function, which proves nothing about what the CALL SITE actually
+ * computes for a genuinely-live template (it computes `true`). Android's
+ * `rb-android-live-now-pill` shipped the SAME missing-term formula in round 1 and had to correct
+ * it in round 2 after an independent verifier visually confirmed the pill rendering on top of a
+ * `-live-absent` baseline PNG whose entire point was to show it absent. RN bakes the fix in from
+ * this function's FIRST version instead of repeating that two-round history — see
+ * `PlayerShellLiveNowPill.test.tsx`'s wiring-level regression test, which renders a REAL
+ * `PlayerShellView` against a genuinely-live template (not a hand-fed `isMain: false`) and asserts
+ * the pill is absent — the exact class of test neither sibling had until AFTER shipping the bug.
+ *
+ * Since `isFinishedLiveReplay` is mutually exclusive with `isLive` (a video is never both), the
+ * trailing term is a complete no-op on every OTHER branch (VOD / finished-replay / upcoming /
+ * cleanMode / scrubbing / no-other-live) and only ever suppresses the "genuinely live" branch —
+ * parity iOS (post-fix) `PlayerShellView.showsLiveNowPill(hasLiveNow:isMain:isUpcoming:isReplay:
+ * isLive:cleanMode:isScrubbing:)` / Android (post round-2 correction)
+ * `showsLiveNowPill(hasLiveNow:isMain:isUpcoming:isLive:isFinishedLiveReplay:cleanMode:
+ * isScrubbing:)`.
+ */
+export function showsLiveNowPill(
+  hasLiveNow: boolean,
+  isMain: boolean,
+  isUpcoming: boolean,
+  isLive: boolean,
+  isFinishedLiveReplay: boolean,
+  cleanMode: boolean,
+  isScrubbing: boolean,
+): boolean {
+  return (
+    hasLiveNow &&
+    (isMain || isFinishedLiveReplay) &&
+    !isUpcoming &&
+    !cleanMode &&
+    !isScrubbing &&
+    (!isLive || isFinishedLiveReplay)
+  );
+}
+
+/**
  * PURE: whether {@link CaptionOverlayView} should be composed (rb-react-native-subtitle-vtt-
  * caption-display). Five conditions, ALL must hold: `!cleanMode` (乾淨模式 hides it, same as the
  * other floating VOD chrome — design R23), `!usesLiveChrome` (LIVE or a finished-live replay never
@@ -542,6 +632,8 @@ export function PlayerShellView(props: PlayerShellViewProps): ReactElement {
     onTapRailItem,
     onShare,
     onServiceLink,
+    hasLiveNow = false,
+    onGoLive,
     onOpenProduct,
     onComment,
     onNickname,
@@ -589,10 +681,13 @@ export function PlayerShellView(props: PlayerShellViewProps): ReactElement {
     onInfoPanelOpenChange?.(infoPanelOpen);
   }, [infoPanelOpen, onInfoPanelOpenChange]);
 
-  // 乾淨模式（cleanMode，rb-rn-gesture-clean-mode-rewrite，design R23）: toggled by a long-press
-  // (>450ms) on the video-area Pressable, regardless of LIVE/VOD. `true` hides most floating
-  // chrome (see the render-site wiring below) while keeping the minimize button + (LIVE-only) the
-  // narrating pinned-product card. Default CLOSED — existing snapshots byte-identical.
+  // 乾淨模式（cleanMode，rb-rn-gesture-clean-mode-v2，design R29）: toggled by a SHORT tap on the
+  // video-area Pressable — non-seekable (live in progress / upcoming) toggles immediately;
+  // seekable (VOD / finished-live replay) defers by DOUBLE_TAP_SEEK_WINDOW_MS so a following
+  // same-zone double-tap can cancel it and seek instead (see `handleVideoTap` below). `true`
+  // hides most floating chrome (see the render-site wiring below) while keeping the minimize
+  // button + (LIVE-only) the narrating pinned-product card. Default CLOSED — existing snapshots
+  // byte-identical.
   const [cleanMode, setCleanMode] = useState(false);
 
   // Report cleanMode open/closed (initial + every change) so a family living OUTSIDE this
@@ -607,15 +702,46 @@ export function PlayerShellView(props: PlayerShellViewProps): ReactElement {
   // 靜止態（tick 不變）→ HeartBurst render null → snapshot 中立。
   const [liveHeartTick, setLiveHeartTick] = useState(0);
 
-  // 影片區雙擊送愛心時間窗狀態（rb-rn-live-double-tap-like）：記錄「上一次可能觸發送愛心的 tap 時間戳記」，
-  // 供 `isLiveDoubleTap` 純函式比對。`useRef`（非 `useState`）——這個值只在 `onPress` 內被讀寫，從不影響任何
-  // 渲染輸出，且同一個元件實例的多次事件回呼之間共享同一個底層物件，讀寫可靠（design.md Decision 2）。
-  // 不掛任何影片切換時的 reset hook，比照既有 `cleanMode` / `dismissedVodIds` 等 local 呈現層狀態的先例
-  // （design.md Decision 4）。
-  // HISTORICAL NAME（rb-rn-live-double-tap-like-replay-extend）：名稱仍帶「Live」字樣，但現在同一個 ref
-  // 同時被 LIVE 分支與已結束直播回放分支共用（見 `usesLiveHeartGesture`）——維持原名不改動，理由同
-  // `isLiveDoubleTap` / `DOUBLE_TAP_LIKE_WINDOW_MS`（design.md Decision 3，跨平台字串對照）。
-  const lastLiveTapAtRef = useRef<number | null>(null);
+  // 影片區寬度（rb-rn-gesture-clean-mode-v2）：RN 沒有 SwiftUI 同步 GeometryReader，改用既有
+  // `onLayout` 慣例（`PlaybackProgressBarView.trackWidth` 已示範同一手法）量測，供 `tapZone` 純函式
+  // 判斷觸點落在左右哪一半。`0` 直到第一次 layout（測試環境下 `onLayout` 不會自動觸發，需手動呼叫）。
+  const [videoAreaWidth, setVideoAreaWidth] = useState(0);
+
+  // 本次按壓的 TapZone（rb-rn-gesture-clean-mode-v2）：`onPressIn` 讀觸點 `locationX` 寫入，供
+  // `onPress`（雙擊 seek 判定）讀取。`useRef`（非 `useState`）——只在事件回呼間傳遞，不影響渲染輸出。
+  const pressZoneRef = useRef<TapZone>('forward');
+
+  // 雙擊 seek 時間窗狀態（rb-rn-gesture-clean-mode-v2，取代退役的 `lastLiveTapAtRef`）：記錄「上一次
+  // seekable 單擊的時間戳記 + 落點 zone」，供 `isDoubleTapSeekHit` 純函式比對。沿用既有
+  // `runLikeGestureCheck` 的「每次都更新，不因命中而重置為 null」語意——連續快速多次點擊，每相鄰一對
+  // 都可能各自判定為一次雙擊。不掛任何影片切換時的 reset hook，比照既有 `cleanMode` /
+  // `dismissedVodIds` 等 local 呈現層狀態的先例。
+  const lastSeekTapAtRef = useRef<number | null>(null);
+  const lastSeekTapZoneRef = useRef<TapZone | null>(null);
+
+  // 延遲乾淨模式切換的 pending timer（rb-rn-gesture-clean-mode-v2，取代退役的
+  // `pendingMuteCommitTimerRef` / `pendingPlayPauseCommitTimerRef`——新模型下單擊只有一種結果（切換
+  // cleanMode），不再需要依 LIVE/回放分流成兩個獨立 timer slot）。非 null = 目前有一個尚未到期的
+  // pending 切換。比照同檔案既有 `scrubCollapseTimerRef` 的
+  // `useRef<ReturnType<typeof setTimeout> | null>` pattern。
+  const pendingCleanModeToggleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // 長按 2 倍速快轉狀態（rb-rn-gesture-clean-mode-v2）：`speedModeActiveRef` 是「目前是否按著」的
+  // 唯一真相，`speedModeTickTimerRef` 是遞迴排程的下一顆 tick handle。兩者皆 `useRef`——不需要觸發
+  // 重新渲染（長按期間 MUST NOT 顯示任何視覺提示）。
+  const speedModeActiveRef = useRef(false);
+  const speedModeTickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Cleanup the two new timers on unmount (mirrors the established `scrubCollapseTimerRef`
+  // cleanup precedent below) so neither fires a `setState` after unmount.
+  useEffect(() => {
+    return () => {
+      if (pendingCleanModeToggleTimerRef.current != null) {
+        clearTimeout(pendingCleanModeToggleTimerRef.current);
+      }
+      if (speedModeTickTimerRef.current != null) clearTimeout(speedModeTickTimerRef.current);
+    };
+  }, []);
 
   // Whether the「聯絡商家」confirm modal is presented (parity rb-*-contact-merchant-modal).
   // The rail serviceLink tap and the info-panel「與商家一對一對話」(both funnel through
@@ -763,21 +889,82 @@ export function PlayerShellView(props: PlayerShellViewProps): ReactElement {
     onTapRailItem?.(kind);
   };
 
-  // The shared double-tap-to-like time-window check (rb-rn-live-double-tap-like, widened by
-  // rb-rn-live-double-tap-like-replay-extend). NOT exported — it is pure call-site plumbing (read
-  // the clock, compare against the last qualifying tap, fire the existing like route + heart-burst
-  // tick on a hit, then record `now`), not an independent decision point in its own right; the two
-  // decision points that ARE independently unit-tested are the exported {@link isLiveDoubleTap}
-  // (the time-window comparison) and {@link usesLiveHeartGesture} (which modes this applies to at
-  // all). Called from the video-area `Pressable`'s `onPress` from BOTH the LIVE branch and the
-  // finished-live-replay branch — identical body either way, so this exists to avoid duplicating it.
-  const runLikeGestureCheck = (): void => {
-    const now = Date.now();
-    if (isLiveDoubleTap(lastLiveTapAtRef.current, now)) {
-      handleRailTap(LBSideRailKind.Like);
-      setLiveHeartTick((t) => t + 1);
+  // Record this press's TapZone (rb-rn-gesture-clean-mode-v2) — read at `onPressIn` (touch-down
+  // location), consumed by `handleVideoTap` (short-tap / double-tap-seek decision). The long-press
+  // 2x-speed gesture deliberately does NOT read this (see `scheduleSpeedModeTick` below — the
+  // upstream demo's own direction bug, kept verbatim per design.md D4).
+  const handleVideoPressIn = (e: GestureResponderEvent): void => {
+    pressZoneRef.current = tapZone(e.nativeEvent.locationX, videoAreaWidth);
+  };
+
+  // Video-area SHORT-TAP dispatch (rb-rn-gesture-clean-mode-v2, design R29) — the sole `onPress`
+  // handler, replacing the retired `allowsTapToggleMute` LIVE/VOD mute-vs-play-pause split.
+  // Non-seekable (live in progress / upcoming) → toggles `cleanMode` immediately, no defer (no
+  // double-tap semantics apply there). Seekable (VOD / finished-live replay) → checks
+  // `isDoubleTapSeekHit` against the last seekable tap's timestamp + zone: a hit cancels the
+  // pending `cleanMode` toggle and seeks instead (±`SEEK_STEP_SECONDS`); a miss (or no prior tap)
+  // schedules a NEW deferred `cleanMode` toggle after `DOUBLE_TAP_SEEK_WINDOW_MS`. Mirrors the
+  // retired `runLikeGestureCheck`'s "always update the last-tap ref, hit or miss" convention —
+  // consecutive rapid taps can each pair with their immediate predecessor.
+  const handleVideoTap = (): void => {
+    if (!isSeekable(model.isLive, model.isUpcoming, model.isFinishedLiveReplay)) {
+      setCleanMode((c) => !c);
+      return;
     }
-    lastLiveTapAtRef.current = now;
+    const zone = pressZoneRef.current;
+    const now = Date.now();
+    const sameZone = lastSeekTapZoneRef.current === zone;
+    if (isDoubleTapSeekHit(lastSeekTapAtRef.current, now, sameZone)) {
+      if (pendingCleanModeToggleTimerRef.current != null) {
+        clearTimeout(pendingCleanModeToggleTimerRef.current);
+        pendingCleanModeToggleTimerRef.current = null;
+      }
+      model.seekBy(zone === 'forward' ? SEEK_STEP_SECONDS : -SEEK_STEP_SECONDS);
+    } else {
+      pendingCleanModeToggleTimerRef.current = setTimeout(() => {
+        pendingCleanModeToggleTimerRef.current = null;
+        setCleanMode((c) => !c);
+      }, DOUBLE_TAP_SEEK_WINDOW_MS);
+    }
+    lastSeekTapAtRef.current = now;
+    lastSeekTapZoneRef.current = zone;
+  };
+
+  // Long-press 2x-speed-approximation tick (rb-rn-gesture-clean-mode-v2, design R29). Recursive
+  // self-reschedule: while `speedModeActiveRef.current` stays `true`, each tick calls
+  // `model.seekBy(SPEED_MODE_EXTRA_SEEK_PER_TICK_SECONDS)` (always a POSITIVE / forward value —
+  // deliberately NOT reading `pressZoneRef`, per the upstream demo's own direction bug kept
+  // verbatim, design.md D4) then reschedules itself; once `stopSpeedMode` flips the ref to
+  // `false`, the in-flight tick fires once more, sees the ref is `false`, and stops WITHOUT
+  // calling `seekBy` or rescheduling again.
+  const scheduleSpeedModeTick = (): void => {
+    speedModeTickTimerRef.current = setTimeout(() => {
+      speedModeTickTimerRef.current = null;
+      if (!speedModeActiveRef.current) return;
+      model.seekBy(SPEED_MODE_EXTRA_SEEK_PER_TICK_SECONDS);
+      scheduleSpeedModeTick();
+    }, SPEED_MODE_TICK_INTERVAL_MS);
+  };
+
+  // Long-press START (rb-rn-gesture-clean-mode-v2) — the video-area `Pressable`'s `onLongPress`,
+  // mounted ONLY while `isSeekable` (see the render body below: `onLongPress={isSeekable(...) ?
+  // handleVideoLongPress : undefined}` — a STRUCTURAL no-op for live-in-progress / upcoming, not a
+  // scheduled timer whose handler early-returns).
+  const handleVideoLongPress = (): void => {
+    speedModeActiveRef.current = true;
+    scheduleSpeedModeTick();
+  };
+
+  // Long-press STOP (rb-rn-gesture-clean-mode-v2) — the video-area `Pressable`'s `onPressOut`,
+  // mounted UNCONDITIONALLY (RN fires `onPressOut` for every touch that ends, whether it was a
+  // short tap, a completed long-press, or a swipe-cancelled press — this is the single reliable
+  // place to guarantee 2x-speed never outlives the finger lifting).
+  const stopSpeedMode = (): void => {
+    speedModeActiveRef.current = false;
+    if (speedModeTickTimerRef.current != null) {
+      clearTimeout(speedModeTickTimerRef.current);
+      speedModeTickTimerRef.current = null;
+    }
   };
 
   // 「確定」on the confirm modal → close it + proceed to the service-link exit. Container
@@ -843,11 +1030,13 @@ export function PlayerShellView(props: PlayerShellViewProps): ReactElement {
             // defensive: omitting it would let the header fall back to「may scroll」and ignore
             // the merchant's setting on scheduled-live videos.
             titleScroll={titleScroll}
-            // rb-rn-gesture-clean-mode-rewrite — `cleanMode` can only be toggled by the video-area
-            // long-press, which this upcoming branch does not mount (no tap-to-mute/play-pause
-            // Pressable here), so `cleanMode` is always `false` while upcoming. Forwarded anyway
-            // for interface consistency across both `PlayerHeaderBar` call sites.
+            // rb-rn-gesture-clean-mode-v2 — `cleanMode` can only be toggled by the video-area
+            // gesture Pressable, which this upcoming branch does not mount, so `cleanMode` is
+            // always `false` while upcoming. Forwarded anyway for interface consistency across
+            // both `PlayerHeaderBar` call sites.
             hidesHostBadge={cleanMode}
+            muted={model.muted}
+            onToggleMute={cleanMode ? onToggleMute : undefined}
           />
         </View>
 
@@ -897,6 +1086,21 @@ export function PlayerShellView(props: PlayerShellViewProps): ReactElement {
     model.isUpcoming,
     model.isLive,
     model.isFinishedLiveReplay,
+  );
+
+  // Whether `LiveNowPillView` should be composed (rb-rn-live-now-pill). `isMainPlaybackPhase` is
+  // the SAME value `showsProgressBar` above feeds as `isMain` — it does NOT exclude a genuinely
+  // live broadcast (only the intro/loading/splash sequence), so `model.isLive` MUST be forwarded
+  // as its own, independent argument here — see `showsLiveNowPill`'s doc comment for the shipped
+  // defect this call site avoids by doing so from day one.
+  const showsLiveNow = showsLiveNowPill(
+    hasLiveNow,
+    isMainPlaybackPhase,
+    model.isUpcoming,
+    model.isLive,
+    model.isFinishedLiveReplay,
+    cleanMode,
+    isScrubbing,
   );
 
   // VOD CC 字幕（rb-react-native-subtitle-vtt-caption-display）：以目前 model.position 現算命中的
@@ -953,51 +1157,45 @@ export function PlayerShellView(props: PlayerShellViewProps): ReactElement {
         absolute-fill layers stack: video bg → LIVE overlay chrome / VOD now-introducing
         carousel (surface 4) → pinned chrome (surfaces 1/2) → bottom info panel (surface 3).
       */}
-      {/* Video-area gesture surface (rb-rn-gesture-clean-mode-rewrite, design R23). A
-          transparent, full-bleed tap target placed BELOW the chrome so header /
-          rail / info-panel / pinned-card taps win. `onPress` is dispatched by
-          {@link allowsTapToggleMute}: while a stream is actively live it stays
-          tap-to-mute (design「點擊靜音」/ first-tap-unmutes, host → core simulate*);
-          otherwise (VOD / finished-live replay / upcoming's absence of this surface aside) it
-          calls the EXISTING view-model forwarder `model.togglePlayPause()` — no new mute /
-          play-pause API. `onLongPress` (RN-native, no hand-rolled timer — see design.md
-          Decision 1) toggles `cleanMode` unconditionally. No pixels of its own → omitted
-          callbacks make it inert; the surface structural baselines are unaffected by the
-          Pressable itself (only by `cleanMode`'s downstream chrome wiring below). */}
+      {/* Video-area gesture surface (rb-rn-gesture-clean-mode-v2, design R29 —整個對調 R23 的觸發
+          手勢). A transparent, full-bleed tap target placed BELOW the chrome so header / rail /
+          info-panel / pinned-card taps win.
+          `onPress` → `handleVideoTap()`: non-seekable (live in progress / upcoming) toggles
+          `cleanMode` immediately; seekable (VOD / finished-live replay) defers the toggle by
+          `DOUBLE_TAP_SEEK_WINDOW_MS`, cancelled by a same-zone double-tap which seeks ±10s
+          instead (see `handleVideoTap`'s doc comment).
+          `onPressIn` → `handleVideoPressIn`: records this press's {@link TapZone} for `onPress`
+          to read.
+          `onLongPress` → conditionally `handleVideoLongPress` ONLY while `isSeekable` —
+          `undefined` otherwise, a STRUCTURAL no-op for live-in-progress / upcoming (RN never
+          starts an internal long-press timer without a handler; see design.md Decision 1).
+          `onPressOut` → `stopSpeedMode` UNCONDITIONALLY, so 2x-speed never outlives the touch.
+          No pixels of its own → omitted callbacks make it inert; the surface structural baselines
+          are unaffected by the Pressable itself (only by `cleanMode`'s downstream chrome wiring
+          below). */}
       {/* The PanResponder wrapper claims only committed vertical drags (|dy| ≥
-          threshold) → swipe navigation; the inner Pressable keeps tap-to-mute /
-          play-pause / long-press. The two coexist (RN analogue of iOS
-          .simultaneousGesture) — a real swipe cancels the Pressable's in-flight
-          press (and any pending long-press timer) via RN's responder-termination
-          callback, so a genuine swipe never also fires tap or long-press. */}
+          threshold) → swipe navigation; the inner Pressable keeps tap / long-press. The two
+          coexist (RN analogue of iOS .simultaneousGesture) — a real swipe cancels the Pressable's
+          in-flight press (and any pending long-press timer) via RN's responder-termination
+          callback, so a genuine swipe never also fires tap or long-press. `onLayout` measures the
+          video area's width (rb-rn-gesture-clean-mode-v2) so `tapZone` can classify a touch's
+          horizontal offset into a left/right half. */}
       <View
         {...swipeResponder.panHandlers}
+        onLayout={(e: LayoutChangeEvent): void => setVideoAreaWidth(e.nativeEvent.layout.width)}
         style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
       >
         <Pressable
           testID={LBTestIDs.playerVideoSurface}
-          onPress={() => {
-            // Single-tap dispatch (allowsTapToggleMute) is COMPLETELY UNCHANGED by
-            // rb-rn-live-double-tap-like-replay-extend — LIVE stays tap-to-mute, replay/VOD stay
-            // tap-to-play-pause, both synchronous and unconditional on EVERY tap regardless of
-            // whether it turns out to be part of a double-tap.
-            if (allowsTapToggleMute(model.isLive)) {
-              onToggleMute?.();
-            } else {
-              model.togglePlayPause();
-            }
-            // Double-tap-to-like detection is an ADDITIONAL, non-blocking check layered on top of
-            // the single-tap dispatch above — it neither replaces nor delays it. Its APPLICABILITY
-            // (usesLiveHeartGesture) is a SEPARATE, orthogonal decision from allowsTapToggleMute:
-            // LIVE (isLive) and a finished-live replay (isFinishedLiveReplay) both qualify
-            // (rb-rn-live-double-tap-like-replay-extend widened this from LIVE-only); pure VOD does
-            // not (unchanged from rb-rn-live-double-tap-like's original scope).
-            if (usesLiveHeartGesture(model.isLive, model.isFinishedLiveReplay)) {
-              runLikeGestureCheck();
-            }
-          }}
-          onLongPress={() => setCleanMode((c) => !c)}
-          delayLongPress={LONG_PRESS_CLEAN_MODE_DELAY_MS}
+          onPressIn={handleVideoPressIn}
+          onPress={handleVideoTap}
+          onLongPress={
+            isSeekable(model.isLive, model.isUpcoming, model.isFinishedLiveReplay)
+              ? handleVideoLongPress
+              : undefined
+          }
+          delayLongPress={HOLD_SPEED_MODE_DELAY_MS}
+          onPressOut={stopSpeedMode}
           style={{ flex: 1 }}
         />
       </View>
@@ -1096,8 +1294,12 @@ export function PlayerShellView(props: PlayerShellViewProps): ReactElement {
           // now that the rail no longer carries a `more` pill).
           onTapHostBadge={() => setInfoPanelOpen((o) => !o)}
           // 乾淨模式（cleanMode）時隱藏 host pill（標題／主持人／訂閱／觀看數），保留最小化鈕
-          // （rb-rn-gesture-clean-mode-rewrite，design R23）。
+          // （rb-rn-gesture-clean-mode-v2，design R29）。
           hidesHostBadge={cleanMode}
+          // 乾淨模式限定靜音鈕（rb-rn-gesture-clean-mode-v2）：補回單擊切靜音手勢退役後的操作管道。
+          // `onToggleMute` 為 `undefined`（非乾淨模式）時該鈕不渲染、不佔位。
+          muted={model.muted}
+          onToggleMute={cleanMode ? onToggleMute : undefined}
         />
         {/* Spacer pushes the side rail to the bottom-trailing corner. Side rail is
             VOD-ONLY chrome (design screens.jsx gates `LBPSideRail` on `!isLive`); in
@@ -1115,13 +1317,14 @@ export function PlayerShellView(props: PlayerShellViewProps): ReactElement {
         model.startPhase !== StartScreenPhase.Loading &&
         model.startPhase !== StartScreenPhase.Splash ? (
           // Additionally hidden while actively dragging the playback-progress bar
-          // (rb-rn-vod-playback-progress-bar) or in clean mode (rb-rn-gesture-clean-mode-rewrite,
-          // design R23) — reappears (lifted, see marginBottom below) once the finger lifts /
+          // (rb-rn-vod-playback-progress-bar) or in clean mode (rb-rn-gesture-clean-mode-v2,
+          // design R29) — reappears (lifted, see marginBottom below) once the finger lifts /
           // clean mode toggles off.
           <View style={{ flex: 1, flexDirection: 'row', justifyContent: 'flex-end' }}>
-            {/* Rail anchored bottom 80 (design LBPSideRail) so the SEPARATE floating bag (bottom
+            {/* Rail anchored bottom 68 (design LBPSideRail, rb-rn-gesture-clean-mode-v2 縮小商品袋
+                48→40 同步由 80 下移至 68 維持間距一致) so the SEPARATE floating bag (bottom
                 16) sits below it next to the mini-cart strip. */}
-            <View style={{ alignSelf: 'flex-end', marginRight: 12, marginBottom: 80 + scrubChromeLift }}>
+            <View style={{ alignSelf: 'flex-end', marginRight: 12, marginBottom: 68 + scrubChromeLift }}>
               <OperationRail
                 theme={theme}
                 items={model.railItems}
@@ -1193,12 +1396,12 @@ export function PlayerShellView(props: PlayerShellViewProps): ReactElement {
       {/* LIVE 底部 bar 愛心 burst（rb-rn-live-bottom-heart-burst，問題 5）：錨於底部 bar 愛心
           （trailing-most 鈕）上方。introPlaying（bag-only，無愛心）不畫。靜止態 HeartBurst render null
           → snapshot 中立（含定位的 root 只在飄心 in-flight 時出現）。也在乾淨模式下隱藏
-          （rb-rn-gesture-clean-mode-rewrite，design R23）。
-          擴大於 rb-rn-live-double-tap-like-replay-extend：已結束直播回放（isFinishedLiveReplay）現在
-          也用同一個掛載點顯示雙擊送愛心的心動特效（usesLiveHeartGesture）——回放模式沒有 LIVE 底部 bar
-          （側欄/浮動購物袋取代），沿用同一個錨點座標是刻意的（與 LIVE 分支共用同一組視覺，design.md）。
-          靜止態（tick 未變）在兩種模式下都一樣 render null，不影響既有 snapshot baseline。 */}
-      {usesLiveHeartGesture(model.isLive, model.isFinishedLiveReplay) && !cleanMode ? (
+          （rb-rn-gesture-clean-mode-v2，design R29）。
+          rb-rn-gesture-clean-mode-v2：已結束直播回放的雙擊送愛心整段退役（改為雙擊 seek ±10 秒，
+          見「...影片區手勢二度重寫...」Requirement），`isFinishedLiveReplay` 這個分支不再有任何觸發
+          `liveHeartTick` 的路徑（回放沒有 LIVE 底部 bar，側欄/浮動購物袋取代）——條件收斂回
+          `model.isLive`，唯一的觸發來源是 `LiveBottomBarView.onLike`。 */}
+      {model.isLive && !cleanMode ? (
         <HeartBurst theme={theme} tick={liveHeartTick} style={{ position: 'absolute', right: 18, bottom: 64 }} />
       ) : null}
 
@@ -1229,6 +1432,31 @@ export function PlayerShellView(props: PlayerShellViewProps): ReactElement {
         </View>
       ) : null}
 
+      {/* 「現正直播」right-edge half-pill (rb-rn-live-now-pill). Composed as an independent
+          top-level sibling (parity iOS `HStack { Spacer(); LiveNowPillView }` / Android
+          `Box(Modifier.fillMaxSize(), contentAlignment = Alignment.CenterEnd)`) so it draws over
+          BOTH the VOD chrome and a finished-live-replay's LIVE-branch chrome, vertically centered
+          against the right edge — `top:0, bottom:0` stretches this wrapper to full height,
+          `right:0` with no `left` keeps its own width intrinsic (content-hugging), and
+          `justifyContent: 'center'` + `alignItems: 'flex-end'` centers the pill inside it without
+          claiming touches over the empty space around it (parity the sibling progress-bar/caption
+          wrappers above, which are likewise plain absolutely-positioned Views with no touch claim
+          of their own). */}
+      {showsLiveNow ? (
+        <View
+          style={{
+            position: 'absolute',
+            top: 0,
+            right: 0,
+            bottom: 0,
+            justifyContent: 'center',
+            alignItems: 'flex-end',
+          }}
+        >
+          <LiveNowPillView theme={theme} onTap={onGoLive} />
+        </View>
+      ) : null}
+
       {/* VOD CC 字幕 overlay（rb-react-native-subtitle-vtt-caption-display）：純 VOD（非 LIVE、非
           已結束直播回放）、非開場片頭、非拖曳進度條中、非乾淨模式,且 CC 已開 + 目前 position 命中
           某筆 cue 時才顯示,gate 見 shouldShowCaptionOverlay。定位比照 iOS/Android 貼底留 8pt 空隙,
@@ -1246,6 +1474,31 @@ export function PlayerShellView(props: PlayerShellViewProps): ReactElement {
           }}
         >
           <CaptionOverlayView theme={theme} text={effectiveCaption} />
+        </View>
+      ) : null}
+
+      {/* 退出乾淨模式鈕（rb-rn-gesture-clean-mode-v2，design R29）：`cleanMode === true` 時顯示一顆
+          小圓鈕，點擊即退出。VOD/回放與 LIVE 共用同一顆（不要求逐位元組對齊設計稿分開兩處座標，只要求
+          「乾淨模式時可見、退出乾淨模式時消失、點擊即退出」語意正確）。左下角錨點，與右側的側欄/浮動
+          購物袋/進度條互不重疊。取代已移除的中央暫停覆蓋層（`PlaybackPausedOverlayView`）與靜音提示
+          toast（`GestureMuteToastView`）——兩者不再被本元件組合（VOD/回放播放暫停改由既有
+          `PlaybackProgressBarView` 展開態按鈕承載；頂列新增的靜音鈕直接切換，不需要提示動畫）。 */}
+      {cleanMode ? (
+        <View style={{ position: 'absolute', left: 12, bottom: 16 + scrubChromeLift }}>
+          <Pressable
+            testID={LBTestIDs.cleanModeExitButton}
+            onPress={() => setCleanMode(false)}
+            style={{
+              width: 36,
+              height: 36,
+              borderRadius: 18,
+              backgroundColor: 'rgba(20,20,24,0.55)',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <Text style={{ color: '#FFFFFF', fontSize: 18 }}>{'✕'}</Text>
+          </Pressable>
         </View>
       ) : null}
 

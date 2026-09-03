@@ -124,6 +124,28 @@ export function shouldReopenOnVideoChange(
 }
 
 /**
+ * True ONLY for a HOST-driven swap (`isInternalSwitch === false`) that {@link shouldReopenOnVideoChange}
+ * accepts (a new, non-null video while minimized). An in-player IN-PLACE switch the presenter caused
+ * itself (`isInternalSwitch === true` — swiped / hot-pick / watch-next, synced via the composed
+ * `onVideoSwitchedItem` → `onVideoChanged` echo, rb-rn-collapsible-player-switch-sync-and-reopen-signal)
+ * MUST NOT auto-restore — it keeps the current minimize/full phase and only re-binds the shown video.
+ *
+ * Parity iOS `shouldAutoRestoreOnBindingChange` (RN has no two-way `Binding`; "binding change" here
+ * means the `video` prop changing, whether host-driven or echoed back from this presenter's own
+ * `onVideoChanged(item)` call). {@link shouldReopenOnVideoChange} itself is UNCHANGED — this wrapper
+ * only adds the "was this id change caused by us" disambiguation on top of it. Pure (no react /
+ * react-native import) → node-testable.
+ */
+export function shouldAutoRestoreOnBindingChange(
+  isInternalSwitch: boolean,
+  newVideoId: string | null | undefined,
+  isMinimized: boolean,
+): boolean {
+  if (isInternalSwitch) return false;
+  return shouldReopenOnVideoChange(newVideoId, isMinimized);
+}
+
+/**
  * Clamp the floating card's committed-plus-live drag offset so it can be dragged to reposition but
  * never pushed off-screen. The offset is measured FROM the resting corner (resting offset
  * `{x:0, y:0}`), so the horizontal range follows which corner the card rests in:

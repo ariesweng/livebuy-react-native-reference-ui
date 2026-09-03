@@ -41,6 +41,7 @@ import { ProvideTightText } from '../TightText';
 import {
   clampFloatingOffset,
   presenterWidgetCovered,
+  shouldAutoRestoreOnBindingChange,
   shouldReopenOnVideoChange,
 } from './collapsibleLogic';
 import type { Point, Sizing } from './collapsibleLogic';
@@ -59,6 +60,17 @@ export interface CollapsibleLivebuyPlayerProps {
   readonly theme: ReferenceUITheme;
   /** The host's player config. The presenter OWNS `onMinimize` / `onDismiss`; the rest passes through. */
   readonly config?: LivebuyPlayerConfig;
+  /**
+   * A host-incremented "open intent" counter (rb-rn-collapsible-player-switch-sync-and-reopen-signal,
+   * parity iOS/Android `openSignal: Int = 0`). Bump it whenever the host enters a "user wants to open
+   * the player" entry point (e.g. a carousel tap), even when the target video's `id` is the SAME as
+   * the one currently shown minimized — `video.id` alone cannot signal that, since re-binding the
+   * identical id leaves `videoId` byte-for-byte unchanged and the id-keyed reopen effect never re-runs
+   * (縮小後點回同一支影片沒反應). DEFAULT omitted ⟺ `0` forever — a host that never passes it keeps
+   * this effect inert (mount-time-only, never re-fires), so existing call sites are byte-identical to
+   * pre-existing behaviour.
+   */
+  readonly openSignal?: number;
 }
 
 /**
@@ -69,11 +81,21 @@ export interface CollapsibleLivebuyPlayerProps {
 export function CollapsibleLivebuyPlayer(props: CollapsibleLivebuyPlayerProps): ReactElement | null {
   const { video, onVideoChanged, theme } = props;
   const config = props.config ?? {};
+  const openSignal = props.openSignal ?? 0;
 
   const [isMinimized, setMinimized] = useState(false);
   // Mirror the latest `isMinimized` into a ref so the reopen effect reads it without re-running.
   const isMinimizedRef = useRef(false);
   isMinimizedRef.current = isMinimized;
+
+  // Latch distinguishing a `video` id change WE caused (an in-place switch echoed through the new
+  // `onVideoChanged` sync below) from a HOST-driven swap (rb-rn-collapsible-player-switch-sync-and-
+  // reopen-signal, RN parity of iOS `isInternalSwitch`). Set right before echoing an in-place switch
+  // through `onVideoChanged`; consumed (and cleared) on the very next id-effect run so an internal
+  // switch does NOT trip the auto-restore-while-floating logic (boundary case: switching tracks while
+  // minimized MUST NOT jump the player back to full-screen). A ref (not state) — same "mirror latest
+  // value for an effect/callback to read, no re-render needed" shape as `isMinimizedRef` above.
+  const isInternalSwitchRef = useRef(false);
 
   // The video the floating preview card SHOWS (rb-rn-collapsible-player-track-switch). Init to the
   // entry `video`; an IN-PLACE switch (swipe / hot-pick / watch-next) is reported via
@@ -111,14 +133,35 @@ export function CollapsibleLivebuyPlayer(props: CollapsibleLivebuyPlayerProps): 
   // keeps the same id, so it never trips this (no id change).
   const videoId = video?.id ?? null;
   useEffect(() => {
-    // A HOST swap re-seeds the floating card's shown video to the new host video (an in-place
-    // switch never changes `video.id`, so this only fires for genuine host-driven swaps).
+    // A HOST swap re-seeds the floating card's shown video to the new host video. Since
+    // rb-rn-collapsible-player-switch-sync-and-reopen-signal, an in-place switch ALSO changes
+    // `video.id` (echoed through `onVideoChanged` below), so this effect can no longer assume every
+    // id change is a genuine host-driven swap — it consumes the `isInternalSwitchRef` latch to tell
+    // the two apart before deciding whether to auto-restore.
     setShownVideo(video);
-    if (shouldReopenOnVideoChange(videoId, isMinimizedRef.current)) {
+    const wasInternalSwitch = isInternalSwitchRef.current;
+    isInternalSwitchRef.current = false; // consume the latch on every id change
+    if (shouldAutoRestoreOnBindingChange(wasInternalSwitch, videoId, isMinimizedRef.current)) {
       resetFloating();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [videoId]);
+
+  // A host's OPEN INTENT (e.g. re-tapping the SAME carousel card while it's already floating) never
+  // changes `videoId` — the effect above never fires for it, so `shouldReopenOnVideoChange` never
+  // gets re-evaluated and the floating card is stuck (縮小後點回同一支影片沒反應,
+  // rb-rn-collapsible-player-switch-sync-and-reopen-signal). This independent trigger, keyed on the
+  // host-incremented `openSignal`, re-evaluates reopen on every open intent regardless of whether the
+  // id actually changed. Bypasses `isInternalSwitchRef` entirely: an `openSignal` bump never touches
+  // `videoId`, so there is no "was this caused by us" question here (parity iOS
+  // `.onChange(of: openSignal)`, which likewise calls `shouldReopenOnVideoChange` directly rather than
+  // the latch-aware wrapper).
+  useEffect(() => {
+    if (shouldReopenOnVideoChange(videoId, isMinimizedRef.current)) {
+      resetFloating();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openSignal]);
 
   // Drive the opt-in cover bridge by collapsible PHASE — this presenter is the SINGLE OWNER of
   // `LivebuyWidgetVisibility.setWidgetsCovered` (rn-refui-presenter-widget-cover-by-phase, RN parity of
@@ -180,12 +223,23 @@ export function CollapsibleLivebuyPlayer(props: CollapsibleLivebuyPlayerProps): 
     // In-place switch (swipe / hot-pick / watch-next) → re-bind the FLOATING card's shown video to
     // the switched video's item so the minimized preview shows the switched video, NOT the entry
     // `video` (rb-rn-collapsible-player-track-switch). Guard same-id (via the ref, no stale closure)
-    // so a no-op switch neither re-binds nor churns. Does NOT touch the keep-alive prop (`video.id`)
-    // → no redundant reload + no auto-restore misfire. Any host-supplied `onVideoSwitchedItem` is
-    // preserved by chaining (the host still gets the switched item).
+    // so a no-op switch neither re-binds nor churns nor echoes. Any host-supplied `onVideoSwitchedItem`
+    // is preserved by chaining (the host still gets the switched item).
+    //
+    // rb-rn-collapsible-player-switch-sync-and-reopen-signal: ALSO echo the switch through the
+    // REQUIRED `onVideoChanged`, so a host that (correctly) only wires that one callback to track
+    // "the currently playing video" learns about in-place switches too — previously `onVideoChanged`
+    // fired ONLY from `close()`. Latch `isInternalSwitchRef` FIRST so the id-effect (which fires once
+    // the host echoes this back into its own `video` state, changing `videoId`) does NOT treat it as
+    // a host-driven swap and auto-restore full-screen — an in-place switch while minimized MUST keep
+    // the player minimized, only the floating card's shown video changes.
     onVideoSwitchedItem: (item) => {
       config.onVideoSwitchedItem?.(item);
-      if (item.id !== shownVideoIdRef.current) setShownVideo(item);
+      if (item.id !== shownVideoIdRef.current) {
+        setShownVideo(item);
+        isInternalSwitchRef.current = true;
+        onVideoChanged(item);
+      }
     },
   };
 

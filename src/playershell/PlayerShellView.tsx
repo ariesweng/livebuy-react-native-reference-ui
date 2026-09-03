@@ -109,6 +109,7 @@ import { LiveNowPillView } from './LiveNowPillView';
 import { CaptionOverlayView } from './CaptionOverlayView';
 import { VTTSubtitleParser } from './VTTSubtitleParser';
 import type { VTTCue } from './VTTSubtitleParser';
+import { DetailGlyph } from './DetailGlyph';
 
 import { LBTestIDs } from '../testing/LBTestIDs';
 
@@ -1477,14 +1478,19 @@ export function PlayerShellView(props: PlayerShellViewProps): ReactElement {
         </View>
       ) : null}
 
-      {/* 退出乾淨模式鈕（rb-rn-gesture-clean-mode-v2，design R29）：`cleanMode === true` 時顯示一顆
-          小圓鈕，點擊即退出。VOD/回放與 LIVE 共用同一顆（不要求逐位元組對齊設計稿分開兩處座標，只要求
-          「乾淨模式時可見、退出乾淨模式時消失、點擊即退出」語意正確）。左下角錨點，與右側的側欄/浮動
-          購物袋/進度條互不重疊。取代已移除的中央暫停覆蓋層（`PlaybackPausedOverlayView`）與靜音提示
-          toast（`GestureMuteToastView`）——兩者不再被本元件組合（VOD/回放播放暫停改由既有
+      {/* 退出乾淨模式鈕（rb-rn-gesture-clean-mode-v2，design R29；icon/座標由
+          rb-rn-clean-mode-exit-icon-fix 對齊設計稿）：`cleanMode === true` 時顯示一顆小圓鈕，點擊即
+          退出。VOD/回放與 LIVE 共用同一顆按鈕元件，但座標依 `model.isLive` 分流對齊設計稿
+          `design/templates/minimal/screens.jsx`：LIVE `left:14, bottom:16`；VOD/回放
+          `left:14, bottom:52`（= 設計稿的 `16 + 36` 恆定墊高，避開乾淨模式下恆定展開的完整
+          transport 列——與 `scrubChromeLift`（拖曳進度條暫態墊高）是不同概念，故不共用該變數）。
+          icon 為 `DetailGlyph`（對齊設計稿 `Icons.detail`，逐字比照 iOS/Android 既有 `DetailGlyph`
+          座標常數），取代先前的 `✕` 字元占位。左下角錨點，與右側的側欄/浮動購物袋/進度條互不重疊。
+          取代已移除的中央暫停覆蓋層（`PlaybackPausedOverlayView`）與靜音提示 toast
+          （`GestureMuteToastView`）——兩者不再被本元件組合（VOD/回放播放暫停改由既有
           `PlaybackProgressBarView` 展開態按鈕承載；頂列新增的靜音鈕直接切換，不需要提示動畫）。 */}
       {cleanMode ? (
-        <View style={{ position: 'absolute', left: 12, bottom: 16 + scrubChromeLift }}>
+        <View style={{ position: 'absolute', left: 14, bottom: model.isLive ? 16 : 52 }}>
           <Pressable
             testID={LBTestIDs.cleanModeExitButton}
             onPress={() => setCleanMode(false)}
@@ -1497,7 +1503,7 @@ export function PlayerShellView(props: PlayerShellViewProps): ReactElement {
               justifyContent: 'center',
             }}
           >
-            <Text style={{ color: '#FFFFFF', fontSize: 18 }}>{'✕'}</Text>
+            <DetailGlyph color="#FFFFFF" size={18} />
           </Pressable>
         </View>
       ) : null}

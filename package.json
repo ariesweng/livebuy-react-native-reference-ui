@@ -1,6 +1,6 @@
 {
   "name": "livebuy-react-native-reference-ui",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "description": "Reference-UI pixel-rendering layer for the Livebuy React Native SDK (binds the livebuy-react-native-ui Default template view-models)",
   "main": "src/index.ts",
   "types": "src/index.ts",

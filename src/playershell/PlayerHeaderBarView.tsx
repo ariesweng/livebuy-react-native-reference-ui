@@ -154,6 +154,21 @@ export interface PlayerHeaderBarProps {
    * is otherwise unread).
    */
   readonly muted?: boolean;
+  /**
+   * Whether the trailing top-right button shows a close (✕) icon instead of the minimize (`◳`)
+   * icon (rb-rn-player-direct-close-button). Default `false` — draws the existing minimize icon,
+   * byte-identical to before this prop existed. `true` → draws the close glyph (the SAME character
+   * `FloatingWidgetView` / `MinimizedWidgetView` already use for their own close buttons) and
+   * switches the accessibility label to「關閉」(see {@link minimizeButtonAccessibilityLabel}).
+   *
+   * A PURE by-value presentation flag — this component holds NO「mode」concept of its own and does
+   * NOT import `livebuy-react-native`'s `LivebuySDK`; the caller (`LivebuyPlayerOverlays`, via
+   * `PlayerShellView`) resolves `LivebuyPlayerConfig.enableDirectCloseButton` against the global
+   * preference and forwards the already-resolved boolean here. `LBTestIDs.playerMinimize` (the
+   * testID) and the {@link onMinimize} callback's own trigger timing are UNCHANGED by this flag —
+   * only the glyph and accessibility label switch.
+   */
+  readonly showCloseIcon?: boolean;
 
   // -- 3. optional action callbacks (LAST, each defaulting to a no-op) --------
   //
@@ -198,12 +213,19 @@ export function PlayerHeaderBar(props: PlayerHeaderBarProps): ReactElement {
   // onToggleSubscribe via `props` (renderHostPill); the trailing frame wires the
   // single minimize button. Destructure only what this top-level frame wires
   // directly so the leading-vs-trailing layout stays readable.
-  const { theme, onMinimize, hidesHostBadge = false, muted = false, onToggleMute } = props;
+  const {
+    theme,
+    onMinimize,
+    hidesHostBadge = false,
+    muted = false,
+    showCloseIcon = false,
+    onToggleMute,
+  } = props;
 
   return (
     // rb-rn-live-chrome-gradient-removal: no decorative background here (design
     // dropped the top-down scrim entirely). HStack: leading host pill flexes up
-    // to the trailing minimize button (parity to iOS/Android/Flutter at fixed width).
+    // to the trailing minimize button.
     <View testID={LBTestIDs.playerHeader}>
       <View
         style={{
@@ -215,9 +237,12 @@ export function PlayerHeaderBar(props: PlayerHeaderBarProps): ReactElement {
           paddingBottom: 14,
         }}
       >
-        {/* Leading slot flexes; the glass pill inside hugs its content and the host
-            name truncates so the fixed LIVE pill + viewer badge + trailing minimize
-            button stay fully visible at the fixed width. */}
+        {/* Leading slot flexes (`Pressable` `flex: 1`); the title/hostName column inside
+            (rb-rn-player-header-title-flex-width) ALSO flexes to fill that reserved space
+            — design `LBPHostBadge`'s inner column is `flex: '1 1 auto'`, not content-hugging,
+            and Android `PlayerHeaderBar.kt`'s title `Column` (`Modifier.weight(1f)`) already
+            matches this. The host name still truncates so the fixed LIVE pill + viewer
+            badge stay fully visible. */}
         {/* Whole host pill is tappable → open the info panel (parity iOS host badge). The
             subscribe badge inside keeps its own inner Pressable. `hidesHostBadge` (clean mode,
             rb-rn-gesture-clean-mode-rewrite) drops the Pressable + its content entirely, leaving
@@ -243,7 +268,7 @@ export function PlayerHeaderBar(props: PlayerHeaderBarProps): ReactElement {
             <View style={{ width: 8 }} />
           </>
         ) : null}
-        {renderMinimizeButton(theme, onMinimize)}
+        {renderMinimizeButton(theme, onMinimize, showCloseIcon)}
       </View>
     </View>
   );
@@ -280,8 +305,11 @@ function renderHostPill(props: PlayerHeaderBarProps): ReactElement {
     >
       {renderAvatar(theme, hostName, title, shopLogo, live, isSubscribed, showSubscribe, onToggleSubscribe)}
       <View style={{ width: 8 }} />
-      {/* Title + (host name · LIVE · viewer) — flexible so the host name truncates. */}
-      <View style={{ flexShrink: 1, flexDirection: 'column', alignItems: 'flex-start' }}>
+      {/* Title + (host name · LIVE · viewer) — `flex: 1` (rb-rn-player-header-title-flex-width)
+          fills the leading slot's already-reserved width (design `LBPHostBadge`'s
+          `flex: '1 1 auto'`, parity Android `Modifier.weight(1f)`) rather than only hugging
+          its own content width; the host name still truncates within that filled space. */}
+      <View style={{ flex: 1, flexDirection: 'column', alignItems: 'flex-start' }}>
         {/* Title slot (design `LBPMarqueeText`, rb-rn-marquee-title-scroll). Renders the very
             same static single-line `Text` this used to render inline; when the title overflows
             AND the merchant allows scrolling it ADDS an absolutely-positioned marquee overlay
@@ -554,10 +582,43 @@ function renderViewerBadge(theme: ReferenceUITheme, viewerCount: number): ReactE
 // bottom-right floating preview (host-owned). info / share live in the side rail;
 // mute is the tap-to-mute gesture on the video area.
 
-function renderMinimizeButton(theme: ReferenceUITheme, onMinimize?: () => void): ReactElement {
+/**
+ * Accessibility label for the trailing minimize/close button, switched by
+ * {@link PlayerHeaderBarProps.showCloseIcon} (rb-rn-player-direct-close-button). `false` (default)
+ * → `undefined` — this button carries NO accessibility label today (it never has), and this
+ * component's existing `showCloseIcon === false` structural-snapshot baseline MUST stay
+ * byte-identical, so the default path deliberately does NOT gain a new prop value. `true` → `'關閉'`
+ * — the close affordance is new, so it gets an explicit label. Pure — parity iOS
+ * `minimizeButtonAccessibilityLabel(showCloseIcon:)` (which labels BOTH states; iOS's PNG snapshots
+ * do not capture accessibility labels, so it has no equivalent byte-identity constraint here).
+ */
+export function minimizeButtonAccessibilityLabel(showCloseIcon: boolean): string | undefined {
+  return showCloseIcon ? '關閉' : undefined;
+}
+
+// Close glyph (rb-rn-player-direct-close-button) — the SAME character
+// `FloatingWidgetView.CLOSE_GLYPH` / `MinimizedWidgetView`'s inline `'✕'` already draw for their
+// own close buttons; not a new glyph choice.
+const CLOSE_GLYPH = '✕';
+
+function renderMinimizeButton(
+  theme: ReferenceUITheme,
+  onMinimize?: () => void,
+  showCloseIcon = false,
+): ReactElement {
   // ◳ = a small frame in the lower-right quadrant — the bottom-right floating
   // preview the minimize collapses into (parity to iOS SF Symbol `pip.enter`).
-  return renderGlassIconButton(theme, 'minimize', '◳', onMinimize);
+  // showCloseIcon === true → ✕ instead (rb-rn-player-direct-close-button): the caller resolved
+  // `LivebuyPlayerConfig.enableDirectCloseButton` and decided the tap now closes directly — this
+  // component only draws the glyph the caller asked for, it does not decide which one to use.
+  const glyph = showCloseIcon ? CLOSE_GLYPH : '◳';
+  return renderGlassIconButton(
+    theme,
+    'minimize',
+    glyph,
+    onMinimize,
+    minimizeButtonAccessibilityLabel(showCloseIcon),
+  );
 }
 
 // MARK: - Clean-mode-limited mute button (rb-rn-gesture-clean-mode-v2)
@@ -603,9 +664,14 @@ function renderGlassIconButton(
   role: string,
   glyph: string,
   onPress?: () => void,
+  accessibilityLabel?: string,
 ): ReactElement {
   return (
-    <Pressable onPress={onPress} testID={role === 'minimize' ? LBTestIDs.playerMinimize : undefined}>
+    <Pressable
+      onPress={onPress}
+      testID={role === 'minimize' ? LBTestIDs.playerMinimize : undefined}
+      accessibilityLabel={accessibilityLabel}
+    >
       <View
         style={{
           width: 36,

@@ -43,6 +43,26 @@
 // whitelists falls back to the pre-setting behaviour (right corner, no wait) through the two pure
 // entry points `normalizeFloatingPosition` / `normalizeFloatingTiming`.
 //
+// close-grace (rb-rn-live-entry-close-grace-period): a fixed, SDK-internal, non-merchant-
+// configurable 2s buffer (`LIVE_ENTRY_CLOSE_GRACE_MS`) additionally withholds the entry's
+// appearance right after the user closes the sibling `CollapsibleLivebuyPlayer` container — even on
+// the merchant-default `'immediate'` timing — so this card does not pop into the same corner the
+// player was just dismissed from. This is a DIFFERENT trigger than `floating_setting.delay` above
+// ("app cold open" vs "just closed the player") and the two are combined via `Math.max` (longer of
+// the two wins), never added, never one replacing the other. See `liveEntryCloseGate.ts` for the
+// cross-container memory this reads.
+//
+// dismiss-survives-remount (rb-rn-live-entry-dismiss-survives-remount): the host mounts this
+// container only while no player is in the foreground, so opening then closing a player unmounts and
+// remounts this container as a brand-new instance — the `dismissed` state in `useLiveEntry`'s
+// `useState` is instance-scoped React state and would otherwise reset to `false` on that remount,
+// even for the SAME live the user just explicitly closed. `liveEntryDismissMemory.ts` (a same-
+// container, cross-instance memory — NOT the cross-container `liveEntryCloseGate.ts` above) records
+// which live id was last explicitly closed so a reset (`applyLiveEntry`'s new-live-id branch) can
+// start `dismissed` at `true` for that same id, making `LivebuyLiveEntryConfig.onClose`'s existing
+// "hide until the next live" promise actually survive the remount. Only the close button (`dismiss`)
+// writes it — tapping the card to watch is a different signal and never does.
+//
 // PURE ASSEMBLY (governance): pixels reuse the existing `FloatingWidget` surface; the drag
 // clamp reuses the existing pure `clampFloatingOffset`; the state machine lives in the pure
 // `liveEntryLogic.ts`. This container adds NO new pixel surface, NO view-model, and touches
@@ -66,6 +86,8 @@ import { LivebuyPlayer } from './LivebuyPlayer';
 import type { LivebuyPlayerConfig } from './LivebuyPlayerConfig';
 import { lbWidgetEffectiveTap } from './widgetData';
 import type { LivebuyLiveEntryConfig } from './LivebuyLiveEntryConfig';
+import { getLastPlayerClosedAtMs } from './liveEntryCloseGate';
+import { getLastDismissedLiveId, markLiveEntryDismissed } from './liveEntryDismissMemory';
 import {
   applyLiveEntry,
   initialLiveEntryState,
@@ -73,9 +95,11 @@ import {
   lbLiveEntryInitialAppeared,
   lbLiveEntryRestingInset,
   lbLiveEntryTransformOrigin,
+  liveEntryCloseGraceRemainingMs,
   liveEntryDismiss,
   liveEntryGate,
   liveEntryHandleEnded,
+  msSinceLastPlayerClose,
   normalizeFloatingPosition,
   normalizeFloatingTiming,
   LIVE_ENTRY_DEFAULT_DELAY_SECONDS,
@@ -148,7 +172,7 @@ function useLiveEntry(
   shopId: string,
   pollIntervalSeconds: number,
   liveEndedSignal: LivebuyLiveEntryConfig['liveEndedSignal'],
-): { state: LiveEntryState; dismiss: () => void } {
+): { state: LiveEntryState; dismiss: (liveId: string) => void } {
   const [state, setState] = useState<LiveEntryState>(initialLiveEntryState);
 
   // Poll loop. `try/catch` (not a swallowed catch→null) distinguishes "no live" (gated →
@@ -166,7 +190,12 @@ function useLiveEntry(
         try {
           const video = await LivebuySDK.fetchLatestLive(shopId);
           if (cancelled) return;
-          setState((s) => applyLiveEntry(s, liveEntryGate(video)));
+          // rb-rn-live-entry-dismiss-survives-remount: `lastDismissedId` makes a reset (new-live-id
+          // apply) start `dismissed` at `true` when this is the SAME live the user explicitly closed
+          // in a prior mount of this same container — the impure `getLastDismissedLiveId()` read
+          // happens HERE (the call site), keeping `applyLiveEntry` itself a pure function of its
+          // explicit inputs (same convention as the close-grace `getLastPlayerClosedAtMs()` read below).
+          setState((s) => applyLiveEntry(s, liveEntryGate(video), getLastDismissedLiveId()));
           await wait(pollIntervalSeconds * 1000);
         } catch {
           await wait(3000); // NOT_CONFIGURED / network → keep state, retry soon
@@ -187,7 +216,16 @@ function useLiveEntry(
     return typeof unsubscribe === 'function' ? unsubscribe : undefined;
   }, [liveEndedSignal]);
 
-  const dismiss = useCallback(() => setState((s) => liveEntryDismiss(s)), []);
+  // rb-rn-live-entry-dismiss-survives-remount: `dismiss` now takes the CURRENT live's id (the call
+  // site already has it in scope — see `LivebuyLiveEntry`'s `card.onClose` below) and records it via
+  // `markLiveEntryDismissed` so this same session stays hidden across this container's own
+  // unmount/remount, in addition to the existing `dismissed = true` transition. This is the ONLY
+  // call site that writes the memory — "tap the card to watch" (`onTapVideo` / default-open-player)
+  // never calls `dismiss` and MUST NOT record anything.
+  const dismiss = useCallback((liveId: string) => {
+    markLiveEntryDismissed(liveId);
+    setState((s) => liveEntryDismiss(s));
+  }, []);
   return { state, dismiss };
 }
 
@@ -279,10 +317,15 @@ export function LivebuyLiveEntry({ shopId, config = {} }: LivebuyLiveEntryProps)
     [liveFloatPan, liveFloatCommitted, liveFloatCardSize, liveFloatInset, position],
   );
 
-  // Appearance gate (`timing`). Its INITIAL value comes from the pure `lbLiveEntryInitialAppeared`
-  // and MUST NOT be a hardcoded boolean — on the DEFAULT `'immediate'` path the effect below
-  // early-returns without ever calling `setAppeared`, so this initial value is the ONLY thing
-  // deciding whether the entry ever draws (source-pinned by liveEntryPositionTiming.test.ts).
+  // Appearance gate (`timing` + close-grace, rb-rn-live-entry-close-grace-period). Its INITIAL
+  // value comes from the pure `lbLiveEntryInitialAppeared` and MUST NOT be a hardcoded boolean. On
+  // a COLD-OPEN `'immediate'` path (the player has never been closed this process) the effect below
+  // computes a wait of exactly `0` and its `setAppeared(true)` call is a same-value no-op against
+  // this initial `true` — so this initial value is still effectively the thing that shows the entry
+  // the moment it becomes eligible in that case. It is no longer the ONLY thing deciding
+  // `'immediate'`'s visibility in general, though: right after a real player close, the effect below
+  // withholds the entry even on the `'immediate'` path, via the close-grace mechanism
+  // (source-pinned by liveEntryPositionTiming.test.ts / liveEntryCloseGracePeriod.test.ts).
   const [appeared, setAppeared] = useState<boolean>(lbLiveEntryInitialAppeared(timing));
 
   // The entry is showable once a live is detected and the user has not closed it. This — NOT
@@ -292,15 +335,32 @@ export function LivebuyLiveEntry({ shopId, config = {} }: LivebuyLiveEntryProps)
   const eligible = !state.dismissed && state.live != null;
 
   useEffect(() => {
-    // source-pinned: `'immediate'` must leave this effect before touching the gate or scheduling
-    // anything, so that path stays byte-identical to the pre-setting behaviour.
-    if (timing !== 'delay') return;
     if (!eligible) {
       setAppeared(false);
       return;
     }
+    // rb-rn-live-entry-close-grace-period: the actual wait before the entry may appear is the
+    // LONGER (Math.max — never added, never substituted) of the merchant-configured
+    // `timing`/`delaySeconds` wait and a fixed SDK-internal buffer since the user last closed
+    // `CollapsibleLivebuyPlayer` (read via the module-level `liveEntryCloseGate`, since that
+    // sibling container shares no React tree with this one). A cold open (the player has never
+    // been closed this process) makes the grace term exactly `0`
+    // (`liveEntryCloseGraceRemainingMs(null) === 0`), so `waitMs` collapses to exactly the
+    // pre-existing `lbLiveEntryAppearDelayMs` value below and this effect's OBSERVABLE behaviour is
+    // unchanged — including the `'immediate'` default, where `existingConfiguredDelayMs` is always
+    // `0`: `waitMs <= 0` is now the ONLY "skip setTimeout, no-op the gate" boundary (replacing the
+    // former `timing !== 'delay'` early return), and the `setAppeared(true)` it takes is a
+    // same-value no-op against the `'immediate'` initial value below (`lbLiveEntryInitialAppeared`).
+    const existingConfiguredDelayMs = lbLiveEntryAppearDelayMs(timing, delaySeconds);
+    const closeGraceRemainingMs = liveEntryCloseGraceRemainingMs(
+      msSinceLastPlayerClose(getLastPlayerClosedAtMs(), Date.now()),
+    );
+    const waitMs = Math.max(existingConfiguredDelayMs, closeGraceRemainingMs);
+    if (waitMs <= 0) {
+      setAppeared(true);
+      return;
+    }
     setAppeared(false);
-    const waitMs = lbLiveEntryAppearDelayMs(timing, delaySeconds);
     const timer = setTimeout(() => setAppeared(true), waitMs);
     return () => clearTimeout(timer); // countdown voided when the live ends / is closed / unmounts
   }, [timing, eligible, delaySeconds]);
@@ -364,7 +424,7 @@ export function LivebuyLiveEntry({ shopId, config = {} }: LivebuyLiveEntryProps)
       onTap={externalLiveAwareTap(lbWidgetEffectiveTap(config.onTapVideo, (item) => setPresented(item)))}
       onClose={() => {
         config.onClose?.();
-        dismiss();
+        dismiss(live.id);
       }}
     />
   );

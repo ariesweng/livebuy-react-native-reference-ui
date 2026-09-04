@@ -27,6 +27,16 @@
 // pure function `resolveProductPhoto` — this view RE-USES it, it does NOT re-derive the ladder.
 // (Before this change it carried its own verbatim copy of `detail.photos[0]`, i.e. exactly the
 // second-consumer duplication that resolvedProductPhoto.ts exists to collapse.)
+//
+// OVERRIDE (rb-rn-product-detail-image-gallery, design R34): the `.detail` presentation's main
+// photo is now a swipeable multi-image gallery (`ProductDetailSheetView.tsx`) — the resolver's
+// `primaryPhoto` is only ever the FIRST drawable entry, but the user may have swiped to a
+// DIFFERENT photo before tapping the zoom badge. {@link ProductImageZoomOverlayProps.overridePhotoURL}
+// lets the container hand over "the photo the gallery is CURRENTLY showing" without this view
+// re-deriving any selection logic of its own — it is a single extra input layered on top of the
+// EXISTING resolver call, not a second resolution path. Omitted / blank → unchanged behaviour
+// (falls back to `resolveProductPhoto(...).primaryPhoto`, byte-identical to before this prop
+// existed).
 
 import { useRef, useState } from 'react';
 import type { ReactElement } from 'react';
@@ -82,6 +92,21 @@ export interface ProductImageZoomOverlayProps {
    * a NEW cross-surface inconsistency of exactly the kind this change removes. Read-only.
    */
   readonly selectedSpec?: LBSpec | null;
+  /**
+   * The photo the caller's gallery is CURRENTLY showing (rb-rn-product-detail-image-gallery,
+   * design R34), overriding `resolveProductPhoto(detail, selectedSpec).primaryPhoto`. The
+   * container (`ProductSheetsView`) passes the `.detail` presentation's currently-selected
+   * gallery photo URL — captured at the moment the zoom badge is tapped — so the lightbox
+   * magnifies the EXACT photo the user was looking at, not always the resolver's first
+   * drawable entry.
+   *
+   * A `undefined` OR blank (empty / whitespace-only after trim) value is treated as "no
+   * override": the resolver's `primaryPhoto` is used, exactly as before this prop existed —
+   * existing call sites / demo / tests that omit it are source- and behaviour-compatible.
+   * Read-only, by value; this view does NOT re-derive which photo is "current" — that
+   * decision belongs entirely to the caller's gallery selection.
+   */
+  readonly overridePhotoURL?: string;
   /** `false` (snapshot / demo) → fill + monogram placeholder; `true` → real photo. */
   readonly live?: boolean;
   /** Backdrop / close-button tap → container clears `zoomedDetail`. */
@@ -95,7 +120,7 @@ export interface ProductImageZoomOverlayProps {
 export function ProductImageZoomOverlay(
   props: ProductImageZoomOverlayProps,
 ): ReactElement {
-  const { theme, detail, selectedSpec = null, live = false, onClose } = props;
+  const { theme, detail, selectedSpec = null, overridePhotoURL, live = false, onClose } = props;
   const [z, setZ] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
 
@@ -141,7 +166,16 @@ export function ProductImageZoomOverlay(
   // WHICH photo is magnified is resolved by the SAME pure function the sheet uses, fed the
   // SAME `selectedSpec`, so the lightbox always shows the image the user just tapped. This
   // view MUST NOT re-derive the degradation ladder (rn-product-sheet-spec-photo-reference-ui).
-  const photoUri = resolveProductPhoto(detail, selectedSpec).primaryPhoto ?? undefined;
+  //
+  // `overridePhotoURL` (rb-rn-product-detail-image-gallery, design R34) takes priority over the
+  // resolver's `primaryPhoto` when it is a non-blank string — the gallery's CURRENT selection
+  // wins over "the first drawable photo". A blank / omitted override is NOT a valid override
+  // (mirrors `resolveProductPhoto`'s own "blank means unusable" judgement, applied here only to
+  // the override value itself — this is NOT a second source-selection ladder).
+  const hasOverride = overridePhotoURL != null && overridePhotoURL.trim().length > 0;
+  const photoUri = hasOverride
+    ? overridePhotoURL
+    : resolveProductPhoto(detail, selectedSpec).primaryPhoto ?? undefined;
   const zoomed = z > 1;
 
   return (

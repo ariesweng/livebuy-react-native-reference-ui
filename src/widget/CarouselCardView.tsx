@@ -15,9 +15,12 @@
 //     Image; the design's <ProductMock> becomes a solid fill + title monogram),
 //   • a KIND BADGE top-left:
 //       - LIVE → a red「LIVE」tag (static pulse dot) when the item is live
-//                (`WidgetModel.isLive` — `liveStatus === 1`),
-//       - VOD  → a「▶ mm:ss」duration pill (from `LBVideoItem.duration` SECONDS)
-//                otherwise,
+//                (`WidgetModel.isLive` — `liveStatus === 1`), optionally followed by a
+//                VIEWER BADGE (see below),
+//       - VOD  → NO kind badge at all (rb-rn-carousel-card-pin-viewers-duration-removal,
+//                design R33 — the「▶ mm:ss」duration pill that used to render here has
+//                been retired; a VOD card shows nothing at this position),
+//   • a PIN BADGE top-right (see below), independent of LIVE / VOD / UPCOMING,
 //   • a PRODUCT CARD whose placement depends on `product_card` (see below), drawn from a
 //     reference-ui {@link WidgetGoods} value (the RN core `LBVideoItem` has NO `goods`
 //     field; supplied BY VALUE): thumb chip + `goods.name` +「NT$ price」(+ an optional
@@ -30,29 +33,59 @@
 // (That is an ELEMENT LIST, not a top-to-bottom order — where the product card sits
 // relative to the title is decided by `product_card`; see PRODUCT-CARD PLACEMENT.)
 //
-// PRODUCT-CARD MODES (rb-rn-widget-product-card-modes, design R14 —
+// PIN BADGE (rb-rn-carousel-card-pin-viewers-duration-removal, design R33 —
+// `design/templates/minimal/widgets.jsx` `LBPCarouselCard`'s `item.pinned` block). `video.pin
+// > 0` (core `LBVideoItem.pin`, Int 0/1 — read directly, no reference-ui parity delta the way
+// `goods` has one) draws a small white pushpin/flag glyph ({@link PinGlyph}, self-drawn — NOT
+// `Icons.pinFill`, a deliberately different shape per the design ledger) top-right of the
+// thumbnail. It renders in ALL THREE kinds (LIVE / VOD / UPCOMING) — it is NOT part of the
+// kind badge and does not replace it, and composites ON TOP of the UPCOMING dark mask when
+// both apply. NOT the family-2 chat「置頂留言」(pinned CHAT MESSAGE) feature — this pins a
+// VIDEO, an unrelated concept (see `feedwin`'s `pinnedCard` / `pinnedBanner` test ids).
+//
+// VIEWER BADGE (rb-rn-carousel-card-pin-viewers-duration-removal, design R33). A small dark
+// glass-look pill (`rgba(0,0,0,0.4)` — this package has no native blur dependency, so the
+// design's `backdropFilter: blur(6px)` is approximated as a plain translucent fill, the same
+// convention this file's product overlay already used before R33) showing a person glyph
+// ({@link PersonGlyph}) + `video.watchNum`, drawn immediately to the right of the LIVE tag.
+// LIVE-ONLY (never drawn for VOD / UPCOMING) and additionally gated on `video.showPvNum > 0`
+// (core `LBVideoItem.showPvNum` — the backend's own "should this viewer count be shown" flag)
+// AND `video.watchNum > 0` (nothing to show at zero, mirroring the design demo's `item.viewers
+// &&` truthiness gate). Both `pin` / `watchNum` / `showPvNum` are plain `LBVideoItem` fields —
+// unlike `goods`, RN core already carries them, so this is NOT a new parity delta.
+//
+// PRODUCT-CARD MODES (rb-rn-widget-product-card-modes, design R14; white-card colors updated
+// by rb-rn-carousel-card-pin-viewers-duration-removal / design R33 —
 // `design/templates/minimal/widgets.jsx` `normalizeProductCardMode` / `LBPCardProductRow`
 // / `LBPCardProductOverlay`). `POST /sdk/widget` carries a root `product_card` String
 // (`inside` / `below` / `hidden`, backend default `inside`), raw-passed through the RN
 // bridge (`LBWidgetSettings.productCard`) → `LBWidgetContent.productCard` →
 // `WidgetModel.productCard` → this card's `productCard?: string | null` prop:
 //
-//     inside (default)  the dark-glass overlay INSIDE the 9:16 thumbnail (the historical,
-//                       unconditional rendering — pixels unchanged). `goods == null` → the
-//                       whole block is not drawn.
+//     inside (default)  a WHITE card (`rgba(255,255,255,0.9)`, no border, 4px radius — R33
+//                       retired the earlier dark-glass + white-text treatment) overlaid
+//                       INSIDE the 9:16 thumbnail's bottom. `goods == null` → the whole
+//                       block is not drawn.
 //     below             the product card moves OUTSIDE the thumbnail, landing UNDER THE
 //                       TITLE, at the very BOTTOM of the card (design ledger R17, see
-//                       PRODUCT-CARD PLACEMENT below). Off the dark video backdrop it
-//                       switches to the design's surface vocabulary (bgElev fill + stroke
-//                       border + `theme.text` name + sale price + textFaint struck-through
-//                       original price). `goods == null` → an EQUAL-HEIGHT TRANSPARENT
-//                       PLACEHOLDER so cards in the same row / grid cell stay the same height.
+//                       PRODUCT-CARD PLACEMENT below). Same WHITE-card vocabulary as `inside`
+//                       (R33 unified the two — no more dark-glass / template-surface-token
+//                       split): `rgba(255,255,255,0.9)` fill, no border, 4px radius, `#1a1a1a`
+//                       name, sale-red price, faint struck-through original price. `goods ==
+//                       null` → an EQUAL-HEIGHT TRANSPARENT PLACEHOLDER so cards in the same
+//                       row / grid cell stay the same height.
 //     hidden            no product card at all (neither overlay nor row, and NO placeholder
 //                       — every card in the surface is equally card-less).
 //
-// The LIVE tag / duration pill / upcoming veil / title are IDENTICAL in all three modes.
-// Equal height comes from the FIXED constant `BELOW_ROW_HEIGHT` (design
-// `LB_BELOW_ROW_H = 44`), NOT from the content.
+// The LIVE tag / pin badge / upcoming veil / title are IDENTICAL in all three modes.
+//
+// `below` HEIGHT (R33 change): only the NO-GOODS placeholder still uses the fixed
+// `BELOW_ROW_HEIGHT` constant (design `LB_BELOW_ROW_H = 44`). A POPULATED `below` row no
+// longer forces that height — the upstream design silently dropped the earlier
+// content-independent equal-height rule for populated rows (design ledger R33: 使用者裁決
+// 「照設計稿原樣，不補回固定高度」), so a populated row's height now follows its content
+// (36px thumb + padding), which can differ slightly depending on whether the row also carries
+// a struck-through original price. This is a DELIBERATE upstream decision, not a regression.
 //
 // PRODUCT-CARD PLACEMENT (rb-rn-widget-product-card-below-slot-reposition, design ledger
 // R17 — `design/contract/claude-design-sync.md`). The card's children are declared in the
@@ -77,13 +110,11 @@
 // THREE-WAY KIND DERIVATION (LIVE → UPCOMING → VOD): the core `LBVideoItem` carries
 // `liveStatus: number` + `type: number` + `publishAt: string` (UTC+8), enough to render
 // LIVE / UPCOMING / VOD (RN parity of iOS / Android / Flutter `CarouselCardView`):
-//   `liveStatus === 1`                       → LIVE (red LIVE tag, NO duration pill).
+//   `liveStatus === 1`                       → LIVE (red LIVE tag + optional viewer badge).
 //   `liveStatus === 0` && `type === 2`       → UPCOMING (直播預告): rgba(0,0,0,0.25)
-//      && publishAt parses                     mask + centred date + big time (the
-//                                             design's upcoming treatment, replacing
-//                                             the duration pill).
-//   otherwise (regular VOD `type === 1`,     → VOD  (duration pill from `duration`).
-//      empty/unparseable publishAt, replay)
+//      && publishAt parses                     mask + centred date + big time.
+//   otherwise (regular VOD `type === 1`,     → VOD  (NO kind badge — R33 retired the
+//      empty/unparseable publishAt, replay)     「▶ mm:ss」duration pill that used to render here).
 // `type === 2` is the backend's canonical scheduled-live signal (rb-rn-widget-upcoming-
 // type，問題 6); it replaces the prior `publishAtInFuture` time-heuristic, which depended
 // on the wall clock and conflated regular VOD (`type === 1`) with scheduled live whose
@@ -130,6 +161,8 @@ import { scheduledDate, scheduledTime } from '../playershell/UpcomingCountdownVi
 // rb-rn-widget-upcoming-type（問題 6）：upcoming 改用後端 `type === 2`，移除 publishAtInFuture 時間 heuristic。
 import { RemoteImage } from '../productsheets/RemoteImage';
 import { LoopingVideoView } from './LoopingVideoView';
+import { PinGlyph } from './PinGlyph';
+import { PersonGlyph } from './PersonGlyph';
 
 import type { LBVideoItem } from 'livebuy-react-native';
 
@@ -173,7 +206,8 @@ export function normalizeProductCardMode(raw: string | null | undefined): LBProd
 }
 
 /**
- * Whether the mode draws the dark-glass overlay INSIDE the 9:16 thumbnail.
+ * Whether the mode draws the white-card overlay INSIDE the 9:16 thumbnail (R33 retired the
+ * earlier dark-glass treatment — see PRODUCT-CARD MODES in the file header).
  *
  * A `Record<LBProductCardMode, boolean>` rather than a chain of `===` in the view body:
  * the mapped type demands a key for EVERY union member, so growing the domain turns into
@@ -199,6 +233,12 @@ const DRAWS_BELOW_ROW: Record<LBProductCardMode, boolean> = {
  * Format `number` seconds → `mm:ss` (for `LBVideoItem.duration`, which IS seconds).
  * Clamps negative / nullish / non-finite to `"00:00"`; floors fractional seconds.
  * Parity with the family-4 `formatSeconds` (e.g. `28` → `"00:28"`).
+ *
+ * NO LONGER CALLED by this component's own render (rb-rn-carousel-card-pin-viewers-duration-
+ * removal, design R33 retired the VOD「▶ mm:ss」duration-pill kind badge that used to call
+ * this). Retained as a public export — re-exported from `index.ts` — for source-compat with
+ * any existing host / test code that imported it directly, and to keep parity with the
+ * family-4 sibling of the same name.
  */
 export function formatSeconds(seconds: number | null | undefined): string {
   const n = typeof seconds === 'number' && Number.isFinite(seconds) ? Math.floor(seconds) : 0;
@@ -245,9 +285,9 @@ export interface CarouselCardViewProps {
   /** The resolved reference-ui theme (FIRST — SUB-VIEW INPUT PATTERN). */
   readonly theme: ReferenceUITheme;
   /**
-   * The video this card renders (read-only — `title` / `duration` / `liveStatus` /
-   * `cover`). The deterministic placeholder (fill + monogram) always renders; at
-   * RUNTIME (`live === true`, see {@link CarouselCardViewProps.live}) the real
+   * The video this card renders (read-only — `title` / `duration` / `liveStatus` / `cover` /
+   * `pin` / `watchNum` / `showPvNum`). The deterministic placeholder (fill + monogram) always
+   * renders; at RUNTIME (`live === true`, see {@link CarouselCardViewProps.live}) the real
    * `video.cover` loads OVER it via {@link RemoteImage}. This layer never mutates /
    * re-fetches.
    */
@@ -277,7 +317,7 @@ export interface CarouselCardViewProps {
    *
    * Omitted (`undefined`, the DEFAULT — and what every pre-existing call site passes) or
    * `null` (the backend sent nothing) → `'inside'`, i.e. the historical unconditional
-   * dark-glass overlay, pixel-for-pixel unchanged. `'below'` moves the product card
+   * white-card overlay (R33; see PRODUCT-CARD MODES in the file header). `'below'` moves the product card
    * outside the thumbnail, under the title at the bottom of the card (see PRODUCT-CARD
    * PLACEMENT in the file header); `'hidden'` draws none at all. Anything else falls back
    * to `'inside'`.
@@ -312,9 +352,10 @@ export interface CarouselCardViewProps {
 
 /**
  * The shared family-5 widget card (`LBPCarouselCard`): a 9:16 thumbnail placeholder +
- * LIVE / VOD kind badge + an optional bottom dark-glass product overlay + the title
- * below. `onTap` is a host-wired exit (the card never opens the player itself); it
- * renders correctly with `onTap` omitted (demo / golden).
+ * LIVE kind badge (+ optional viewer badge) / no VOD badge + a pin badge + an optional
+ * bottom white-card product overlay + the title below. `onTap` is a host-wired exit (the
+ * card never opens the player itself); it renders correctly with `onTap` omitted
+ * (demo / golden).
  */
 export function CarouselCardView(props: CarouselCardViewProps): ReactElement {
   const {
@@ -338,6 +379,10 @@ export function CarouselCardView(props: CarouselCardViewProps): ReactElement {
   const isUpcoming =
     !isLive && video.type === 2 && scheduledDate(video.publishAt).length > 0;
   const thumbHeight = (width * 16) / 9;
+  // VIEWER BADGE gate (rb-rn-carousel-card-pin-viewers-duration-removal, design R33):
+  // LIVE-only, AND the backend's own "should this be shown" flag, AND a non-zero count —
+  // see VIEWER BADGE in the file header.
+  const showViewerBadge = isLive && video.showPvNum > 0 && video.watchNum > 0;
 
   return (
     <Pressable onPress={() => onTap?.()} style={[styles.card, { width }]}>
@@ -371,7 +416,8 @@ export function CarouselCardView(props: CarouselCardViewProps): ReactElement {
         {/* UPCOMING (直播預告): a full-bleed rgba(0,0,0,0.25) dark mask + a centred date
             (small) + big time, REPLACING the top-left kind badge (the centre overlay IS
             the indicator). Date / time are pure string reformats of publishAt (shared
-            with UpcomingCountdownView) → deterministic. Else the LIVE / VOD kind badge. */}
+            with UpcomingCountdownView) → deterministic. Else the LIVE kind badge (or
+            nothing, for VOD — see the R33 comment on the else branch below). */}
         {isUpcoming ? (
           <View testID={LBTestIDs.cardUpcomingOverlay} style={styles.upcomingMask}>
             {scheduledDate(video.publishAt).length > 0 ? (
@@ -391,30 +437,47 @@ export function CarouselCardView(props: CarouselCardViewProps): ReactElement {
             </Text>
           </View>
         ) : (
+          // VOD (neither live nor upcoming) → NO kind-badge content (rb-rn-carousel-card-pin-
+          // viewers-duration-removal, design R33 retired the「▶ mm:ss」duration pill that used
+          // to render here). The wrapper `View` still renders — empty, no visible pixels — so
+          // `cardKindBadge` stays a stable structural anchor across all three kinds.
           <View testID={LBTestIDs.cardKindBadge} style={styles.badgeSlot}>
             {isLive ? (
-              <View testID={LBTestIDs.cardLiveBadge} style={styles.liveTag}>
-                <View style={styles.liveDot} />
-                <Text style={[styles.liveLabel, { fontSize: 10 * theme.fontScale }]}>
-                  {LIVE_LABEL}
-                </Text>
-              </View>
-            ) : (
-              <View testID={LBTestIDs.cardDurationPill} style={styles.durationPill}>
-                <Text style={[styles.playGlyph, { fontSize: 8 * theme.fontScale }]}>▶</Text>
-                <Text style={[styles.durationText, { fontSize: 10 * theme.fontScale }]}>
-                  {formatSeconds(video.duration)}
-                </Text>
-              </View>
-            )}
+              <>
+                <View testID={LBTestIDs.cardLiveBadge} style={styles.liveTag}>
+                  <View style={styles.liveDot} />
+                  <Text style={[styles.liveLabel, { fontSize: 10 * theme.fontScale }]}>
+                    {LIVE_LABEL}
+                  </Text>
+                </View>
+                {/* VIEWER BADGE (design R33) — LIVE-only, see `showViewerBadge` above. */}
+                {showViewerBadge ? (
+                  <View testID={LBTestIDs.cardViewerBadge} style={styles.viewerBadge}>
+                    <PersonGlyph color={WHITE} size={9} />
+                    <Text style={[styles.viewerBadgeText, { fontSize: 10 * theme.fontScale }]}>
+                      {video.watchNum}
+                    </Text>
+                  </View>
+                ) : null}
+              </>
+            ) : null}
           </View>
         )}
 
-        {/* bottom dark-glass product overlay — `inside` mode ONLY (READ-ONLY tag, and only
-            when goods != null). `below` / `hidden` draw nothing here. */}
+        {/* PIN BADGE (design R33) — top-right, independent of LIVE / VOD / UPCOMING; renders
+            in all three, on top of the UPCOMING dark mask when both apply. See PIN BADGE in
+            the file header — NOT the chat「置頂留言」feature. */}
+        {video.pin > 0 ? (
+          <View testID={LBTestIDs.cardPinBadge} style={styles.pinBadge}>
+            <PinGlyph color={WHITE} size={16} />
+          </View>
+        ) : null}
+
+        {/* bottom white-card product overlay (R33; was dark-glass) — `inside` mode ONLY
+            (READ-ONLY tag, and only when goods != null). `below` / `hidden` draw nothing here. */}
         {DRAWS_INSIDE_OVERLAY[mode] && goods != null ? (
           <View style={styles.goodsOverlay}>
-            {/* 24×24 product chip: gradient placeholder + (live) the real goods.pic over it
+            {/* 44×44 product chip: gradient placeholder + (live) the real goods.pic over it
                 (parity iOS productThumb). live===false (snapshot/demo) → RemoteImage renders null. */}
             <View style={styles.goodsThumb}>
               <RemoteImage live={live} uri={goods.pic} borderRadius={5} resizeMode="contain" />
@@ -455,25 +518,23 @@ export function CarouselCardView(props: CarouselCardViewProps): ReactElement {
           The design reversed this placement on 2026-08-11 (design ledger R17 — it overturned
           its own 2026-08-05 decision, which had put the row between the thumbnail and the
           title and forbidden it under the title); `LBPCarouselCard` now declares
-          縮圖 → 標題 → `LBPCardProductRow`, and this card follows. Off the dark video backdrop the
-          dark-glass + white-text vocabulary no longer holds, so this row uses the design's
-          surface tokens. When the card has NO goods it still reserves an EQUAL-HEIGHT
-          TRANSPARENT placeholder (the design's `aria-hidden` empty div) so cards in the same
-          row / grid cell stay the same height. `inside` / `hidden` render nothing here at
-          all. */}
+          縮圖 → 標題 → `LBPCardProductRow`, and this card follows. Off the dark video backdrop
+          this row uses the same WHITE-card vocabulary as the `inside` overlay (R33 unified
+          the two). When the card has NO goods it still reserves an EQUAL-HEIGHT TRANSPARENT
+          placeholder (the design's `aria-hidden` empty div, fixed at `BELOW_ROW_HEIGHT`) so
+          cards in the same row / grid cell stay the same height; a POPULATED row (below) no
+          longer forces that same fixed height — R33 dropped that rule, see the file header's
+          `below` HEIGHT note. `inside` / `hidden` render nothing here at all. */}
       {DRAWS_BELOW_ROW[mode] ? (
         goods != null ? (
-          <View
-            testID={LBTestIDs.cardBelowProductRow}
-            style={[styles.belowRow, { width, height: BELOW_ROW_HEIGHT }]}
-          >
-            {/* 32×32 product chip: gradient placeholder + (live) the real goods.pic over it. */}
+          <View testID={LBTestIDs.cardBelowProductRow} style={[styles.belowRow, { width }]}>
+            {/* 36×36 product chip: gradient placeholder + (live) the real goods.pic over it. */}
             <View style={styles.belowRowThumb}>
               <RemoteImage live={live} uri={goods.pic} borderRadius={5} resizeMode="contain" />
             </View>
             <View style={styles.belowRowTextCol}>
               <Text
-                style={[styles.belowRowName, { color: theme.text, fontSize: 11 * theme.fontScale }]}
+                style={[styles.belowRowName, { color: NAME_DARK, fontSize: 11 * theme.fontScale }]}
                 numberOfLines={1}
               >
                 {goods.name}
@@ -516,36 +577,45 @@ export function CarouselCardView(props: CarouselCardViewProps): ReactElement {
 const LIVE_LABEL = 'LIVE';
 const PRICE_PREFIX = 'NT$ ';
 
-// Decorative design tokens (literal widgets.jsx colors — FIXED, NOT theme-derived;
-// the dark-glass treatment composites over the dark thumbnail).
+// Decorative design tokens (literal widgets.jsx colors — FIXED, NOT theme-derived).
 const LIVE_RED = '#F03246'; // LBPCarouselCard brand-red LIVE tag surface.
 const COVER_FILL = '#26262E'; // dark 9:16 cover placeholder fill.
-const PILL_DARK = 'rgba(0,0,0,0.55)'; // VOD duration pill capsule.
-const PRODUCT_GLASS = 'rgba(20,20,24,0.78)'; // bottom product overlay surface.
-const GLASS_BORDER = 'rgba(255,255,255,0.10)';
 const GOODS_THUMB = '#E8A87C'; // product thumb chip placeholder fill.
 const WHITE = '#FFFFFF';
+// VIEWER BADGE background (design R33): `rgba(0,0,0,0.4)` — this package has no native blur
+// dependency, so the design's `backdropFilter: blur(6px)` glass look is approximated as a
+// plain translucent fill (see VIEWER BADGE in the file header).
+const VIEWER_BADGE_BG = 'rgba(0,0,0,0.4)';
 
-// `below` mode surface vocabulary (LBPCardProductRow). Off the dark video backdrop the
-// dark-glass tokens above no longer apply, so this row follows the design's SURFACE
-// tokens. RN's `ReferenceUITheme` is the same 5-token thin palette as iOS / Android
-// (accent / background / text / cornerRadius / fontScale) and carries no
-// `surface.*` / `sale` entry, so — exactly like the decorative tokens above — these are
-// pinned as design light-mode literals here. The four values are BYTE-IDENTICAL to the
-// iOS `CarouselCardView.swift` and Android `CarouselCardView.kt` constants (all three
-// read `design/brands/livebuy/tokens.jsx` light mode). The product NAME deliberately uses
-// the RESOLVED `theme.text` (= the design's `theme.surface.text`), matching how the card's
-// own `title` is painted.
-const BELOW_ROW_BG = '#FAFAFA'; // theme.surface.bgElev — the below row's elevated fill.
-const BELOW_ROW_BORDER = '#ECECEF'; // theme.surface.stroke — the below row's hairline border.
-const SALE_RED = '#F03246'; // theme.sale — the below row's sale price.
-const TEXT_FAINT = '#9A9BA5'; // theme.surface.textFaint — the struck-through original price.
+// Shared WHITE-CARD vocabulary for BOTH product-card placements (`inside` overlay AND
+// `below` row) — design R33 (rb-rn-carousel-card-pin-viewers-duration-removal) retired the
+// earlier split treatment (dark-glass `inside` + template-surface-token `below`) and unified
+// both onto one white-card look: `rgba(255,255,255,0.9)` fill, NO border, 4px radius,
+// `#1a1a1a` product name. RN's `ReferenceUITheme` is the same 5-token thin palette as iOS /
+// Android (accent / background / text / cornerRadius / fontScale) and carries no
+// `surface.*` / `sale` entry, so — like the decorative tokens above — these are pinned as
+// design light-mode literals here, BYTE-IDENTICAL to the iOS `CarouselCardView.swift` and
+// Android `CarouselCardView.kt` constants (all three read `design/brands/livebuy/tokens.jsx`
+// light mode / the design's own literal `#1a1a1a`). Unlike the pre-R33 `below` row, the
+// product NAME is now a FIXED literal (`NAME_DARK`), not the resolved `theme.text` — the
+// design source itself hardcodes `#1a1a1a` for both placements, no longer a theme reference.
+const PRODUCT_CARD_BG = 'rgba(255,255,255,0.9)'; // both placements' white-card fill.
+const NAME_DARK = '#1a1a1a'; // both placements' product-name color.
+const SALE_RED = '#F03246'; // theme.sale — both placements' sale price.
+const TEXT_FAINT = '#9A9BA5'; // theme.surface.textFaint — the `below` row's struck-through original price.
 
 /**
- * Fixed height of the `below` product row AND of its no-goods transparent placeholder
- * (design `LB_BELOW_ROW_H = 44`). Equal card height comes from THIS constant, not from how
- * much content the row happens to hold (product-name length / presence of an original
- * price never change it).
+ * Fixed height of the `below` row's NO-GOODS transparent placeholder (design
+ * `LB_BELOW_ROW_H = 44`), so a goods-less card still takes up the same vertical space as a
+ * populated one in the same row / grid.
+ *
+ * R33 (rb-rn-carousel-card-pin-viewers-duration-removal) DROPPED the earlier rule that a
+ * POPULATED `below` row (`goods != null`) also used this fixed height — the upstream design
+ * silently removed that content-independent equal-height rule (design ledger R33: 使用者裁決
+ * 「照設計稿原樣，不補回固定高度」). A populated row's height today follows its content
+ * (the 36px thumb + padding), which can differ slightly from `BELOW_ROW_HEIGHT` depending on
+ * whether the row also carries a struck-through original price — this is a DELIBERATE
+ * upstream decision, not a regression. Only the placeholder below still reads this constant.
  */
 const BELOW_ROW_HEIGHT = 44;
 
@@ -571,10 +641,22 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     color: 'rgba(255,255,255,0.85)',
   },
+  // rb-rn-carousel-card-pin-viewers-duration-removal (design R33): `flexDirection: 'row'`
+  // added so the VIEWER BADGE sits to the RIGHT of the LIVE tag (matching the design's own
+  // `gap: 6` flex row wrapping both). Harmless for the VOD case (the slot renders empty, no
+  // visible pixels either way).
   badgeSlot: {
     position: 'absolute',
     top: 6,
     left: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  // rb-rn-carousel-card-pin-viewers-duration-removal (design R33): top-right pin badge.
+  pinBadge: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
   },
   // UPCOMING (直播預告): full-bleed dark mask + centred date + big time (replaces the
   // kind badge). black @ 0.25.
@@ -619,23 +701,24 @@ const styles = StyleSheet.create({
     color: WHITE,
     letterSpacing: 0.6,
   },
-  durationPill: {
+  // rb-rn-carousel-card-pin-viewers-duration-removal (design R33): LIVE-only viewer-count
+  // badge, drawn to the right of the LIVE tag (see `badgeSlot`'s `flexDirection: 'row'`).
+  viewerBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingLeft: 4,
-    paddingRight: 6,
+    marginLeft: 6,
+    paddingLeft: 5,
+    paddingRight: 7,
     paddingVertical: 2,
     borderRadius: 999,
-    backgroundColor: PILL_DARK,
+    backgroundColor: VIEWER_BADGE_BG,
   },
-  playGlyph: {
-    color: WHITE,
-    marginRight: 4,
-  },
-  durationText: {
-    fontWeight: '600',
+  viewerBadgeText: {
+    marginLeft: 3,
+    fontWeight: '700',
     color: WHITE,
   },
+  // white-card product overlay (R33; was dark-glass — see PRODUCT_CARD_BG doc above).
   goodsOverlay: {
     position: 'absolute',
     left: 6,
@@ -643,16 +726,13 @@ const styles = StyleSheet.create({
     bottom: 6,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 7,
-    paddingVertical: 5,
-    borderRadius: 8,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: GLASS_BORDER,
-    backgroundColor: PRODUCT_GLASS,
+    paddingRight: 7,
+    borderRadius: 4,
+    backgroundColor: PRODUCT_CARD_BG,
   },
   goodsThumb: {
-    width: 24,
-    height: 24,
+    width: 44,
+    height: 44,
     borderRadius: 5,
     backgroundColor: GOODS_THUMB,
     marginRight: 6,
@@ -662,36 +742,35 @@ const styles = StyleSheet.create({
   },
   goodsName: {
     fontWeight: '600',
-    color: WHITE,
+    color: NAME_DARK,
   },
   goodsPrice: {
     marginTop: 1,
     fontWeight: '900',
-    color: WHITE,
+    color: SALE_RED,
   },
   title: {
     marginTop: 8,
     fontWeight: '600',
   },
-  // `below` mode (LBPCardProductRow). `marginTop: 8` reproduces the same rhythm the title
-  // already uses, so the card reads 縮圖 →(8)→ 標題 →(8)→ 商品列 (parity iOS
-  // `VStack(spacing: 8)` / Android `Arrangement.spacedBy(8.dp)`). Width/height are supplied
-  // inline (the card's own `width` prop + BELOW_ROW_HEIGHT) — every child of this card takes
-  // an explicit width, never `'100%'`.
+  // `below` mode (LBPCardProductRow), same white-card vocabulary as `goodsOverlay` (R33).
+  // `marginTop: 8` reproduces the same rhythm the title already uses, so the card reads
+  // 縮圖 →(8)→ 標題 →(8)→ 商品列 (parity iOS `VStack(spacing: 8)` / Android
+  // `Arrangement.spacedBy(8.dp)`). Width is supplied inline (the card's own `width` prop) —
+  // every child of this card takes an explicit width, never `'100%'`. UNLIKE the no-goods
+  // spacer below, this style carries NO fixed `height` — R33 dropped the populated row's
+  // fixed-height rule (see `BELOW_ROW_HEIGHT`'s doc comment); height follows content.
   belowRow: {
     marginTop: 8,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 7,
-    paddingVertical: 5,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: BELOW_ROW_BORDER,
-    backgroundColor: BELOW_ROW_BG,
+    paddingRight: 7,
+    borderRadius: 4,
+    backgroundColor: PRODUCT_CARD_BG,
   },
   belowRowThumb: {
-    width: 32,
-    height: 32,
+    width: 36,
+    height: 36,
     borderRadius: 5,
     backgroundColor: GOODS_THUMB,
     marginRight: 7,

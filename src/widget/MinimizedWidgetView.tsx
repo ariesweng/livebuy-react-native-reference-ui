@@ -230,15 +230,18 @@ const styles = StyleSheet.create({
     right: 4,
   },
   closeButton: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
+    // 28×28 round (rb-rn-live-replay-more-menu-and-video-info-live-copy, design R32 — enlarged
+    // from the prior 20×20, parity with the sibling `FloatingWidgetView.styles.closeButton`;
+    // `FloatingCloseButtonLayout.test.tsx` asserts the two stay identical).
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     backgroundColor: CLOSE_DARK,
     alignItems: 'center',
     justifyContent: 'center',
   },
   closeGlyph: {
-    fontSize: 11,
+    fontSize: 14,
     fontWeight: '700',
     color: WHITE,
   },

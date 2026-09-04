@@ -7,7 +7,8 @@
 //   centered card (`width:'84%'`, `maxWidth:320`, `borderRadius:20`) + a badge floated above the
 //   card's top edge (white circle, `accent`-tinted gift glyph, `top:-30`, 4px surface-bg border) +
 //   title (`activity.title`) + prize name (`activity.award[0]?.name`, design.md D2) + a
-//   keyword-CTA copy line + a「立即參加」/「已參加」primary button + a static footer.
+//   keyword-CTA copy line + an always-「立即參加」primary button (repeatable, no lock — see below)
+//   + a static footer.
 // Parity: mirrors this package's own `WinClaimSheetView.tsx` centered-card SHELL (scrim +
 //   `borderRadius:20` + `width:'84%'` + `maxWidth:320` + a badge floated above the card) — see that
 //   file's header for the shared conventions this shell inherits — but is deliberately SIMPLER: no
@@ -26,12 +27,17 @@
 //   3. optional trailing action callbacks (`onClose` / `onJoin`), each defaulting to a no-op, so a
 //      demo / structural-snapshot instance constructs action-free.
 //
-// This layer holds ONE piece of local UI state — `joined` (a fire-and-forget visual flip on CTA
-// tap; parity the design's own `React.useState(false)`). This is NOT a second copy of
-// authoritative state: unlike the win-claim sheet's `submitInFlight` / `resultState` (bound to a
-// real view-model in-flight/result machine), `joinEvent` has no result to await, so there is
-// nothing for a view-model to own here — the tap's ENTIRE lifecycle is "did the user tap the
-// button", which is exactly what `joined` records.
+// CTA is STATELESS and REPEATABLE (rb-rn-activity-sheet-cta-repeatable) — this layer holds NO
+// local UI state for the join tap. Every tap forwards `onJoin()` independently; the button never
+// disables, never flips its text, and never remembers a prior tap. This is a deliberate reversal
+// of this component's first cut (`rb-rn-live-activity-sheet`), which briefly held a one-shot
+// `joined` flag (parity the design mock's own `React.useState(false)`) that locked the CTA to a
+// disabled「已參加」state after the first tap — reported as a bug (a live lottery-activity join
+// modal is not a one-shot claim; the user must be able to tap it again). Unlike the win-claim
+// sheet's `submitInFlight` / `resultState` (bound to a real view-model in-flight/result machine),
+// `joinEvent` has no result to await and no "did the user already join" state worth owning here —
+// the tap's ENTIRE lifecycle is "forward this tap", which is exactly what `handleJoinPress` does,
+// nothing more.
 //
 // Scrim tap ALWAYS dismisses (`onPress={onClose}` unconditionally) — unlike `WinClaimSheetView`,
 // which only allows scrim-dismiss on its `done` stage (protecting the claim flow's deliberate
@@ -57,7 +63,7 @@
 // default) draws no dots and makes swipe a no-op — a single-activity sheet's structure and
 // behavior are byte-identical to before this capability existed.
 
-import { useRef, useState } from 'react';
+import { useRef } from 'react';
 import type { ReactElement } from 'react';
 import { View, Pressable } from 'react-native';
 import type { GestureResponderEvent } from 'react-native';
@@ -86,8 +92,6 @@ const TEXT_DIM = '#6B6775';
 /** Modal scrim (`rgba(0,0,0,0.6)` — parity `WinClaimSheetView.SCRIM`). Tap ALWAYS dismisses (no
  *  alert layer to protect, unlike the four-stage win-claim sheet). */
 const SCRIM = 'rgba(0,0,0,0.6)';
-/** CTA disabled ("已參加") background (design `#C9CDD3`). */
-const CTA_DISABLED_BACKGROUND = '#C9CDD3';
 /**
  * Pagination dot inactive color — design `LBActivitySheet`'s `S.border || '#D8DBE0'` fallback
  * (this design token set never defines `surface.border`, so the literal fallback is what actually
@@ -121,7 +125,6 @@ const PRIZE_NAME_FALLBACK = '';
 const KEYWORD_PREFIX = '留言關鍵字【';
 const KEYWORD_SUFFIX = '】即可參加抽獎！';
 const CTA_JOIN = '立即參加';
-const CTA_JOINED = '已參加';
 const FOOTER_TERMS = '使用條款';
 const FOOTER_SEPARATOR = ' | ';
 const FOOTER_PRIVACY = '隱私政策';
@@ -146,8 +149,10 @@ export interface ActivitySheetProps {
    * 「立即參加」CTA intent. The container forwards this to
    * `model.joinEvent(activity.id, activity.keyword)` — the SAME forwarder the merged feed's
    * `LBEventJoinLine`「加入活動」CTA already uses (no second join path, per design.md D4).
-   * Fire-and-forget: `joinEvent` has nothing to await, so this sheet flips its own local `joined`
-   * flag immediately on tap and does not wait for a result. Default no-op so demo / snapshot
+   * Fire-and-forget: `joinEvent` has nothing to await, so this sheet forwards every tap
+   * immediately and does not wait for a result — and, unlike a one-shot claim, does NOT lock
+   * itself after the first tap (rb-rn-activity-sheet-cta-repeatable): the CTA stays enabled and
+   * repeatable, so a second (or Nth) tap calls this again. Default no-op so demo / snapshot
    * instances construct action-free.
    */
   readonly onJoin?: () => void;
@@ -187,8 +192,9 @@ export interface ActivitySheetProps {
 
 /**
  * The family-2 抽獎活動彈窗 (single-stage — `LBActivitySheet`). Presents the current activity's
- * title / prize name / join keyword with a single「立即參加」CTA that flips to「已參加」(disabled)
- * on tap. Scrim tap ALWAYS dismisses (no alert layer, unlike the four-stage win-claim sheet).
+ * title / prize name / join keyword with a single「立即參加」CTA that stays enabled and repeatable
+ * — it never locks or flips to a disabled state on tap (rb-rn-activity-sheet-cta-repeatable).
+ * Scrim tap ALWAYS dismisses (no alert layer, unlike the four-stage win-claim sheet).
  */
 export function ActivitySheet(props: ActivitySheetProps): ReactElement {
   const {
@@ -202,14 +208,14 @@ export function ActivitySheet(props: ActivitySheetProps): ReactElement {
     pageIndex = 0,
     onPage,
   } = props;
-  const [joined, setJoined] = useState(false);
   /** Pagination swipe — touch start `pageX` (design.md D1, parity `WinClaimSheetView`'s own ref). */
   const touchStartXRef = useRef<number | null>(null);
 
   const prizeName = activity.award[0]?.name ?? PRIZE_NAME_FALLBACK;
 
+  /** CTA tap — stateless, repeatable (rb-rn-activity-sheet-cta-repeatable): every tap forwards
+   *  `onJoin()` independently. Does NOT flip any local state — see the file header for why. */
   const handleJoinPress = (): void => {
-    setJoined(true);
     onJoin?.();
   };
 
@@ -304,21 +310,21 @@ export function ActivitySheet(props: ActivitySheetProps): ReactElement {
 
           <Pressable
             accessibilityRole="button"
-            accessibilityState={{ disabled: joined }}
+            accessibilityState={{ disabled: false }}
             testID={LBTestIDs.activitySheetPrimary}
-            disabled={joined}
-            onPress={joined ? undefined : handleJoinPress}
+            disabled={false}
+            onPress={handleJoinPress}
             style={{
               marginTop: 18,
               width: '100%',
               paddingVertical: 14,
               borderRadius: 12,
               alignItems: 'center',
-              backgroundColor: joined ? CTA_DISABLED_BACKGROUND : theme.accent,
+              backgroundColor: theme.accent,
             }}
           >
             <Text style={{ color: '#FFFFFF', fontSize: 16 * theme.fontScale, fontWeight: '900' }}>
-              {joined ? CTA_JOINED : CTA_JOIN}
+              {CTA_JOIN}
             </Text>
           </Pressable>
 

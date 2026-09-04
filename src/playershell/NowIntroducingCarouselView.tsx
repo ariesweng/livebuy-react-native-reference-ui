@@ -5,11 +5,17 @@
 // Flutter `now_introducing_carousel.dart`（rb-rn-now-introducing-real-image-carousel，
 // 問題 9 真實圖+滿寬 / 問題 10 多商品輪播）—— Flutter blueprint 1:1 翻譯。
 //
-// Draws ONLY the current card (full-width `MiniCartPeek` with a「介紹中」tag + the real
-// image when `live`) + page dots — NO FlatList / ScrollView (snapshot determinism, the
-//「snapshot 綠 ≠ 畫對」discipline). A horizontal swipe flips to the prev / next card via a
-// `PanResponder`. `peeks` empty → renders NOTHING (`null` → snapshot-neutral, mirrors
-// `HeartBurst` at rest). Index is clamped (peeks may shrink as the playhead advances).
+// Draws ONLY the current card (full-width `MiniCartPeek` + the real image when `live`) +
+// page dots — NO FlatList / ScrollView (snapshot determinism, the「snapshot 綠 ≠ 畫對」
+// discipline). A horizontal swipe flips to the prev / next card via a `PanResponder`.
+// `peeks` empty → renders NOTHING (`null` → snapshot-neutral, mirrors `HeartBurst` at
+// rest). Index is clamped (peeks may shrink as the playhead advances).
+//
+// rb-rn-minicart-remove-introducing-tag: this carousel card no longer carries the
+// 「介紹中」accent tag — the design's `LBPMiniCart`
+// (design/templates/minimal/sdk-components.jsx, ~884-919) has no introduction/description
+// copy field at all, so this call site stopped passing `tag` to `MiniCartPeek` (which now
+// treats that prop as permanently inert regardless).
 
 import type { ReactElement } from 'react';
 import { useRef, useState } from 'react';
@@ -28,8 +34,6 @@ const DOT_DIM = 'rgba(255,255,255,0.45)';
 const MAX_DOTS = 6;
 /** Horizontal swipe distance (px) that commits a card flip. */
 const SWIPE_DX = 40;
-/** The carousel card's accent tag copy. */
-const NOW_INTRODUCING_TAG = '介紹中';
 
 /**
  * Clamp `index` into `[0, length - 1]` (or 0 when empty). Pure — exported for unit
@@ -70,9 +74,9 @@ export interface NowIntroducingCarouselProps {
 
 /**
  * The VOD now-introducing carousel. Renders the current full-width {@link MiniCartPeek}
- * (with the「介紹中」tag + the real image when `live`) and — when more than one product
- * is being introduced — a row of page dots. A horizontal swipe flips between products.
- * Renders nothing when `peeks` is empty (snapshot-neutral).
+ * (with the real image when `live`) and — when more than one product is being
+ * introduced — a row of page dots. A horizontal swipe flips between products. Renders
+ * nothing when `peeks` is empty (snapshot-neutral).
  */
 export function NowIntroducingCarousel(props: NowIntroducingCarouselProps): ReactElement | null {
   const { theme, peeks, live = false, onDismiss, onOpenDetail, initialIndex = 0 } = props;
@@ -109,7 +113,6 @@ export function NowIntroducingCarousel(props: NowIntroducingCarouselProps): Reac
         peek={cur}
         live={live}
         fullWidth
-        tag={NOW_INTRODUCING_TAG}
         testID={LBTestIDs.nowIntroducingCard}
         onDismiss={() => onDismiss?.(cur.productId)}
         onOpenDetail={() => onOpenDetail?.(cur.productId)}

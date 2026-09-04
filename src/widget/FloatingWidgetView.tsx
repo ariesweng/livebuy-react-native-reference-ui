@@ -56,9 +56,10 @@
 // `LBVideoItem` is immutable and we must not mutate the host's model). The card
 // therefore reads LIVE iff `liveVideo.liveStatus === 1`; in practice the container only
 // routes a genuine live stream (`WidgetModel.liveVideo`) into this surface, so it reads
-// LIVE. A non-live `liveVideo` would render the VOD duration pill instead — an accepted
-// approximation (documented in `CarouselCardView`'s kind mapping). NO separate
-// upcoming / replay handling.
+// LIVE. A non-live `liveVideo` would render as a plain VOD card (no kind badge at all,
+// rb-rn-carousel-card-pin-viewers-duration-removal — design R33 retired the「▶ mm:ss」
+// duration pill) instead — an accepted approximation (documented in `CarouselCardView`'s
+// kind mapping). NO separate upcoming / replay handling.
 //
 // CLOSE-TAP ISOLATION (design `sdk-components.jsx:695-696` — the close `<button>` calls
 // `e.stopPropagation()` on both `onPointerDown` and `onClick`): the close button is a
@@ -215,15 +216,16 @@ export function FloatingWidget(props: FloatingWidgetProps): ReactElement | null 
 // Fixed presentation glyph (white ✕ on the translucent-black close button).
 //
 // GLYPH MECHANISM: a `Text` character (U+2715), NOT an SVG — `react-native-svg` is
-// banned in this layer. The design draws `<Icons.close size={11}>`, whose `size` is the
-// SVG *viewBox* edge (`design/shared/icons.jsx` renders `viewBox="0 0 24 24"` with the
-// path `M5 5l14 14M19 5L5 19`, i.e. an ink span of 14/24 ≈ 6.42px at size 11). A viewBox
-// edge is NOT a font size, so that number MUST NOT be transcribed into `fontSize` on the
-// strength of the design alone. The value below is taken from the sibling implementation
-// of the SAME design element's close button in this package
-// (`MinimizedWidgetView.closeGlyph`), which is the only reference value with a rendered
-// result behind it; U+2715's ink runs ~0.55-0.62 em, so 11 lands on the design's ink
-// span as well. `FloatingCloseButtonLayout.test.tsx` asserts the two stay identical.
+// banned in this layer. The design draws `<Icons.close size={14}>` (rb-rn-live-replay-more-
+// menu-and-video-info-live-copy, design R32 — enlarged from the prior `size={11}`), whose
+// `size` is the SVG *viewBox* edge (`design/shared/icons.jsx` renders `viewBox="0 0 24 24"`
+// with the path `M5 5l14 14M19 5L5 19`). A viewBox edge is NOT a font size, so that number
+// MUST NOT be transcribed into `fontSize` on the strength of the design alone. The value below
+// is taken from the sibling implementation of the SAME design element's close button in this
+// package (`MinimizedWidgetView.closeGlyph`), which is the only reference value with a
+// rendered result behind it; U+2715's ink runs ~0.55-0.62 em, so 14 lands on the design's ink
+// span as well (same ratio that justified 11 for the prior size={11}). `FloatingCloseButton
+// Layout.test.tsx` asserts the two stay identical.
 const CLOSE_GLYPH = '✕';
 
 // Decorative design tokens (literal sdk-components.jsx values — FIXED, NOT theme-derived;
@@ -275,22 +277,23 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
   },
   closeButton: {
-    // Inside the card's top-right corner (design `top: 4, right: 4`, sdk-components.jsx:698).
-    // 20×20 round, no border (design `border: 'none'`, sdk-components.jsx:700), no shadow of its own
-    // (the design has no `box-shadow` on this button, and this style has never had one —
-    // keep it that way).
+    // Inside the card's top-right corner (design `top: 4, right: 4`, sdk-components.jsx ≈709-717).
+    // 28×28 round (rb-rn-live-replay-more-menu-and-video-info-live-copy, design R32 — enlarged
+    // from the prior 20×20; `top`/`right` inset UNCHANGED at 4), no border (design `border:
+    // 'none'`), no shadow of its own (the design has no `box-shadow` on this button, and this
+    // style has never had one — keep it that way).
     position: 'absolute',
     top: 4,
     right: 4,
-    width: 20,
-    height: 20,
-    borderRadius: 10,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     backgroundColor: CLOSE_GLASS,
     alignItems: 'center',
     justifyContent: 'center',
   },
   closeGlyph: {
-    fontSize: 11,
+    fontSize: 14,
     fontWeight: '700',
     color: WHITE,
   },

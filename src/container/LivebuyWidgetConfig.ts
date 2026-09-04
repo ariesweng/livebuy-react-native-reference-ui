@@ -11,7 +11,7 @@
 
 import type { ViewStyle } from 'react-native';
 import type { LBSdkEvent, LBVideoItem, SDKConfig } from 'livebuy-react-native';
-import type { LBUIOptions } from 'livebuy-react-native-ui';
+import type { LBUIOptions, PlayerTemplateAttachment } from 'livebuy-react-native-ui';
 
 import type { WidgetGoods } from '../widget/WidgetModel';
 import type { ReferenceUIDesign } from './ReferenceUIDesign';
@@ -57,6 +57,32 @@ export interface LivebuyWidgetConfig {
    * so a direct host registration and the reference-ui containers still replace each other.
    */
   eventListener?: (event: LBSdkEvent) => void;
+
+  /**
+   * 選用的防禦性事件轉發口（`rb-rn-dropin-container-event-forwarding`）。轉發對象是 host 在
+   * **別處**（與這個 widget 自身內容管線無關的另一個畫面）持有的一份
+   * `livebuy-react-native-ui.attachPlayerTemplate()` 回傳值（外部
+   * **player** template，`PlayerTemplateAttachment`）—— 與這個 widget 自己 attach 的
+   * `WidgetTemplateAttachment` 是兩條完全獨立的路徑，兩者互不相干。容器每收到一個 SDK 事件時，
+   * 會**額外**呼叫一次 `externalTemplateAttachment.handleEvent(event)`（派送序
+   * internal → host → forward，排在既有 {@link LivebuyWidgetConfig.eventListener} 之後）。
+   *
+   * **為什麼 `LivebuyWidget` 也需要這個欄位**：`subscribeSdkEvents`
+   * （`rn-fold-host-listener-into-single-slot`）是套件內部模組層單例多工器。`LivebuyWidget`
+   * 作為一個容器，掛載時一樣會觸發訂閱者計數 0→1、一樣會對 core 單槽重新註冊 —— 若 host 在
+   * 這個 widget 之外自行呼叫 `attachPlayerTemplate()`（落回其 `defaultRegisterListener`，
+   * 直接對 core 單槽註冊），`LivebuyWidget` 掛載一樣會頂替掉這份外部原始註冊，不分是哪個
+   * reference-ui 容器觸發了那次 0→1 註冊。
+   *
+   * **生命週期由 host 自行管理**：容器不會偵測、也無從偵測外部 attachment 是否已
+   * `detach()` —— host 在呼叫外部 attachment 的 `detach()` 的同時，也要把這個欄位設回
+   * `null` / 省略，比照 {@link LivebuyWidgetConfig.sdkConfig} / {@link
+   * LivebuyWidgetConfig.eventListener} 等其他選用欄位既有的「host 自行管理生命週期」慣例。
+   *
+   * **純選用、純加法**：省略（`undefined`）或顯式 `null` 時完全 no-op，容器行為與本欄位存在前
+   * byte-identical。
+   */
+  externalTemplateAttachment?: Pick<PlayerTemplateAttachment, 'handleEvent'> | null;
 
   /**
    * Card tap (carousel / grid). Default: `undefined` → inert (the container NEVER

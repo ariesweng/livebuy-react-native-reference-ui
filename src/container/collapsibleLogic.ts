@@ -146,6 +146,27 @@ export function shouldAutoRestoreOnBindingChange(
 }
 
 /**
+ * Resolve whether the collapsible player's top-right button should close DIRECTLY (skip the
+ * "collapse to floating preview" step) rather than minimize (rb-rn-player-direct-close-button): the
+ * per-instance `LivebuyPlayerConfig.enableDirectCloseButton` override WINS when non-`undefined`
+ * (including an explicit `false` overriding a `true` global default); `undefined` falls back to the
+ * global `LivebuySDK.isDirectCloseButtonEnabled()` preference. Pure — parity iOS
+ * `resolvedEnableDirectCloseButton(configValue:globalValue:)`.
+ *
+ * Shared by BOTH decision sites so they never diverge: `LivebuyPlayerOverlays.tsx` calls this to
+ * pick `PlayerHeaderBar`'s icon (`showCloseIcon`) for EVERY use of `LivebuyPlayer`, and
+ * `CollapsibleLivebuyPlayer.tsx` calls this to pick `onMinimize`'s actual behaviour (collapse-to-
+ * floating vs. close-directly). Takes the already-read raw values (not `LivebuySDK` itself) so this
+ * file keeps its zero-react-native-value-import discipline.
+ */
+export function resolveDirectCloseButtonEnabled(
+  configValue: boolean | undefined,
+  globalValue: boolean,
+): boolean {
+  return configValue ?? globalValue;
+}
+
+/**
  * Clamp the floating card's committed-plus-live drag offset so it can be dragged to reposition but
  * never pushed off-screen. The offset is measured FROM the resting corner (resting offset
  * `{x:0, y:0}`), so the horizontal range follows which corner the card rests in:

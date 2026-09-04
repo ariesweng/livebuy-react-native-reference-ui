@@ -106,7 +106,11 @@ const MONOGRAM_BG = '#EBA279'; // mid of #FFD7A8 → #E27D5A (deterministic soli
 // MARK: - Fixed localized copy (static presentation strings — parity to iOS/Android/Flutter)
 
 const PANEL_TITLE = '點播間說明';
+/** `isLiveBroadcast === true` panel title (design R32). */
+const LIVE_PANEL_TITLE = '直播間說明';
 const INFO_TAB_TITLE = '影片詳情';
+/** `isLiveBroadcast === true` info-tab label (design R32). */
+const LIVE_INFO_TAB_TITLE = '直播詳情';
 const NOTICE_TAB_TITLE = '公告';
 const SYSTEM_NOTICE_LABEL = '系統公告';
 const MALL_NOTICE_LABEL = '商城公告';
@@ -114,12 +118,14 @@ const SUBSCRIBE_LABEL = '訂閱通知';
 const SUBSCRIBED_LABEL = '已訂閱';
 const SHOP_SUBLINE_PREFIX = '這裡是 ';
 const NOTICE_EMPTY_PLACEHOLDER = '目前沒有公告';
-const STOREFRONT_LABEL = '前往商城首頁';
 const CONTACT_LABEL = '與商家一對一對話';
-/** Deterministic Text glyphs for the footer CTAs (RN convention — parity with the
+/** Deterministic Text glyph for the footer CTA (RN convention — parity with the
  *  NotifyRestock 🖼 glyph; the structural snapshot captures the string). */
-const GLYPH_STOREFRONT = '🏠';
 const GLYPH_CONTACT = '💬';
+/** `isLiveBroadcast === true` "直播中" badge (design R32) — fixed red, not theme-derived
+ *  (matches the LIVE tag color used elsewhere, e.g. `LiveOverlayChromeView`'s pinned-card tag). */
+const LIVE_BADGE_BG = '#F03246';
+const LIVE_BADGE_LABEL = '直播中';
 
 /**
  * Up-to-3-char monogram from the shop name (deterministic, pure). Mirrors iOS /
@@ -192,9 +198,18 @@ export interface VideoInfoPanelProps {
    */
   readonly onSelectTab?: (tab: LBInfoPanelTab) => void;
   /**
-   * Footer「前往商城首頁」(primary CTA) intent. There is NO core storefront
-   * open-intent exit yet, so the host leaves this omitted: the button RENDERS for
-   * design fidelity but stays inert (cross-layer follow-up).
+   * Footer「前往商城首頁」(former PRIMARY CTA) intent. RETAINED on the props for
+   * SOURCE COMPATIBILITY (I6 backward-compat discipline, `docs/contract-governance.md`) —
+   * a host that already passes this callback keeps compiling / type-checking unchanged.
+   * `docs/contract-governance.md`'s 情境F (full deprecate-then-remove-next-major flow) governs
+   * REMOVING a public parameter from the signature; this change does NOT do that — it only
+   * removes the PIXEL (the button itself, a presentation-layer decision, not a public-API
+   * break) while leaving the parameter itself untouched, so 情境F does not apply here. The
+   * PRIMARY「前往商城首頁」button itself is REMOVED (design R32, user-decided,
+   * `rb-rn-live-replay-more-menu-and-video-info-live-copy`) — this callback is **NO LONGER
+   * CONSUMED** by anything in this component (there is nothing left to wire it to). MUST NOT be
+   * removed from this interface without going through 情境F (it is now genuinely unused, but
+   * removing the parameter itself IS the kind of change that flow governs).
    */
   readonly onOpenStorefront?: () => void;
   /**
@@ -224,6 +239,29 @@ export interface VideoInfoPanelProps {
    * safe default. Read-only.
    */
   readonly live?: boolean;
+
+  /**
+   * Whether this video is a genuine live broadcast right now (design R32, `PlayerShellModel
+   * .isLive`, `liveStatus == 1`) — `true` swaps the panel title「點播間說明」→「直播間說明」,
+   * the info-tab label「影片詳情」→「直播詳情」, and prefixes the `publishAt` line with a red
+   * "直播中" badge (see {@link InfoContent}). **Default `false`** (existing VOD copy,
+   * byte-identical to before this prop existed).
+   *
+   * ⚠️ DELIBERATELY named `isLiveBroadcast`, NOT `live` / `isLive` — this panel already has a
+   * `live` prop above ({@link live}) whose semantics are a completely different concept: the
+   * LIVE-RUNTIME **IMAGE-LOADING GATE** (`RemoteImageProps.live` / `PlayerHeaderBarProps.live`
+   * — whether `RemoteImage` may hit the network for the shop logo). Naming this new flag `live`
+   * would create two same-named, differently-meaning concepts in the SAME file. `isLive` alone
+   * would also risk future confusion with `PlayerShellModel.isLive` itself (this component has
+   * no such getter, but a reader skimming call sites could conflate the two). `isLiveBroadcast`
+   * reads unambiguously as "is this a live broadcast" with no collision risk.
+   *
+   * The container `PlayerShellView.tsx` SHALL feed `model.isLive` (narrow `liveStatus == 1`
+   * semantics), NOT the broader `usesLiveChrome` (`isLive || isFinishedLiveReplay`) concept
+   * used elsewhere in this package — a finished replay is no longer "直播中", so the badge
+   * correctly stays off for it.
+   */
+  readonly isLiveBroadcast?: boolean;
 
   /**
    * The panel's cap height, a fraction of screen height, forwarded VERBATIM to
@@ -274,10 +312,10 @@ export function VideoInfoPanel(props: VideoInfoPanelProps): ReactElement {
     systemNotice,
     notice,
     onSelectTab,
-    onOpenStorefront,
     onContactMerchant,
     onClose,
     live = false,
+    isLiveBroadcast = false,
     heightPct,
     showSubscribe = true,
   } = props;
@@ -313,7 +351,7 @@ export function VideoInfoPanel(props: VideoInfoPanelProps): ReactElement {
             textAlign: 'center',
           }}
         >
-          {PANEL_TITLE}
+          {isLiveBroadcast ? LIVE_PANEL_TITLE : PANEL_TITLE}
         </Text>
         <View style={{ position: 'absolute', right: 12, top: 8 }}>
           <SheetHeaderCloseButton theme={theme} onPress={onClose} />
@@ -328,7 +366,7 @@ export function VideoInfoPanel(props: VideoInfoPanelProps): ReactElement {
         <Tab
           theme={theme}
           tab={InfoPanelTab.Info}
-          title={INFO_TAB_TITLE}
+          title={isLiveBroadcast ? LIVE_INFO_TAB_TITLE : INFO_TAB_TITLE}
           active={activeTab === InfoPanelTab.Info}
           onSelectTab={onSelectTab}
           testID={LBTestIDs.infoTabDetail}
@@ -366,21 +404,18 @@ export function VideoInfoPanel(props: VideoInfoPanelProps): ReactElement {
         fields={fields}
         isSubscribed={isSubscribed}
         live={live}
+        isLiveBroadcast={isLiveBroadcast}
         showSubscribe={showSubscribe}
       />
     ) : (
       <NoticeContent theme={theme} systemNotice={systemNotice} notice={notice} />
     );
 
-  // Footer CTAs — pinned below the tab content on BOTH tabs (design `VideoInfoSheet`,
-  // parity to iOS / Android footer).
-  const footer = (
-    <Footer
-      theme={theme}
-      onOpenStorefront={onOpenStorefront}
-      onContactMerchant={onContactMerchant}
-    />
-  );
+  // Footer CTA — pinned below the tab content on BOTH tabs (design `VideoInfoSheet`,
+  // parity to iOS / Android footer). rb-rn-live-replay-more-menu-and-video-info-live-copy
+  // (design R32): the PRIMARY「前往商城首頁」button is REMOVED (user-decided removal, see
+  // proposal.md) — only the GHOST「與商家一對一對話」remains.
+  const footer = <Footer theme={theme} onContactMerchant={onContactMerchant} />;
 
   // Panel root tagged by forwarding `testID` onto the shared SheetScaffold root (inert; no
   // wrapper node, so the structural snapshot stays a pure testID add — rb-rn-e2e-test-ids).
@@ -397,32 +432,37 @@ export function VideoInfoPanel(props: VideoInfoPanelProps): ReactElement {
   );
 }
 
-// MARK: - Footer CTAs (VideoInfoSheet bottom buttons — present on BOTH tabs)
+// MARK: - Footer CTA (VideoInfoSheet bottom button — present on BOTH tabs)
 //
-// The two bottom action buttons the design pins below the tab content regardless of
-// tab (`screens.jsx` `VideoInfoSheet`): a primary「前往商城首頁」and a ghost「與商家一對一
-// 對話」. Stacked full-width (gap 10, padding 0 18 18). Each forwards its host-wired
-// intent and is still drawn (inert) when omitted. Glyphs are deterministic Text
-// (RN convention — parity with NotifyRestock's 🖼 glyph; the structural snapshot
-// captures the string).
+// The single bottom action button the design pins below the tab content regardless of
+// tab (`screens.jsx` `VideoInfoSheet`): a ghost「與商家一對一對話」. Full-width, padding
+// 0 18 18. Forwards its host-wired intent and is still drawn (inert) when omitted. Glyph is a
+// deterministic Text (RN convention — parity with NotifyRestock's 🖼 glyph; the structural
+// snapshot captures the string).
+//
+// rb-rn-live-replay-more-menu-and-video-info-live-copy (design R32): the design PREVIOUSLY also
+// drew a PRIMARY「前往商城首頁」button above this one (house glyph + accent fill). Its PIXEL is
+// REMOVED — a user-decided removal (2026-09-03, see `design/contract/claude-design-sync.md`
+// R32): the button was verified as already implemented on all four platforms with a matching
+// normative spec Requirement/Scenario each, the same class of "R8 移除守門" orphan trap as any
+// upstream-removed symbol, and the user chose to follow the design's removal anyway (a
+// per-instance exception, not a change to the R8 principle itself).
+//
+// The `onOpenStorefront` PROP ITSELF IS NOT REMOVED — see `VideoInfoPanelProps
+// .onOpenStorefront`'s doc comment. Removing the button is a presentation-layer decision
+// (`docs/contract-governance.md`'s 情境F full deprecate-flow governs removing a PUBLIC
+// PARAMETER, not a rendered pixel), so this `Footer` simply no longer accepts / forwards that
+// callback — a host that already passes it keeps compiling, the callback is just never invoked
+// by anything in this component any more. iOS / Android / Flutter's equivalent buttons and
+// specs are UNCHANGED by this — each platform has its own independent change.
 
 function Footer(props: {
   theme: ReferenceUITheme;
-  onOpenStorefront?: () => void;
   onContactMerchant?: () => void;
 }): ReactElement {
-  const { theme, onOpenStorefront, onContactMerchant } = props;
+  const { theme, onContactMerchant } = props;
   return (
     <View style={{ paddingHorizontal: 18, paddingBottom: 18, paddingTop: 4 }}>
-      <FooterButton
-        theme={theme}
-        glyph={GLYPH_STOREFRONT}
-        label={STOREFRONT_LABEL}
-        primary
-        onPress={onOpenStorefront}
-        testID={LBTestIDs.infoPanelHome}
-      />
-      <View style={{ height: 10 }} />
       <FooterButton
         theme={theme}
         glyph={GLYPH_CONTACT}
@@ -531,20 +571,47 @@ function InfoContent(props: {
   isSubscribed: boolean;
   /** Shop-logo image gate — forwarded verbatim to {@link ShopRow}; NO decision is made here. */
   live: boolean;
+  /** Live-broadcast copy flag (design R32) — see {@link VideoInfoPanelProps.isLiveBroadcast}.
+   *  `true` prefixes the `publishAt` line with a red "直播中" badge + "｜" separator; `false`
+   *  (default) keeps the existing single-line `publishAt` text, byte-identical. */
+  isLiveBroadcast: boolean;
   /** Subscribe-pill visibility — forwarded verbatim to {@link ShopRow}; NO decision is made
    *  here (the ONE default lives on {@link VideoInfoPanelProps.showSubscribe}). */
   showSubscribe: boolean;
 }): ReactElement {
-  const { theme, fields, isSubscribed, live, showSubscribe } = props;
+  const { theme, fields, isSubscribed, live, isLiveBroadcast, showSubscribe } = props;
   const { publishAt, title, shopIntro } = fields;
 
   return (
     <View
       style={{ paddingLeft: 18, paddingRight: 18, paddingTop: 14, paddingBottom: 18 }}
     >
-      {/* publishAt — small dim caption. */}
+      {/* publishAt — small dim caption, OR (design R32, isLiveBroadcast) a red "直播中" badge +
+          "｜" separator + the SAME publishAt text (date data source unchanged, never a literal
+          string — only the leading label/badge differs). */}
       {publishAt.length > 0 ? (
-        <Text style={{ color: TEXT_DIM, fontSize: 12 * theme.fontScale }}>{publishAt}</Text>
+        isLiveBroadcast ? (
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            <View
+              style={{
+                paddingHorizontal: 6,
+                paddingVertical: 1,
+                borderRadius: 4,
+                backgroundColor: LIVE_BADGE_BG,
+              }}
+            >
+              <Text style={{ color: '#FFFFFF', fontSize: 10 * theme.fontScale, fontWeight: '800' }}>
+                {LIVE_BADGE_LABEL}
+              </Text>
+            </View>
+            <View style={{ width: 8 }} />
+            <Text style={{ color: TEXT_DIM, fontSize: 12 * theme.fontScale }}>{'|'}</Text>
+            <View style={{ width: 8 }} />
+            <Text style={{ color: TEXT_DIM, fontSize: 12 * theme.fontScale }}>{publishAt}</Text>
+          </View>
+        ) : (
+          <Text style={{ color: TEXT_DIM, fontSize: 12 * theme.fontScale }}>{publishAt}</Text>
+        )
       ) : null}
       {/* title — primary heading. */}
       {title.length > 0 ? (

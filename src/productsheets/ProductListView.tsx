@@ -115,6 +115,10 @@ const OUT_SOON_COLOR = '#F5A623';
 const PLAY_HINT_BG = 'rgba(255,255,255,0.75)';
 /** `row` 態「看講解」膠囊內容色（play icon + 文字皆為 `#111`，design R21）。 */
 const PLAY_HINT_TEXT = '#111';
+/** 「介紹中」橫幅底色 — fixed coral `rgba(240,50,70,0.7)`（rb-rn-vod-live-product-card-restyle,
+ *  design re-sync R31：不再是 `theme.accent`，不隨商家主題色變動；同一色值也用於
+ *  `LiveOverlayChromeView.pinnedCard` 的「介紹中」底部橫幅，統一兩處視覺語彙）。 */
+const NARRATE_BANNER_COLOR = 'rgba(240,50,70,0.7)';
 /** Shared empty-set default for {@link ProductListProps.introducingProductIds} (avoids allocating
  *  a fresh `Set` per render when the prop is omitted — VOD / demo / no callers passing it yet). */
 const NO_INTRODUCING_IDS: ReadonlySet<string> = new Set();
@@ -743,7 +747,12 @@ function RowLayoutBody(props: {
           style={{
             width: 64,
             height: 64,
-            borderRadius: 12,
+            // rb-rn-product-detail-image-gallery (design R34): borderRadius 12 → 4
+            // (`0.25rem`) + a hairline `#D2D2D2` border, same visual direction as R33's
+            // carousel-card white-carding and the product-sheet gallery in this same change.
+            borderRadius: 4,
+            borderWidth: 1,
+            borderColor: '#D2D2D2',
             backgroundColor: BG_SUNKEN,
             alignItems: 'center',
             justifyContent: 'center',
@@ -808,7 +817,11 @@ function RowLayoutBody(props: {
                 flexDirection: 'row',
                 alignItems: 'center',
                 justifyContent: 'center',
-                backgroundColor: theme.accent,
+                // rb-rn-vod-live-product-card-restyle (design re-sync R31): fixed coral
+                // NARRATE_BANNER_COLOR — no longer `theme.accent` (unifies with
+                // `LiveOverlayChromeView.pinnedCard`'s「介紹中」banner, same visual
+                // vocabulary / same literal color value, not merchant-theme-derived).
+                backgroundColor: NARRATE_BANNER_COLOR,
                 paddingVertical: 3,
                 paddingHorizontal: 4,
               }}
@@ -817,7 +830,7 @@ function RowLayoutBody(props: {
               <View style={{ width: 3 }} />
               <Text
                 numberOfLines={1}
-                style={{ color: '#FFFFFF', fontSize: 10 * theme.fontScale, fontWeight: 'bold' }}
+                style={{ color: '#FFFFFF', fontSize: 12 * theme.fontScale, fontWeight: 'bold' }}
               >
                 {INTRODUCING_LABEL}
               </Text>

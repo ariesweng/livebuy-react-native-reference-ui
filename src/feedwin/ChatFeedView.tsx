@@ -113,15 +113,64 @@ const AVATAR_GLYPH_COLOR = '#3a2e25';
 /** Translucent dark chat bubble fill `rgba(0,0,0,0.42)` (updated `LBChatLine` ACT_BUBBLE
  *  — was 0.5). */
 const BUBBLE_FILL = 'rgba(0,0,0,0.42)';
-/** Activity bubble base `rgba(0,0,0,0.46)` (purchase / intro / win base over which the
- *  accent wash is layered). */
+/** Activity bubble base `rgba(0,0,0,0.46)` — now backs ONLY the `.Intro` tier (rb-rn-chat-message-
+ *  line-restyle, design R30: `.Join`/`.Purchase`/`.Win` moved to their own fixed semantic fills below;
+ *  `.Intro` is an RN-only extra tier the R30 design canvas has no branch for, so it keeps this
+ *  black-base + accent-wash formula unchanged). */
 const ACTIVITY_BUBBLE_BASE = 'rgba(0,0,0,0.46)';
-/** .Join activity bubble fill `rgba(0,0,0,0.32)` — lowest-key, NO accent wash. */
+/** `.Browse` activity bubble fill `rgba(0,0,0,0.32)` — lowest-key, NO accent wash (rb-rn-chat-message-
+ *  line-restyle, design R30: now backs ONLY `.Browse` — `.Join` moved to its own fixed coral fill
+ *  below; `.Browse` (觀眾選購) has no R30 design branch, so it keeps this pre-R30 formula unchanged). */
 const JOIN_BUBBLE_FILL = 'rgba(0,0,0,0.32)';
-/** .Join icon-slot fill `rgba(255,255,255,0.16)` (lowest-key). */
+/** `.Join` icon-slot fill `rgba(255,255,255,0.16)` (lowest-key). Icon-slot fill/glyph derivation is
+ *  UNCHANGED by rb-rn-chat-message-line-restyle (design R30 only re-colors the tier BUBBLE, not the
+ *  icon slot itself) — kept for `renderIconSlot`'s reversible render logic (currently gated off by
+ *  `SHOW_FEED_ICON_SLOT`). */
 const JOIN_SLOT_FILL = 'rgba(255,255,255,0.16)';
 /** .Join person-add icon tint `rgba(255,255,255,0.85)`. */
 const JOIN_GLYPH_COLOR = 'rgba(255,255,255,0.85)';
+
+// MARK: - Activity tier fixed semantic colors (rb-rn-chat-message-line-restyle, design R30)
+//
+// `design/contract/claude-design-sync.md` R30 (2026-09-03) replaced the `.Join` / `.Purchase` / `.Win`
+// activity-tier bubble fills — previously a black base with a `theme.accent`-tinted wash overlay (so
+// the visual differentiation between tiers rode on the MERCHANT's theme color) — with three FIXED
+// semantic colors, independent of `theme.accent`: coral-red for join, teal for purchase, red for win.
+// `.Browse` (觀眾選購, no R30 design branch) and `.Intro` (RN-only extra tier, no R30 design branch)
+// are UNTOUCHED and keep their pre-R30 black-base(+wash) formula (see `JOIN_BUBBLE_FILL` /
+// `ACTIVITY_BUBBLE_BASE` above). Win's existing 1px accent border + faint accent glow are UNCHANGED —
+// only the tier's own base fill moved off `theme.accent`.
+
+/** `.Join`（進場）activity bubble fill — R30 fixed coral-red, replacing the pre-R30 black 0.32
+ *  (`JOIN_BUBBLE_FILL`, now `.Browse`-only). */
+const ACTIVITY_JOIN_FILL = 'rgba(232, 108, 108, 0.72)';
+/** `.Purchase`（購買）activity bubble fill — R30 fixed teal, replacing the pre-R30 black 0.46 +
+ *  accent 0.13 wash. */
+const ACTIVITY_PURCHASE_FILL = 'rgba(45, 212, 191, 0.72)';
+/** `.Win`（中獎）activity bubble fill — R30 fixed red, replacing the pre-R30 black 0.46 + accent 0.23
+ *  wash. The existing accent border/glow (see `renderBubbleBackground`) are UNCHANGED. */
+const ACTIVITY_WIN_FILL = 'rgba(240, 50, 70, 0.72)';
+
+/**
+ * The R30 fixed semantic fill for a tier's activity bubble, or `null` when the tier is OUT of R30's
+ * scope (`.Browse` / `.Intro` — the design canvas has no branch for either, so callers keep their
+ * pre-R30 black-base(+wash) rendering unchanged). Pure lookup, `export`ed for unit testing
+ * (`docs/unit-test-discipline.md`). Mirrors iOS/Android/Flutter's parallel `rb-{platform}-chat-message-
+ * line-restyle` siblings.
+ */
+export function activityFixedFill(tier: ActivityTier): string | null {
+  switch (tier) {
+    case ActivityTier.Join:
+      return ACTIVITY_JOIN_FILL;
+    case ActivityTier.Purchase:
+      return ACTIVITY_PURCHASE_FILL;
+    case ActivityTier.Win:
+      return ACTIVITY_WIN_FILL;
+    case ActivityTier.Browse:
+    case ActivityTier.Intro:
+      return null;
+  }
+}
 
 /** Deterministic pastel avatar palette (moments.jsx demo avatar colors). */
 const AVATAR_PALETTE = ['#FFD7A8', '#C8E6C9', '#A8C7FA', '#FFB4A8', '#E1BEE7'];
@@ -182,8 +231,8 @@ function chatMessageLineHeight(fontSize: number): number {
   return fontSize * CHAT_MESSAGE_LINE_HEIGHT_RATIO;
 }
 
-/** 加入活動 CTA label. */
-const JOIN_LABEL = '加入活動';
+/** 立即參加 CTA label (rb-rn-chat-message-line-restyle, design R30 — was 加入活動). */
+const JOIN_LABEL = '立即參加';
 /** 已參加 joined-state label. */
 const JOINED_LABEL = '已參加';
 /** Fallback copy when an event-join `text` is empty (`LBEventJoinLine` default). */
@@ -547,11 +596,22 @@ function ChatLineRow(props: {
 //
 // 群組① 真正的聊天：主播留言 / 主播回覆 / AI 回覆，以**版型**而非顏色區分（parity iOS
 // `LBChatLineRow` hasRole 分支）。24px accent 圖示軌（host = 👑 crown、AI = ✨ sparkles）+
-// accent 氣泡（header 名字 +「主播」實心標 /「AI」外框標、回覆引用框、訊息本文）。RN 沿用本檔
-// emoji-glyph 慣例（同 activity 軌 🛍/📣/🏆、event ✨）。引用框只顯引用文字（後端無引用者名稱）。
+// 中性深色氣泡（header 名牌 + 回覆引用框 + 訊息本文）。RN 沿用本檔 emoji-glyph 慣例（同 activity
+// 軌 🛍/📣/🏆、event ✨）。引用框只顯引用文字（後端無引用者名稱）。
+//
+// rb-rn-chat-message-line-restyle (design R30, `design/contract/claude-design-sync.md`,
+// 2026-09-03) restyled the header: the bubble no longer染整片 `theme.accent`（改用與觀眾留言
+// 相同的中性深色 `BUBBLE_FILL`）；主播暱稱本身改成 accent 色底名牌（`roleTag(theme, userName,
+// true)`，內容＝暱稱本人），**取代**原本「名字文字 + 獨立『主播』實心標」兩個並排元素與固定字串
+// 「主播」；AI 外框標（`roleTag(theme, 'AI', false)`）不變、與 host 名牌並存；非主播的角色列
+// （`hasRole===true && isHost===false`，例如僅帶 `replyText` 的少見組合）暱稱顏色改固定
+// `#FBB0B7`（粉色，取代原 `ON_GLASS`）；名字 / 名牌後方統一補一個冒號「：」（不論 `isHost`，只要
+// `hasName` 即渲染——R30 把冒號從「只有觀眾留言有」擴大成「所有訊息都有」，parity `ChatLineRow`
+// 觀眾路徑既有的冒號慣例，但走獨立的 `<Text>` 節點而非同一個字串內聯拼接）。
 
-/** Host-role accent bubble fill `rgba(0,0,0,0.46)` + accent wash (層疊，同 activity 慣例)。 */
-const HOST_BUBBLE_BASE = 'rgba(0,0,0,0.46)';
+/** 非主播角色列（`hasRole===true && isHost===false`）暱稱顏色 — R30 固定粉色，取代原 `ON_GLASS`
+ *  （中性深色氣泡上仍可辨識）。 */
+const HOST_ROW_NON_HOST_NAME_COLOR = '#FBB0B7';
 /** 回覆引用框底 `rgba(0,0,0,0.30)` + 左側 accent 直條。 */
 const QUOTE_FILL = 'rgba(0,0,0,0.30)';
 
@@ -590,26 +650,33 @@ function HostChatRow(props: {
           <View style={{ width: ROW_INNER_GAP }} />
         </>
       ) : null}
-      {/* accent 氣泡（黑底 + accent 暈染層，同 activity wash 慣例）。 */}
+      {/* 中性深色氣泡（rb-rn-chat-message-line-restyle, R30 — 不再整片染 theme.accent，改用與觀眾
+          留言相同的 BUBBLE_FILL）。 */}
       <View style={{ flexShrink: 1 }}>
         <View
           pointerEvents="none"
-          style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, borderRadius: BUBBLE_RADIUS, backgroundColor: HOST_BUBBLE_BASE }}
-        />
-        <View
-          pointerEvents="none"
-          style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, borderRadius: BUBBLE_RADIUS, backgroundColor: theme.accent + '2E' }}
+          style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, borderRadius: BUBBLE_RADIUS, backgroundColor: BUBBLE_FILL }}
         />
         <View style={{ paddingHorizontal: 11, paddingVertical: 6 }}>
-          {/* header：名字 +「主播」/「AI」標（以版型而非顏色區分）。 */}
+          {/* header：主播＝accent 色底名牌（暱稱本人，取代固定字串「主播」）／非主播＝固定粉色暱稱
+              文字，AI 外框標獨立並存；名字 / 名牌後統一補冒號「：」（R30）。 */}
           <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: hasReply ? 4 : 2 }}>
             {hasName ? (
-              <Text style={{ color: ON_GLASS, fontSize: 10.5 * theme.fontScale, fontWeight: isHost ? 'bold' : '600' }}>
-                {userName!}
+              isHost ? (
+                roleTag(theme, userName!, true)
+              ) : (
+                <Text style={{ color: HOST_ROW_NON_HOST_NAME_COLOR, fontSize: 10.5 * theme.fontScale, fontWeight: '600' }}>
+                  {userName!}
+                </Text>
+              )
+            ) : null}
+            {hasName && isAI ? <View style={{ width: 5 }} /> : null}
+            {isAI ? roleTag(theme, 'AI', false) : null}
+            {hasName ? (
+              <Text style={{ color: ON_GLASS, fontSize: 10.5 * theme.fontScale, fontWeight: '600' }}>
+                ：
               </Text>
             ) : null}
-            {hasName ? <View style={{ width: 5 }} /> : null}
-            {isAI ? roleTag(theme, 'AI', false) : isHost ? roleTag(theme, '主播', true) : null}
           </View>
           {/* 引用框（主播回覆 / AI 回覆）：左側 accent 直條 + 暗底，只顯引用文字。 */}
           {hasReply ? (
@@ -718,9 +785,25 @@ function PinnedBanner(props: { theme: ReferenceUITheme; pinned: PinnedMessage })
 // rb-rn-loading-announce-restyle): 版型與「主播留言」一致 (a 24×24 round accent SLOT OUTSIDE the
 // bubble — crown icon, SAME icon as `HostChatRow`'s non-AI rail glyph, NOT sparkle — then an
 // accent SOLID-FILL bubble, radius 12, no wash / no border) wrapping a host-bubble HEADER
-// (`hostName` + 「主播」badge) + the 2-line keyword copy + a 加入活動 CTA / 已參加 chip that now
+// (`hostName` name badge + colon) + the 2-line keyword copy + a 立即參加 CTA / 已參加 chip that now
 // sits on ITS OWN ROW BELOW the copy (was: trailing, same row). The ONLY interactive row — its
 // tap is FORWARDED via `onTap` (host-wired); this layer never joins itself.
+//
+// rb-rn-chat-message-line-restyle (design R30, `design/contract/claude-design-sync.md`,
+// 2026-09-03): the header's `hostName` text + separate white-pill 「主播」badge MERGE into a
+// single `roleTag(theme, hostName, true)` accent-solid name badge (same treatment as
+// `HostChatRow`'s host name). The bubble fill ITSELF also changes: verified against the
+// authoritative source `design/templates/minimal/moments.jsx:634` —
+// `<span style={{ ...ACT_BUBBLE, display: 'inline-block', maxWidth: '100%' }}>` carries NO
+// `background: accent` override, so `ACT_BUBBLE`'s neutral `rgba(0,0,0,0.42)` fill applies, matching
+// `HostChatRow`/`ChatLineRow`'s post-restyle neutral bubble exactly. (Earlier revisions of this
+// change kept the bubble accent-solid, reasoning it mirrored a sibling iOS decision — that premise
+// was wrong: the iOS ambiguity was an unresolved open question in the iOS agent's own report, not a
+// ratified decision, and has since been corrected to neutral too.) The accent name badge now sits on
+// a neutral bubble — same contrast as `HostChatRow`'s name badge, no more badge-blends-into-bubble
+// concern. Followed by a colon `：`. The un-joined CTA swaps back to an accent-fill / white-text
+// FULL-WIDTH pill reading 立即參加 (was a white-fill / accent-text, content-width pill reading
+// 加入活動) — see `renderEventJoinCTA`.
 
 /** 「已參加」chip's bumped opacities (design re-sync `c3c98733`: 白 0.16→0.2 / 白 0.72→0.82).
  *  Locally-scoped to this row — deliberately NOT reusing the file's shared `ON_GLASS_DIM`
@@ -734,9 +817,9 @@ function EventJoinLineRow(props: {
   text: string;
   joined: boolean;
   hasCTA: boolean;
-  /** Host-bubble header name (`FeedWinModel.hostName`). Empty → header renders with just the
-   *  「主播」badge (harmless, only reachable via a direct `ChatFeed` test construction that
-   *  omits `hostName`; real usage always supplies it). */
+  /** Host-bubble header name (`FeedWinModel.hostName`). Empty → header renders an empty-content
+   *  accent name badge + colon (harmless, only reachable via a direct `ChatFeed` test construction
+   *  that omits `hostName`; real usage always supplies it). */
   hostName: string;
   onTap: () => void;
 }): ReactElement {
@@ -765,24 +848,27 @@ function EventJoinLineRow(props: {
           <View style={{ width: ROW_INNER_GAP }} />
         </>
       ) : null}
-      {/* Solid accent-fill bubble (radius 12, no wash layers, no border — matches the design's
-          literal `background: accent`) wrapping the header + copy + CTA (CTA now below, own row). */}
+      {/* Neutral-fill bubble (radius 12, no wash layers, no border — matches HostChatRow /
+          ChatLineRow's post-R30 neutral bubble; rb-rn-chat-message-line-restyle, R30, verified
+          against `design/templates/minimal/moments.jsx:634`'s `ACT_BUBBLE` with no accent
+          override) wrapping the header + copy + CTA (CTA now below, own row). */}
       <View
         style={{
           flexShrink: 1,
-          backgroundColor: theme.accent,
+          backgroundColor: BUBBLE_FILL,
           borderRadius: BUBBLE_RADIUS,
           paddingHorizontal: 11,
           paddingVertical: 5,
         }}
       >
-        {/* Header: hostName + 「主播」badge — mirrors HostChatRow's header row language. */}
+        {/* Header: hostName accent name badge + colon — mirrors HostChatRow's header row language
+            (rb-rn-chat-message-line-restyle, R30 — merges the old hostName text + separate 「主播」
+            badge into one `roleTag()` name badge). */}
         <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 2 }}>
-          <Text style={{ color: ON_GLASS, fontSize: 10.5 * theme.fontScale, fontWeight: 'bold' }}>
-            {hostName}
+          {roleTag(theme, hostName, true)}
+          <Text style={{ color: ON_GLASS, fontSize: 10.5 * theme.fontScale, fontWeight: '600' }}>
+            ：
           </Text>
-          <View style={{ width: 5 }} />
-          {eventHostBadge(theme)}
         </View>
         {/* 2-line keyword copy (full prebuilt text, NOT split). No width cap (the CTA moved below,
             so the copy can use the bubble's full available width — was maxWidth 132). */}
@@ -805,29 +891,12 @@ function EventJoinLineRow(props: {
   );
 }
 
-/** 「主播」badge — white 0.22 translucent pill, white text, no border (matches the design's
- *  `tag()` helper `solid` variant, which is white-based regardless of accent). Deliberately NOT
- *  `roleTag()` (its `solid` variant fills with `theme.accent`, which would be zero-contrast
- *  against this row's now solid-accent bubble background). */
-function eventHostBadge(theme: ReferenceUITheme): ReactElement {
-  return (
-    <View
-      style={{
-        borderRadius: 4,
-        paddingHorizontal: 5,
-        paddingVertical: 1,
-        backgroundColor: 'rgba(255,255,255,0.22)',
-      }}
-    >
-      <Text style={{ color: ON_GLASS, fontSize: 9 * theme.fontScale, fontWeight: 'bold' }}>主播</Text>
-    </View>
-  );
-}
-
 /** Trailing CTA — now its OWN ROW below the copy (`marginTop: 7`, was: trailing on the same row).
- *  加入活動: white fill + accent text (colors swapped from the old accent-fill/white-text).
+ *  立即參加 (rb-rn-chat-message-line-restyle, R30 — was 加入活動): accent fill + white text,
+ *  full-width pill (colors swapped back from the pre-R30 white-fill/accent-text, content-width
+ *  pill; see `rb-rn-loading-announce-restyle` for that older state).
  *  已參加: translucent white chip at the bumped {@link EVENT_JOINED_CHIP_FILL} /
- *  {@link EVENT_JOINED_CHIP_TEXT} opacities. */
+ *  {@link EVENT_JOINED_CHIP_TEXT} opacities (unchanged by R30). */
 function renderEventJoinCTA(theme: ReferenceUITheme, joined: boolean, onTap: () => void): ReactElement {
   return (
     <View style={{ marginTop: 7, flexDirection: 'row' }}>
@@ -852,16 +921,17 @@ function renderEventJoinCTA(theme: ReferenceUITheme, joined: boolean, onTap: () 
           </Text>
         </View>
       ) : (
-        <Pressable onPress={onTap} testID={LBTestIDs.eventJoinCta}>
+        <Pressable onPress={onTap} testID={LBTestIDs.eventJoinCta} style={{ width: '100%' }}>
           <View
             style={{
-              backgroundColor: ON_GLASS,
+              backgroundColor: theme.accent,
               borderRadius: 999,
               paddingHorizontal: 14,
               paddingVertical: 6,
+              alignItems: 'center',
             }}
           >
-            <Text style={{ color: theme.accent, fontSize: 12 * theme.fontScale, fontWeight: '800' }}>
+            <Text style={{ color: ON_GLASS, fontSize: 12 * theme.fontScale, fontWeight: '800' }}>
               {JOIN_LABEL}
             </Text>
           </View>
@@ -874,23 +944,33 @@ function renderEventJoinCTA(theme: ReferenceUITheme, joined: boolean, onTap: () 
 // MARK: - ActivityLineRow — tier-styled activity row (LBActivityLine)
 //
 // Mirrors the UPDATED `moments.jsx` `LBActivityLine`: every row shares ONE unified
-// language — a 24×24 round icon SLOT + a rounded-12 bubble — and tiers differ ONLY
-// by accent-wash intensity + icon + weight (emphasis ASCENDING):
-//   • Join     — 進場: lowest-key. slot 白 0.16 / person-add icon 白 0.85; bubble 黑 0.32,
-//                NO accent, text 白 0.9, medium (500).
-//   • Purchase — 購買: slot accent / white bag icon; bubble 黑 0.46 + accent 0.13 wash,
-//                medium (500).
+// language — a 24×24 round icon SLOT + a rounded-12 bubble — and tiers differ by icon + weight
+// (emphasis ASCENDING) + bubble fill:
+//   • Join     — 進場: lowest-key. slot 白 0.16 / person-add icon 白 0.85; bubble FIXED coral-red
+//                `rgba(232, 108, 108, 0.72)` (rb-rn-chat-message-line-restyle, design R30 — was
+//                black 0.32, no accent), text 白 0.9, medium (500).
+//   • Purchase — 購買: slot accent / white bag icon; bubble FIXED teal `rgba(45, 212, 191, 0.72)`
+//                (design R30 — was black 0.46 + accent 0.13 wash), medium (500).
 //   • Intro    — 介紹: slot accent / white megaphone icon; bubble 黑 0.46 + accent 0.18
-//                wash, medium (500) (商品開始介紹 — 強調介於購買與中獎之間).
-//   • Win      — 中獎: slot accent / white trophy icon; bubble 黑 0.46 + accent 0.23 wash
-//                + 1px accent 0.4 border + faint accent 0.2 glow, bold (700). NO 🎉.
+//                wash (UNCHANGED by R30 — RN-only extra tier, no design canvas branch), medium
+//                (500) (商品開始介紹 — 強調介於購買與中獎之間).
+//   • Win      — 中獎: slot accent / white trophy icon; bubble FIXED red `rgba(240, 50, 70, 0.72)`
+//                (design R30 — was black 0.46 + accent 0.23 wash) + 1px accent 0.4 border + faint
+//                accent 0.2 glow (border/glow UNCHANGED by R30, still accent-derived), bold (700).
+//                NO 🎉.
+//   • Browse   — 觀眾選購: slot 白 0.16 (same as join) / magnifier icon; bubble 黑 0.3, no accent
+//                (UNCHANGED by R30 — the design canvas has no browse branch), text 白 0.9,
+//                medium (500).
 //
-// The design's accent wash `linear-gradient(accentXX,accentXX)` over `rgba(0,0,0,0.46)`
-// = a flat accent overlay (alpha XX) on a 0.46 black base — modelled here as a black-base
-// bubble with a second absolutely-filled accent overlay View at the wash alpha. RN has no
-// gradient / shadow primitive without a native dep — the faint win glow is approximated
-// with a same-shape accent-0.2 backing View; true fidelity stays anchored to the
-// iOS / Android / Flutter PNG baselines.
+// R30 (rb-rn-chat-message-line-restyle, `design/contract/claude-design-sync.md`, 2026-09-03)
+// replaced the join/purchase/win bubble fills with FIXED semantic colors — see `activityFixedFill()`
+// and the constants above — independent of `theme.accent`, so merchant theming no longer changes
+// these three tiers' visual differentiation. Intro/browse's PRE-R30 accent wash formula
+// (`linear-gradient(accentXX,accentXX)` over `rgba(0,0,0,0.46)` = a flat accent overlay (alpha XX)
+// on a 0.46 black base) is UNCHANGED and still modelled here as a black-base bubble with a second
+// absolutely-filled accent overlay View at the wash alpha. RN has no gradient / shadow primitive
+// without a native dep — the faint win glow is approximated with a same-shape accent-0.2 backing
+// View; true fidelity stays anchored to the iOS / Android / Flutter PNG baselines.
 //
 // `export`ed (rb-rn-activity-toast) so the sibling `ActivityToastView` can reuse this exact row
 // renderer for the single latest activity item it flashes above the feed — the pill's own visual
@@ -994,38 +1074,51 @@ function renderIconSlot(theme: ReferenceUITheme, tier: ActivityTier): ReactEleme
   );
 }
 
-/** The rounded-12 activity bubble background, accent-washed by tier, drawn as
- *  absolutely-filled layer(s) behind the text: Join = black 0.32 (no wash);
- *  purchase/intro/win = black 0.46 base + an accent overlay (the design's `accentXX`
- *  wash) at 0.13 / 0.18 / 0.23; win additionally gets a 1px accent 0.4 border + a faint
- *  accent 0.2 backing glow. Accent alphas are encoded as 8-digit hex suffixes (the
- *  reference-ui convention, e.g. `theme.accent + '14'`). */
+/** The rounded-12 activity bubble background, drawn as absolutely-filled layer(s) behind the text.
+ *  R30 (rb-rn-chat-message-line-restyle) split this into two families:
+ *  - **`.Join` / `.Purchase` / `.Win`** (`activityFixedFill(tier)` non-null) — a single FIXED semantic
+ *    color fill (see the constants above), independent of `theme.accent`. `.Win` additionally keeps
+ *    its pre-R30 1px accent 0.4 border + faint accent 0.2 backing glow (still derived from
+ *    `theme.accent` — only the tier's own base fill moved off it).
+ *  - **`.Browse` / `.Intro`** (`activityFixedFill(tier) === null`, out of R30's scope — the design
+ *    canvas has no branch for either) — UNCHANGED pre-R30 formula: `.Browse` = black 0.32 (no wash);
+ *    `.Intro` = black 0.46 base + an accent 0.18 overlay wash (accent alphas encoded as 8-digit hex
+ *    suffixes, the reference-ui convention, e.g. `theme.accent + '2E'`). */
 function renderBubbleBackground(theme: ReferenceUITheme, tier: ActivityTier): ReactElement {
   const fill = { position: 'absolute' as const, top: 0, left: 0, right: 0, bottom: 0 };
   const shape = { borderRadius: BUBBLE_RADIUS };
-  if (tier === ActivityTier.Join || tier === ActivityTier.Browse) {
-    // 進場 / 觀眾選購（browse，chat-message-taxonomy ⑤）— black 0.32, no accent wash (最低調).
+  const fixedFill = activityFixedFill(tier);
+  if (fixedFill !== null) {
+    // R30 fixed semantic color (join/purchase/win) — solid, no accent-derived base/wash layers.
+    return (
+      <>
+        {tier === ActivityTier.Win ? (
+          // Faint accent 0.2 glow halo behind the bubble (approximates the iOS accent 0.2 shadow) —
+          // UNCHANGED by R30, still derived from theme.accent.
+          <View pointerEvents="none" style={{ ...fill, ...shape, backgroundColor: theme.accent + '33' }} />
+        ) : null}
+        <View pointerEvents="none" style={{ ...fill, ...shape, backgroundColor: fixedFill }} />
+        {tier === ActivityTier.Win ? (
+          // 1px accent 0.4 ('66') hairline border — UNCHANGED by R30, still derived from theme.accent.
+          <View
+            pointerEvents="none"
+            style={{ ...fill, ...shape, borderWidth: 1, borderColor: theme.accent + '66' }}
+          />
+        ) : null}
+      </>
+    );
+  }
+  if (tier === ActivityTier.Browse) {
+    // 觀眾選購（browse，chat-message-taxonomy ⑤）— black 0.32, no accent wash (最低調). Not in R30's
+    // scope (the design canvas has no browse branch) — pre-R30 formula unchanged.
     return <View pointerEvents="none" style={{ ...fill, ...shape, backgroundColor: JOIN_BUBBLE_FILL }} />;
   }
-  // purchase / intro / win — black 0.46 base + accent wash overlay (+ win border / glow).
-  // 0.13 → '21', 0.18 → '2E', 0.23 → '3B' (8-digit hex alpha).
-  const washSuffix =
-    tier === ActivityTier.Purchase ? '21' : tier === ActivityTier.Intro ? '2E' : '3B';
+  // .Intro (RN-only extra tier, no R30 design branch) — black 0.46 base + accent 0.18 wash ('2E').
+  // Not in R30's scope — pre-R30 formula unchanged.
   return (
     <>
-      {tier === ActivityTier.Win ? (
-        // Faint accent 0.2 glow halo behind the bubble (approximates the iOS accent 0.2 shadow).
-        <View pointerEvents="none" style={{ ...fill, ...shape, backgroundColor: theme.accent + '33' }} />
-      ) : null}
       <View pointerEvents="none" style={{ ...fill, ...shape, backgroundColor: ACTIVITY_BUBBLE_BASE }} />
-      <View pointerEvents="none" style={{ ...fill, ...shape, backgroundColor: theme.accent + washSuffix }} />
-      {tier === ActivityTier.Win ? (
-        // 1px accent 0.4 ('66') hairline border.
-        <View
-          pointerEvents="none"
-          style={{ ...fill, ...shape, borderWidth: 1, borderColor: theme.accent + '66' }}
-        />
-      ) : null}
+      <View pointerEvents="none" style={{ ...fill, ...shape, backgroundColor: theme.accent + '2E' }} />
     </>
   );
 }

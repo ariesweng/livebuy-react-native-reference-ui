@@ -389,6 +389,13 @@ export function ProductSheetsView(props: ProductSheetsViewProps): ReactElement {
   // close clears it. Default null → demo / snapshot don't mount the overlay (baselines unchanged).
   // Parity iOS `zoomedDetail`.
   const [zoomedDetail, setZoomedDetail] = useState<LBProductDetailState | null>(null);
+  // rb-rn-product-detail-image-gallery (design R34): the photo the `.detail` gallery was
+  // CURRENTLY showing when its zoom badge was tapped — forwarded verbatim into
+  // `ProductImageZoomOverlay`'s `overridePhotoURL` so the lightbox magnifies that exact photo
+  // instead of always the resolver's `primaryPhoto`. Set alongside `zoomedDetail` below; reset
+  // to `undefined` on close and whenever the zoom badge has no gallery context (NotifyRestock —
+  // no gallery, always falls back to the overlay's own resolver).
+  const [zoomOverridePhotoURL, setZoomOverridePhotoURL] = useState<string | undefined>(undefined);
   // Retains the last non-null detail/restock sheet for the slide-down dismiss animation.
   const lastDetailRef = useRef<ReactElement | null>(null);
   // FALLBACK cache for `ProductSheetsModel.briefForProduct`/`.descriptionForProduct`, read when a
@@ -650,7 +657,13 @@ export function ProductSheetsView(props: ProductSheetsViewProps): ReactElement {
           heightPct={detailHeightPct}
           onToggleNotice={() => handleNotifyRestock(detail.productId)}
           onDismiss={handleDismiss}
-          onZoomImage={() => setZoomedDetail(detail)}
+          // NotifyRestock has no gallery — always clear any stale override from a PREVIOUS
+          // `.detail` gallery zoom so the lightbox falls back to its own resolver
+          // (rb-rn-product-detail-image-gallery).
+          onZoomImage={() => {
+            setZoomedDetail(detail);
+            setZoomOverridePhotoURL(undefined);
+          }}
         />
       );
     } else {
@@ -697,7 +710,15 @@ export function ProductSheetsView(props: ProductSheetsViewProps): ReactElement {
           onToggleFavorite={() => handleToggleFavorite(detail.productId)}
           onShare={onShare}
           onDismiss={handleDismiss}
-          onZoomImage={() => setZoomedDetail(detail)}
+          // rb-rn-product-detail-image-gallery (design R34): `ProductDetail` now forwards the
+          // photo URL CURRENTLY shown at the tapped zoom badge (the `.detail` gallery's
+          // selection, or `.addToCart`'s single photo) — captured into `zoomOverridePhotoURL` so
+          // the lightbox magnifies exactly what the user was looking at, not always the
+          // resolver's `primaryPhoto`.
+          onZoomImage={(photoURL) => {
+            setZoomedDetail(detail);
+            setZoomOverridePhotoURL(photoURL);
+          }}
           // 「商品介紹」恆顯示 (design R21) — 見 `ProductDetailSheetView` 的 `showsProductIntro`
           // doc comment。
           showsProductIntro
@@ -854,8 +875,16 @@ export function ProductSheetsView(props: ProductSheetsViewProps): ReactElement {
           // `zoomedDetail`: the lightbox covers the sheet, so the selection cannot change while
           // it is open.
           selectedSpec={model.variant.selectedSpec}
+          // rb-rn-product-detail-image-gallery (design R34): the gallery's currently-selected
+          // photo (captured at zoom-badge-tap time) wins over the resolver's `primaryPhoto`;
+          // `undefined` (NotifyRestock / no gallery context / no resolvable photo) falls back to
+          // `ProductImageZoomOverlay`'s own resolver, unchanged from before this prop existed.
+          overridePhotoURL={zoomOverridePhotoURL}
           live={live}
-          onClose={() => setZoomedDetail(null)}
+          onClose={() => {
+            setZoomedDetail(null);
+            setZoomOverridePhotoURL(undefined);
+          }}
         />
       ) : null}
 

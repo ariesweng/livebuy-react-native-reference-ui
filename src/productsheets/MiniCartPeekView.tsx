@@ -35,13 +35,22 @@
 //
 // PHOTO-LED (rb-align-rn-product-sheets — four-platform parity with iOS #8 /
 // Android #9 / Flutter #12): aligned to the design's `LBPMiniCart`, the peek LEADS
-// with a 52×52 product thumbnail. `photos` are remote URLs and reference-ui keeps
+// with a product thumbnail. `photos` are remote URLs and reference-ui keeps
 // snapshots deterministic (NO network image), so — like `ProductDetail`'s media — it
-// draws a 52×52 rounded solid placeholder with a monogram (host can swap in a real
-// image). The rest mirrors `LBPMiniCart`: the dark glass card surface, the single-
-// line name, the price line (`已售完` when `soldOut === 1`, else `priceShow`), and the
-// trailing circular close button. NO「已加入購物車」confirmation line (the design's
-// `LBPMiniCart` has none — the peek's mere appearance is the "added" signal).
+// draws a solid placeholder with a monogram (host can swap in a real image). The
+// rest mirrors `LBPMiniCart`: the white card surface, the single-line name, the
+// price line (`已售完` when `soldOut === 1`, else `priceShow`), and the trailing
+// close button. NO「已加入購物車」confirmation line (the design's `LBPMiniCart` has
+// none — the peek's mere appearance is the "added" signal).
+//
+// WHITE-CARD RESTYLE (rb-rn-vod-live-product-card-restyle, design re-sync R31):
+// the card surface flipped from a dark glass pill to a white card — thumbnail is
+// now 60-wide, flush to the card's left/top/bottom edges (only its left two
+// corners are rounded — achieved by the outer Pressable's own `overflow: 'hidden'`
+// + `borderRadius` clipping the whole card, the same technique as
+// `LiveOverlayChromeView.pinnedCard`), the close button moved from a trailing
+// glass circle to a transparent top-right absolute chip, and text colors flipped
+// from on-glass white to `theme.text` / the price line to `theme.accent`.
 //
 // RENDER DISCIPLINE (iOS / Android / Flutter lessons baked in): plain
 // View / Text / Pressable only — NO ScrollView / FlatList / SectionList, NO
@@ -56,7 +65,6 @@ import type { ReactElement } from 'react';
 import { View, Pressable } from 'react-native';
 import { Text } from '../TightText';
 
-import { EqualizerGlyph } from './EqualizerGlyph';
 import { RemoteImage } from './RemoteImage';
 import { LBTestIDs } from '../testing/LBTestIDs';
 import type { ReferenceUITheme } from '../theme';
@@ -67,37 +75,37 @@ import type { LBMiniCartPeek } from 'livebuy-react-native-ui';
 /** Bounded card width — keeps the single-line name truncating rather than
  *  stretching (parity with iOS 260pt / Android 260dp / Flutter 260). */
 const CARD_WIDTH = 260;
-/** Card padding (`padding: 8`) + corner radius (`borderRadius: 16`). */
+/** Right-side card padding (design `padding: '0 8px 0 0'` — right edge only; the
+ *  thumbnail and the card's top/bottom are flush, no padding there). */
 const CARD_PADDING = 8;
-const CARD_RADIUS = 16;
-/** Gap between the chip / info / close (`gap: 10`). */
+/** Corner radius (design `borderRadius: '0.25rem'`; 1rem = 16px → 4px). */
+const CARD_RADIUS = 4;
+/** Gap between the thumbnail / info / close (`gap: 10`). */
 const H_GAP = 10;
-/** Added chip box (replaces the design's 52×52 product photo). */
-const CHIP_SIZE = 52;
-const CHIP_RADIUS = 10;
+/** Thumbnail width — flush to the card's left/top/bottom edges, height is
+ *  content-driven (`alignItems: 'stretch'`), design `width: 3.5rem` = 56px
+ *  (rb-rn-product-detail-image-gallery, design R34: 60 → 56; RN's `alignItems: 'stretch'`
+ *  already stretches this thumbnail natively, so — unlike the web design source, which needed
+ *  an explicit `height` to compensate for a CSS-only quirk — no companion height fix is
+ *  needed here). */
+const THUMB_WIDTH = 56;
 /** Trailing close-circle diameter (`width/height: 22`). */
 const CLOSE_SIZE = 22;
 
 // MARK: - Decorative design tokens (literal minimal hex from LBPMiniCart)
 //
-// accent / fontScale come from the resolved [ReferenceUITheme]. These are FIXED
-// decorative colors lifted verbatim from the design's `LBPMiniCart` (the dark-glass
-// overlay) — design-literal, NOT theme-resolved. They mirror the iOS `MiniCartView`
-// statics + Android `MiniCartPeek` private vals + Flutter `_glassFill`/etc.
-// byte-for-byte so the four platforms read as one family.
+// accent / fontScale come from the resolved [ReferenceUITheme]. `theme.background` /
+// `theme.text` drive the white-card surface + primary text (design `#fff` /
+// `theme.surface.text`); the remaining values below are FIXED decorative colors
+// lifted verbatim from the design's `LBPMiniCart` — design-literal, NOT
+// theme-resolved.
 
-/** `rgba(20,20,24,0.78)` — the dark glass card fill (`LBPMiniCart`). */
-const GLASS_FILL = 'rgba(20,20,24,0.78)';
-/** `rgba(255,255,255,0.10)` — the 0.5px hairline border on the glass. */
-const GLASS_STROKE = 'rgba(255,255,255,0.10)';
-/** On-glass primary text — white (`#fff` in the design). */
-const ON_GLASS_TEXT = '#FFFFFF';
-/** In-stock price accent `#FF7B8A` (the design's price-pink on the glass). */
-const PRICE_COLOR = '#FF7B8A';
-/** Sold-out copy color `#9A96A3` (the design's muted sold-out tint). */
+/** Sold-out copy color `#9A96A3` (the design's muted sold-out tint). Unchanged by
+ *  the white-card restyle (rb-rn-vod-live-product-card-restyle) — already used
+ *  against a white background elsewhere in this package
+ *  (`ProductListView.tsx`'s `SOLD_OUT_COLOR`), confirmed adequate contrast on
+ *  `theme.background` (white) without adjustment. */
 const SOLD_OUT_COLOR = '#9A96A3';
-/** The trailing close-circle fill `rgba(255,255,255,0.18)`. */
-const CLOSE_FILL = 'rgba(255,255,255,0.18)';
 /** Product-photo placeholder fill (mirrors `ProductDetail`'s warm media chip —
  *  deterministic, NO network image). */
 const PHOTO_FILL = '#E27D5A';
@@ -143,10 +151,13 @@ export interface MiniCartPeekProps {
   readonly onOpenDetail?: () => void;
   /**
    * VOD 介紹輪播三參數（rb-rn-now-introducing-real-image-carousel，問題 9/10；皆預設保 peek
-   * byte-identical）。鏡像 iOS / Android / Flutter `MiniCartPeek` 的 live/fullWidth/tag：
+   * byte-identical）。`live` / `fullWidth` 鏡像 iOS / Android / Flutter `MiniCartPeek`；`tag` 已於
+   * rb-rn-minicart-remove-introducing-tag 收斂為 permanently inert：
    *  • `live`     — `live === true` 且 `peek.pic` 非空時於 placeholder 上疊真實商品圖（RemoteImage）。
    *  • `fullWidth`— body 由固定 260 改為填滿（輪播卡用滿寬）。
-   *  • `tag`      — 非空字串時於 info 欄名稱上方畫小 accent 標籤（「介紹中」）。
+   *  • `tag`      — @deprecated 已對齊設計稿 `LBPMiniCart`（無介紹文案欄位），本欄位不論傳入何值
+   *    （含既有呼叫端的 `"介紹中"`）皆不再渲染任何文字或圖示。型別簽章保留是為了維持既有呼叫端
+   *    （`playershell/NowIntroducingCarouselView.tsx`）的編譯相容，讀取此值已無任何視覺效果。
    */
   readonly live?: boolean;
   readonly fullWidth?: boolean;
@@ -159,13 +170,16 @@ export interface MiniCartPeekProps {
 
 /**
  * The family-3 floating mini-cart peek for one {@link LBMiniCartPeek}. Paints a
- * compact PHOTO-LED dark-glass card — a 52×52 product thumbnail + the product name +
- * a price / sold-out line — with a tap-to-open-detail body and a trailing close
- * button (aligned to the design's `LBPMiniCart`). The container draws it only when a
- * peek exists; a `null` peek self-guards to render nothing.
+ * compact PHOTO-LED white card — a thumbnail flush to the card's left/top/bottom
+ * edges + the product name + a price / sold-out line — with a tap-to-open-detail
+ * body and a top-right close button (aligned to the design's `LBPMiniCart`). The
+ * container draws it only when a peek exists; a `null` peek self-guards to render
+ * nothing.
  */
 export function MiniCartPeek(props: MiniCartPeekProps): ReactElement {
-  const { theme, peek, onDismiss, onOpenDetail, live = false, fullWidth = false, tag, testID = LBTestIDs.minicartPeek } = props;
+  // `tag` is intentionally NOT destructured — it is permanently inert (see the
+  // `MiniCartPeekProps.tag` doc comment); reading it further would have no effect.
+  const { theme, peek, onDismiss, onOpenDetail, live = false, fullWidth = false, testID = LBTestIDs.minicartPeek } = props;
 
   // Self-guard (D-4): an absent peek → no floating card (the container also gates,
   // mirroring iOS / Android / Flutter, so this is safe to compose unconditionally).
@@ -178,10 +192,17 @@ export function MiniCartPeek(props: MiniCartPeekProps): ReactElement {
   // sold-out shows `已售完`, in-stock shows `priceShow`.
   const isSoldOut = peek.soldOut === 1;
 
-  // The whole card body is the open-detail affordance (design `onTap`); the trailing
-  // close button is a separate Pressable that dismisses WITHOUT opening (design
-  // `onClose` calls `e.stopPropagation()`). A bounded width keeps the single-line
-  // name truncating rather than stretching (parity to iOS / Android / Flutter 260).
+  // The whole card body is the open-detail affordance (design `onTap`); the close
+  // button is a separate Pressable, absolutely positioned top-right, that dismisses
+  // WITHOUT opening (design `onClose` calls `e.stopPropagation()`). A bounded width
+  // keeps the single-line name truncating rather than stretching (parity to iOS /
+  // Android / Flutter 260). `overflow: 'hidden'` + `borderRadius` on this outer
+  // Pressable clips the WHOLE card to the rounded shape, including the thumbnail's
+  // corners where they meet the card's left edge — mirroring the same technique
+  // `LiveOverlayChromeView.pinnedCard` uses, so only the thumbnail's left two
+  // corners end up visually rounded (its right corners sit mid-card, untouched by
+  // the clip). Only the right side carries padding (design `padding: '0 8px 0 0'`);
+  // the thumbnail and the card's top/bottom stay flush (no left/vertical padding).
   return (
     <Pressable
       testID={testID}
@@ -190,23 +211,26 @@ export function MiniCartPeek(props: MiniCartPeekProps): ReactElement {
       style={{
         // 輪播卡滿寬（fullWidth）；浮動 mini-cart peek 維持固定 260。
         width: fullWidth ? '100%' : CARD_WIDTH,
-        padding: CARD_PADDING,
+        paddingRight: CARD_PADDING,
         borderRadius: CARD_RADIUS,
-        backgroundColor: GLASS_FILL,
-        borderWidth: 0.5,
-        borderColor: GLASS_STROKE,
+        backgroundColor: theme.background,
+        overflow: 'hidden',
         flexDirection: 'row',
-        alignItems: 'center',
+        alignItems: 'stretch',
+        shadowColor: '#000000',
+        shadowOffset: { width: 0, height: 6 },
+        shadowOpacity: 0.15,
+        shadowRadius: 18,
+        elevation: 6,
       }}
     >
-      {/* Product thumbnail (LBPMiniCart 52×52 photo — deterministic placeholder): a
-          rounded solid chip with a monogram (NO network image), mirroring
-          `ProductDetail`'s photo placeholder. */}
+      {/* Product thumbnail (LBPMiniCart photo — deterministic placeholder): a solid
+          fill with a monogram (NO network image), mirroring `ProductDetail`'s photo
+          placeholder. Flush to the card's left/top/bottom edges — no own
+          borderRadius; the outer Pressable's overflow clip rounds its left corners. */}
       <View
         style={{
-          width: CHIP_SIZE,
-          height: CHIP_SIZE,
-          borderRadius: CHIP_RADIUS,
+          width: THUMB_WIDTH,
           backgroundColor: PHOTO_FILL,
           alignItems: 'center',
           justifyContent: 'center',
@@ -223,52 +247,43 @@ export function MiniCartPeek(props: MiniCartPeekProps): ReactElement {
         </Text>
         {/* 真實商品圖（host runtime live + 非空 pic）疊於 monogram placeholder 上；
             live === false / 空 pic → 不畫（snapshot byte-stable）。rb-rn-now-introducing 真實圖。 */}
-        <RemoteImage live={live} uri={peek.pic} borderRadius={CHIP_RADIUS} />
+        <RemoteImage live={live} uri={peek.pic} />
       </View>
 
       <View style={{ width: H_GAP }} />
 
-      {/* Info column (name + price line). */}
-      <View style={{ flex: 1 }}>
-        {/* Optional accent tag above the name (carousel「介紹中」). The tag carries the
-            accent equalizer glyph + accent text (對齊設計 `LBLivePinnedCard` 等化器 + accent 文字,
-            與商品列底部橫幅共用 `EqualizerGlyph`). Empty / omitted → not drawn (peek byte-identical).
-            rb-rn-now-introducing-real-image-carousel，問題 10. */}
-        {tag != null && tag.length > 0 ? (
-          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-            <EqualizerGlyph size={11} color={theme.accent} />
-            <View style={{ width: 3 }} />
-            <Text
-              style={{
-                color: theme.accent,
-                fontSize: 11 * theme.fontScale,
-                fontWeight: '600',
-              }}
-            >
-              {tag}
-            </Text>
-          </View>
-        ) : null}
-        {/* Product name — single-line, ellipsis-truncated (design 13/600). */}
+      {/* Info column (name + price line), vertically centered against the
+          content-driven card height (design `padding: '8px 0'`). */}
+      <View style={{ flex: 1, minWidth: 0, paddingVertical: CARD_PADDING, justifyContent: 'center' }}>
+        {/* No accent「介紹中」tag here (rb-rn-minicart-remove-introducing-tag): the design's
+            `LBPMiniCart` (design/templates/minimal/sdk-components.jsx, ~884-919) has no
+            introduction/description copy field at all — thumbnail + name + price/sold-out line
+            + close button only. The `tag` prop is kept on `MiniCartPeekProps` (permanently
+            inert, see its doc comment) purely for call-site compile compatibility; it is never
+            rendered here regardless of its value. */}
+        {/* Product name — single-line, ellipsis-truncated (design 13/600). Reserves
+            `paddingRight: 26` so the text never runs under the absolutely-positioned
+            top-right close button (design's own `.name` div `paddingRight: 26`). */}
         <Text
           numberOfLines={1}
           ellipsizeMode="tail"
           style={{
-            color: ON_GLASS_TEXT,
+            color: theme.text,
             fontSize: 13 * theme.fontScale,
             fontWeight: '600',
+            paddingRight: 26,
           }}
         >
           {peek.name}
         </Text>
 
-        {/* Price line — sold-out → 已售完; else the priceShow (string). */}
+        {/* Price line — sold-out → 已售完 (muted); else the priceShow (accent, string). */}
         <Text
           numberOfLines={1}
           ellipsizeMode="tail"
           style={{
             marginTop: 2,
-            color: isSoldOut ? SOLD_OUT_COLOR : PRICE_COLOR,
+            color: isSoldOut ? SOLD_OUT_COLOR : theme.accent,
             fontSize: 12 * theme.fontScale,
             fontWeight: isSoldOut ? '600' : '700',
           }}
@@ -277,29 +292,32 @@ export function MiniCartPeek(props: MiniCartPeekProps): ReactElement {
         </Text>
       </View>
 
-      <View style={{ width: H_GAP }} />
-
-      {/* Close button (LBPMiniCart trailing close — 22×22 glass circle). Tapping it
-          dismisses WITHOUT opening the detail: its own Pressable intercepts the tap so
-          the outer open-detail action does not also fire (design `e.stopPropagation()`
-          on `onClose`). A no-op when `onDismiss` is omitted. */}
+      {/* Close button (LBPMiniCart top-right close — design `top: 3, right: 3`,
+          transparent, `theme.surface.text`-colored icon; no longer a trailing glass
+          circle). Tapping it dismisses WITHOUT opening the detail: its own Pressable
+          intercepts the tap so the outer open-detail action does not also fire
+          (design `e.stopPropagation()` on `onClose`). A no-op when `onDismiss` is
+          omitted. */}
       <Pressable
         testID={LBTestIDs.minicartPeekClose}
         accessibilityRole="button"
         onPress={onDismiss}
         style={{
+          position: 'absolute',
+          top: 3,
+          right: 3,
           width: CLOSE_SIZE,
           height: CLOSE_SIZE,
           borderRadius: CLOSE_SIZE / 2,
-          backgroundColor: CLOSE_FILL,
+          backgroundColor: 'transparent',
           alignItems: 'center',
           justifyContent: 'center',
         }}
       >
         <Text
           style={{
-            color: ON_GLASS_TEXT,
-            fontSize: 12 * theme.fontScale,
+            color: theme.text,
+            fontSize: 14 * theme.fontScale,
             fontWeight: 'bold',
           }}
         >

@@ -37,6 +37,24 @@ export function liveEntryShouldResetDismiss(
   return currentId !== newId;
 }
 
+/**
+ * Reset-INITIAL-VALUE predicate (`rb-rn-live-entry-dismiss-survives-remount`): when a reset IS
+ * happening (see {@link liveEntryShouldResetDismiss} — an ORTHOGONAL, independent question this
+ * function does not answer), what should `dismissed` start at? `true` only when the new session
+ * (`newId`, non-null) is exactly the session the user last explicitly closed
+ * (`lastDismissedId`, read from `liveEntryDismissMemory.ts` by the CALLER — this function itself
+ * takes both values explicitly and never reads that module, staying deterministically unit-testable).
+ * Lets an explicit close survive `LivebuyLiveEntry` unmounting/remounting for the SAME live id,
+ * while a genuinely new live (`newId !== lastDismissedId`, including `newId == null`) still starts
+ * un-dismissed — existing "closing one live never hides the next" behaviour is unchanged. Pure.
+ */
+export function liveEntryInitialDismissedForId(
+  newId: string | null,
+  lastDismissedId: string | null,
+): boolean {
+  return newId != null && newId === lastDismissedId;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Immutable state machine (parity iOS / Android controller transitions)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -64,15 +82,32 @@ export const initialLiveEntryState: LiveEntryState = {
 /**
  * Apply an already-GATED result (or `null`). A live whose id was already reported ENDED
  * is treated as "no live" (avoids resurfacing a just-ended live on a stale fetch); on a
- * live-`id` change reset `dismissed` and update `lastLiveId`; finally update `live`.
- * Transition order mirrors iOS / Android `apply` + the sample `useFloatingLive` apply.
+ * live-`id` change reset `dismissed` — to `true` when `newId` is the live the user last
+ * explicitly closed ({@link liveEntryInitialDismissedForId}, `rb-rn-live-entry-dismiss-survives-remount`),
+ * else `false` — and update `lastLiveId`; finally update `live`. Transition order mirrors
+ * iOS / Android `apply` + the sample `useFloatingLive` apply.
+ *
+ * `lastDismissedId` is an OPTIONAL third parameter (default `null`) so this function stays a pure
+ * function of its explicit inputs — the actual `getLastDismissedLiveId()` read happens at the
+ * impure call site (`LivebuyLiveEntry.tsx`'s `useLiveEntry` hook), matching the existing convention
+ * for `liveEntryCloseGate.ts` reads. Omitting it (or passing `null`) reproduces the exact pre-change
+ * behaviour (`dismissed` unconditionally resets to `false` on a live-id change).
  */
-export function applyLiveEntry(state: LiveEntryState, gated: LBVideoItem | null): LiveEntryState {
+export function applyLiveEntry(
+  state: LiveEntryState,
+  gated: LBVideoItem | null,
+  lastDismissedId: string | null = null,
+): LiveEntryState {
   let next = gated;
   if (next != null && state.endedLiveIds.has(next.id)) next = null; // ended → never resurface
   const newId = next?.id ?? null;
   if (liveEntryShouldResetDismiss(state.lastLiveId, newId)) {
-    return { ...state, live: next, dismissed: false, lastLiveId: newId };
+    return {
+      ...state,
+      live: next,
+      dismissed: liveEntryInitialDismissedForId(newId, lastDismissedId),
+      lastLiveId: newId,
+    };
   }
   return { ...state, live: next };
 }
@@ -117,6 +152,53 @@ export const LIVE_ENTRY_DEFAULT_INSET: { x: number; y: number } = { x: 12, y: 24
  * `extensions.floating_setting.delay` field, whose own default is `3`.
  */
 export const LIVE_ENTRY_DEFAULT_DELAY_SECONDS = 3;
+
+/**
+ * Fixed SDK-internal buffer in MILLISECONDS (`rb-rn-live-entry-close-grace-period`): how long
+ * `LivebuyLiveEntry` withholds its appearance right after the user closes
+ * `CollapsibleLivebuyPlayer`, so the entry card does not pop straight into the same corner the
+ * player was just dismissed from. Deliberately **NOT** wired to any merchant config / wire field —
+ * unlike {@link LIVE_ENTRY_DEFAULT_DELAY_SECONDS} (which answers "how long to wait on a COLD app
+ * open"), this answers a completely different question ("how long to wait right after a CLOSE"),
+ * and the two are combined via `Math.max` at the call site, never replaced or added.
+ */
+export const LIVE_ENTRY_CLOSE_GRACE_MS = 2000;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Close-grace pure helpers (`rb-rn-live-entry-close-grace-period`)
+//
+// Both take every time value as an explicit argument — NEITHER calls `Date.now()` — so they stay
+// deterministically unit-testable. The impure "what time is it / when did the player last close"
+// glue lives in the call site (`LivebuyLiveEntry.tsx`) and the sibling module
+// `liveEntryCloseGate.ts`.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Milliseconds elapsed since `CollapsibleLivebuyPlayer` was last closed, or `null` when it has
+ * never been closed this process (cold open — the close-grace mechanism then contributes `0` and
+ * the merchant's own `timing`/`delaySeconds` config governs unconditionally). Pure.
+ */
+export function msSinceLastPlayerClose(
+  lastClosedAtMs: number | null,
+  nowMs: number,
+): number | null {
+  return lastClosedAtMs == null ? null : nowMs - lastClosedAtMs;
+}
+
+/**
+ * How many MORE milliseconds `LivebuyLiveEntry` must wait before it may appear, purely due to a
+ * recent player close. `msSinceClose == null` (never closed) or `msSinceClose >= graceMs` (grace
+ * already elapsed) → `0`; otherwise the remaining portion of the buffer. Combined with the
+ * merchant's own configured wait via `Math.max` at the call site — this function alone never
+ * decides the final wait, only its own contribution to it.
+ */
+export function liveEntryCloseGraceRemainingMs(
+  msSinceClose: number | null,
+  graceMs: number = LIVE_ENTRY_CLOSE_GRACE_MS,
+): number {
+  if (msSinceClose == null || msSinceClose >= graceMs) return 0;
+  return graceMs - msSinceClose;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // floating_setting — initial resting corner + appearance timing

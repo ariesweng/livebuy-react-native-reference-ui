@@ -103,6 +103,7 @@ import { LiveOverlayChrome, visiblePinnedProducts } from './LiveOverlayChromeVie
 import { NowIntroducingCarousel } from './NowIntroducingCarouselView';
 import { HeartBurst } from './HeartBurst';
 import { LiveBottomBarView } from './LiveBottomBarView';
+import { LiveMoreMenuView } from './LiveMoreMenuView';
 import { UpcomingCountdownView } from './UpcomingCountdownView';
 import { PlaybackProgressBarView } from './PlaybackProgressBarView';
 import { LiveNowPillView } from './LiveNowPillView';
@@ -159,6 +160,20 @@ export interface PlayerShellViewProps {
    * behaviour once mounted.
    */
   readonly showSubscribe?: boolean;
+  /**
+   * Whether the header's trailing top-right button shows a close (✕) icon instead of the minimize
+   * (`◳`) icon (rb-rn-player-direct-close-button). The container (`LivebuyPlayerOverlays`) resolves
+   * `LivebuyPlayerConfig.enableDirectCloseButton` against the global `LivebuySDK
+   * .isDirectCloseButtonEnabled()` preference (via the shared pure function
+   * `resolveDirectCloseButtonEnabled`) and forwards the ALREADY-RESOLVED boolean here — this view
+   * applies no further fallback of its own (leaf `PlayerHeaderBar` owns the `false` default, same
+   * convention as `showSubscribe` above). Forwarded verbatim to BOTH `<PlayerHeaderBar>` call sites
+   * below (the LIVE/VOD main branch and the upcoming-countdown branch), same reasoning as
+   * `showSubscribe`. Orthogonal to `onMinimize` — this only decides which icon draws; which
+   * behaviour `onMinimize` actually performs on tap is decided entirely by the caller
+   * (`CollapsibleLivebuyPlayer`), not by this view.
+   */
+  readonly showCloseIcon?: boolean;
   /**
    * Merchant capability gate for the header title marquee (rb-rn-marquee-title-scroll), RAW.
    * The container forwards `config.titleScroll` (itself the raw
@@ -294,6 +309,19 @@ export interface PlayerShellViewProps {
    * `isExpanded`) are unaffected either way.
    */
   readonly onCleanModeChange?: (cleanMode: boolean) => void;
+  /**
+   * Reports the「更多」(⋯) collapsed menu (`LiveMoreMenuView`, design R32) open/closed state to a
+   * container so a family that lives OUTSIDE `PlayerShellView`'s render tree (e.g. the `feedwin`
+   * family's `ChatFeedView`) can hide itself while the menu is up (rb-rn-live-more-sheet-above-
+   * chat) — mirrors the established {@link onInfoPanelOpenChange} / {@link onCleanModeChange}
+   * precedent (same reason: `PlayerShellView` cannot reach outside its own tree to hide a
+   * sibling family, only report state for a wrapping container to act on). Fired on every
+   * `moreMenuOpen` change, INCLUDING the initial mount (parity `onInfoPanelOpenChange` /
+   * `onCleanModeChange`). Default `undefined` (demo / unwired) → inert no-op; the menu's own
+   * internal open/close behaviour, `LiveMoreMenuView` content, and its 分享／客服 actions are
+   * unaffected either way.
+   */
+  readonly onMoreMenuOpenChange?: (open: boolean) => void;
   /**
    * VOD CC 字幕 cue 清單（rb-react-native-subtitle-vtt-caption-display）. **NOT** template-derived
    * — there is no `DefaultPlayerTemplate` public read surface for the active-caption TEXT (only
@@ -629,6 +657,7 @@ export function PlayerShellView(props: PlayerShellViewProps): ReactElement {
     onToggleMute,
     onToggleSubscribe,
     showSubscribe,
+    showCloseIcon,
     titleScroll,
     onTapRailItem,
     onShare,
@@ -646,6 +675,7 @@ export function PlayerShellView(props: PlayerShellViewProps): ReactElement {
     onCloseRequest,
     onDidSwitchVideo,
     onCleanModeChange,
+    onMoreMenuOpenChange,
     subtitleCues = [],
   } = props;
 
@@ -749,6 +779,24 @@ export function PlayerShellView(props: PlayerShellViewProps): ReactElement {
   // handleRailTap(serviceLink)) now present this confirm FIRST; only its「確定」proceeds to the
   // existing serviceLink host exit. Default false → modal not drawn → existing snapshots unchanged.
   const [contactMerchantPresented, setContactMerchantPresented] = useState(false);
+
+  // Whether the「更多」collapsed menu (`LiveMoreMenuView`, design R32) is presented
+  // (rb-rn-live-replay-more-menu-and-video-info-live-copy). Opened by the VOD side rail's
+  // `LBSideRailKind.More` pill — which `OperationRail` only draws when the shell passes it
+  // `isFinishedLiveReplay={model.isFinishedLiveReplay}` (see the `<OperationRail>` call site
+  // below) — via `handleRailTap`'s `More` branch. Default false → sheet not drawn → existing
+  // snapshots unchanged (no existing call site renders a finished-live-replay `items` snapshot
+  // with `More` enabled AND `isFinishedLiveReplay: true` together).
+  const [moreMenuOpen, setMoreMenuOpen] = useState(false);
+
+  // Report「更多」menu open/closed (initial + every change) so a family living OUTSIDE this
+  // component's render tree (e.g. `feedwin`'s ChatFeedView) can also hide itself while the menu
+  // is up — mirrors `onInfoPanelOpenChange` / `onCleanModeChange` above (rb-rn-live-more-sheet-
+  // above-chat). `PlayerShellView` itself never reaches out to control such a sibling family
+  // directly; the menu's own content / actions are unaffected.
+  useEffect(() => {
+    onMoreMenuOpenChange?.(moreMenuOpen);
+  }, [moreMenuOpen, onMoreMenuOpenChange]);
 
   // Locally-dismissed VOD now-introducing productIds (rb-rn-now-introducing-real-image-
   // carousel，問題 9/10): a card's ✕ removes it from the carousel until the playhead moves
@@ -862,13 +910,23 @@ export function PlayerShellView(props: PlayerShellViewProps): ReactElement {
   // every kind it does not branch on below is surfaced as an `onTapRailItem` intent, and WHERE that
   // intent lands is the consumer's business (turnkey container seam → core `simulateLikeTap` for
   // `Like`, rb-rn-like-tap-wire; `undefined` in the standalone / snapshot paths → dropped).
-  // The function has exactly THREE local branches before that fall-through: `more` → toggle the
-  // info panel (then still fall through as an observation hook), `share` when the container
-  // injected `onShare` → that seam, and `serviceLink` → 聯絡商家 confirm modal
+  // The function has exactly THREE local branches before that fall-through: `more` → open the
+  // 「更多」collapsed menu (then still fall through as an observation hook), `share` when the
+  // container injected `onShare` → that seam, and `serviceLink` → 聯絡商家 confirm modal
   // (parity with iOS/Flutter's `handleRailTap`).
+  //
+  // rb-rn-live-replay-more-menu-and-video-info-live-copy (design R32): the `more` branch's
+  // action CHANGED from "toggle the info panel" to "open `moreMenuOpen`". This is safe — the
+  // OLD action was DEAD CODE: `OperationRail` never drew a `More` pill before this change (it
+  // was absent from `RAIL_PRESENTATION_ORDER`, the ONLY thing that ever called this function
+  // with a `More`-valued `kind`), and no other call site in this file (or any test) ever invoked
+  // `handleRailTap` with `More` / the literal `'more'` — grep-verified. So this branch had NEVER
+  // fired in real usage; repurposing it carries zero behavior-change risk for existing hosts.
+  // The header host-pill's own info-panel toggle (`onTapHostBadge`) is a SEPARATE, direct
+  // `setInfoPanelOpen` wire (see that call site below) and is UNAFFECTED by this change.
   const handleRailTap = (kind: LBSideRailKind): void => {
-    if (kind === ('more' as LBSideRailKind)) {
-      setInfoPanelOpen((open) => !open);
+    if (kind === LBSideRailKind.More) {
+      setMoreMenuOpen(true);
       onTapRailItem?.(kind);
       return;
     }
@@ -1026,6 +1084,10 @@ export function PlayerShellView(props: PlayerShellViewProps): ReactElement {
             onMinimize={onMinimize}
             onToggleSubscribe={onToggleSubscribe}
             showSubscribe={showSubscribe}
+            // rb-rn-player-direct-close-button — raw forward, same reasoning as showSubscribe
+            // above: the upcoming header's trailing button is the SAME single button as the main
+            // branch, so it must reflect the same resolved icon.
+            showCloseIcon={showCloseIcon}
             // rb-rn-marquee-title-scroll — the upcoming header draws / measures / scrolls its
             // title exactly like the main branch, so this forward is LOAD-BEARING, not
             // defensive: omitting it would let the header fall back to「may scroll」and ignore
@@ -1287,6 +1349,9 @@ export function PlayerShellView(props: PlayerShellViewProps): ReactElement {
           onMinimize={onMinimize}
           onToggleSubscribe={onToggleSubscribe}
           showSubscribe={showSubscribe}
+          // rb-rn-player-direct-close-button — raw forward (leaf owns the `false` default);
+          // resolved by the container from `LivebuyPlayerConfig.enableDirectCloseButton`.
+          showCloseIcon={showCloseIcon}
           // rb-rn-marquee-title-scroll — raw merchant gate for the title marquee (the leaf
           // slot owns the fallback). The sibling `isUpcoming` branch above forwards the same
           // value; both call sites must stay wired.
@@ -1333,6 +1398,11 @@ export function PlayerShellView(props: PlayerShellViewProps): ReactElement {
                 heartBurstTick={model.heartBurstTick}
                 muted={model.muted}
                 onTapItem={handleRailTap}
+                // design R32 (rb-rn-live-replay-more-menu-and-video-info-live-copy): this rail
+                // IS what a finished-live-replay renders in RN (see `LiveBottomBarView.tsx`'s
+                // file-header comment) — feeding `model.isFinishedLiveReplay` here is what makes
+                // the "更多" pill (and the sheet it opens) reachable in real playback.
+                isFinishedLiveReplay={model.isFinishedLiveReplay}
               />
             </View>
           </View>
@@ -1542,6 +1612,13 @@ export function PlayerShellView(props: PlayerShellViewProps): ReactElement {
           // call site uses above, so both surfaces decide identically for the same logo
           // (rn-videoinfo-shop-logo-real-image-refui; live RUNTIME image gate, not isLive).
           live={live}
+          // design R32 (rb-rn-live-replay-more-menu-and-video-info-live-copy): narrow
+          // `model.isLive` (`liveStatus == 1`), NOT the broader `usesLiveChrome` (`isLive ||
+          // isFinishedLiveReplay`) — a finished replay is no longer "直播中", so the panel's
+          // 「直播中」badge correctly stays off for it. See `VideoInfoPanelProps
+          // .isLiveBroadcast`'s doc comment for why this is NOT named `live`/`isLive` (this
+          // call site already has an unrelated `live` prop above — the image-loading gate).
+          isLiveBroadcast={model.isLive}
           // rb-rn-subscribe-favorite-visibility-toggle — SECOND render point of the subscribe
           // feature (the shop row's subscribe pill; the FIRST is the header badge above, which
           // gets `showSubscribe={showSubscribe}` raw). This is a DELIBERATE `?? false`, NOT a
@@ -1559,9 +1636,37 @@ export function PlayerShellView(props: PlayerShellViewProps): ReactElement {
           // header 右上角關閉 icon → 收合 info panel（rb-rn-sheet-header-close-unify）：第四個合法
           // 關閉入口（與 scrim / 下拉 / host-badge re-tap 同路）。
           onClose={() => setInfoPanelOpen(false)}
-          // 前往商城首頁 deliberately left unwired: no core storefront open-intent exit
-          // yet, so the primary CTA renders for design fidelity but stays inert
-          // (cross-layer follow-up, mirrors iOS / Android PlayerShellView).
+          // 前往商城首頁 PRIMARY CTA + its `onOpenStorefront` prop have been REMOVED
+          // (rb-rn-live-replay-more-menu-and-video-info-live-copy, design R32 — user-decided
+          // removal; see `VideoInfoPanelView.tsx`'s Footer doc comment).
+        />
+      </BottomSheetPresenter>
+
+      {/* 「更多」collapsed menu (design R32, rb-rn-live-replay-more-menu-and-video-info-live-copy)
+          — opened by the VOD side rail's `LBSideRailKind.More` pill (`handleRailTap`'s `more`
+          branch above). Both actions CLOSE this sheet first, then forward to the SAME existing
+          exits the LIVE bottom bar / info-panel footer already use — no new host seam:
+            • 分享 → `onShare` if the container injected one (system share), else falls back to
+              the existing `handleRailTap(Share)` rail route (mirrors the LIVE bottom bar's own
+              `onShare` fallback above).
+            • 客服 → `handleRailTap(ServiceLink)` → the SAME「聯絡商家」confirm modal below (mirrors
+              `VideoInfoPanel`'s `onContactMerchant`). */}
+      <BottomSheetPresenter
+        visible={moreMenuOpen}
+        onDismiss={() => setMoreMenuOpen(false)}
+        sheetStyle={{ position: 'absolute', left: 0, right: 0, bottom: 0 }}
+      >
+        <LiveMoreMenuView
+          theme={theme}
+          onShare={() => {
+            setMoreMenuOpen(false);
+            if (onShare != null) onShare();
+            else handleRailTap(LBSideRailKind.Share);
+          }}
+          onContactMerchant={() => {
+            setMoreMenuOpen(false);
+            handleRailTap(LBSideRailKind.ServiceLink);
+          }}
         />
       </BottomSheetPresenter>
 

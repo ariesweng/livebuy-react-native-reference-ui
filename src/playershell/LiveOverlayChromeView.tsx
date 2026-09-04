@@ -17,7 +17,7 @@
 // owned by their own components). This surface renders ONLY the overlay
 // affordances the design's `live-chrome.jsx` paints over the stream:
 //
-//   • LBLiveAnnounce    — announcement banner (bottom-left, yellow).
+//   • LBLiveAnnounce    — announcement banner (bottom-left, dark-glass).
 //   • LBLivePinnedCard  — pinned narrating-product card (bottom-right, white).
 //   • LBLiveHostCaption — centered host caption overlay (~46% height).
 //   • LBPGestureHint    — centered static gesture-hint pills (tap / hold / swipe).
@@ -63,6 +63,7 @@ import { Text } from '../TightText';
 
 import { PageDots, clampIndex } from './NowIntroducingCarouselView';
 import { RemoteImage } from '../productsheets/RemoteImage';
+import { EqualizerGlyph } from '../productsheets/EqualizerGlyph';
 import type { ReferenceUITheme } from '../theme';
 import type { LBProduct } from 'livebuy-react-native';
 import { LBTestIDs } from '../testing/LBTestIDs';
@@ -72,20 +73,37 @@ const NO_OP = (): void => {};
  *  `_id` underscore-prefixed = intentionally unused, matching the PanResponder `_e` / `_g`). */
 const NO_OP_ID = (_id: string): void => {};
 
-// ── Fixed decorative design hexes lifted from `live-chrome.jsx` (parity with
-//    iOS / Android / Flutter). These are DECORATIVE (yellow announce banner) —
+// ── Fixed decorative design colors lifted from `live-chrome.jsx` (parity with
+//    iOS / Android / Flutter). These are DECORATIVE (dark-glass announce banner) —
 //    NOT the resolved theme accent — so they stay constant across themes. ──────
 
-/** Announce banner background (`#FFE08A`). */
-const ANNOUNCE_BG_COLOR = '#FFE08A';
+/** Announce banner background (`rgba(0,0,0,0.42)` — flat translucent black, standing in
+ *  for the design's `backdropFilter: blur(6px)` glass — rb-rn-live-announce-banner-recolor,
+ *  design re-sync R30: repo had never synced this component's colors since it was first
+ *  authored 2026-05-29; was `#FFE08A` solid yellow). */
+const ANNOUNCE_BG_COLOR = 'rgba(0,0,0,0.42)';
 /** Announce icon badge (`#F03246` — brand red used decoratively here). */
 const ANNOUNCE_BADGE_COLOR = '#F03246';
-/** Announce text color (`#15131A` — fixed design dark text on yellow). */
-const ANNOUNCE_TEXT_COLOR = '#15131A';
+/** Announce text color (`#fff` — fixed design white text on the dark-glass background,
+ *  rb-rn-live-announce-banner-recolor; was `#15131A` dark text on the old yellow bg). */
+const ANNOUNCE_TEXT_COLOR = '#fff';
 /** Pinned-card image placeholder fill (`#EFEFF2`). */
 const PINNED_IMAGE_PLACEHOLDER = '#EFEFF2';
 /** Pinned-card image glyph color (`#C7C7CC`). */
 const PINNED_IMAGE_GLYPH = '#C7C7CC';
+/** Pinned-card width (rb-rn-vod-live-product-card-restyle, design re-sync R31:
+ *  132 → 100 — the RN existing value already equalled the design's PRIOR value, so
+ *  the design's new value is used directly, no separate ratio math needed). */
+const PINNED_CARD_WIDTH = 100;
+/** Pinned-card image-area height (design re-sync R31: 92 → 88; design re-sync R34,
+ *  rb-rn-product-detail-image-gallery: 88 → 100 — a SECOND adjustment fixing the aspect ratio
+ *  to a square matching `PINNED_CARD_WIDTH`, not a reversal of R31's own size reduction). */
+const PINNED_IMAGE_HEIGHT = 100;
+/** 「介紹中」底部橫幅底色— fixed coral `rgba(240,50,70,0.7)`, same value as
+ *  `ProductListView.tsx`'s narrating-badge background (rb-rn-vod-live-product-card-restyle,
+ *  unifying the two「介紹中」visual vocabularies; NOT `ANNOUNCE_BADGE_COLOR`, a distinct
+ *  fully-opaque red used by the announce banner icon). */
+const NARRATE_BANNER_COLOR = 'rgba(240,50,70,0.7)';
 /** Horizontal swipe distance (px) that commits a pinned-card page flip (parity iOS 40). */
 const PINNED_SWIPE_DX = 40;
 
@@ -237,12 +255,12 @@ export function LiveOverlayChrome(props: LiveOverlayChromeProps): ReactElement {
 
       {/*
         Bottom row: announce banner (left) + pinned card (right).
-        `live-chrome.jsx`: announce `left:8 right:152 bottom:70`,
+        `live-chrome.jsx`: announce `left:8 right:120 bottom:70`,
         pinned card `right:8 bottom:64 width:132`.
         right:10 (was 8) aligns the pinned card's right edge with LiveBottomBarView's
         heart-icon right edge (BAR_H_PADDING=10) — rb-rn-live-chat-card-edge-align
         (parity iOS `right: 8` -> `.padding(.trailing, 10)`). left:8 unchanged — the
-        announce banner's `maxWidth: 233` clamp derives from left:8/right:152, not this value.
+        announce banner's `maxWidth: 265` clamp derives from left:8/right:120, not this value.
       */}
       <View
         style={{
@@ -344,10 +362,12 @@ function PinnedCardCarousel(props: {
 // ── LBLiveAnnounce — announcement banner ────────────────────────────────────
 
 /**
- * Bottom-left yellow announcement banner with a red icon badge and single-line
- * truncated copy. Mirrors `LBLiveAnnounce` (`#FFE08A` bg, `#F03246` icon badge,
- * `#15131A` dark text). The iOS `MarqueeText` first frame is offset 0 — the
- * static truncated line is the deterministic baseline (no animation here).
+ * Bottom-left dark-glass announcement banner with a red icon badge and single-line
+ * truncated copy. Mirrors `LBLiveAnnounce` (`rgba(0,0,0,0.42)` flat translucent bg —
+ * standing in for the design's `backdropFilter: blur(6px)`, `#F03246` icon badge,
+ * `#fff` white text — rb-rn-live-announce-banner-recolor). The iOS `MarqueeText`
+ * first frame is offset 0 — the static truncated line is the deterministic baseline
+ * (no animation here).
  */
 function announceBanner(theme: ReferenceUITheme, text: string, onTap: () => void = NO_OP): ReactElement {
   return (
@@ -357,9 +377,9 @@ function announceBanner(theme: ReferenceUITheme, text: string, onTap: () => void
       testID={LBTestIDs.announceBanner}
       onPress={() => onTap()}
       style={{
-        // design LBLiveAnnounce left:8 right:152 on the 393 frame = 393 − 8 − 152 = 233
+        // design LBLiveAnnounce left:8 right:120 on the 393 frame = 393 − 8 − 120 = 265
         // (iOS / Android parity). The left:8 inset is supplied by the overlay padding.
-        maxWidth: 233,
+        maxWidth: 265,
         backgroundColor: ANNOUNCE_BG_COLOR,
         borderRadius: 8,
         paddingHorizontal: 10,
@@ -421,7 +441,7 @@ function pinnedCard(
       testID={LBTestIDs.pinnedCard}
       onPress={onTap}
       style={{
-        width: 132,
+        width: PINNED_CARD_WIDTH,
         backgroundColor: '#FFFFFF',
         // 4a: borderRadius 10 + overflow hidden clips the whole card (incl. the top image
         // area's corners) to the rounded shape — the image corners follow the card radius.
@@ -429,16 +449,50 @@ function pinnedCard(
         overflow: 'hidden',
       }}
     >
-      {/* Image area (design height 92). Themed placeholder so the baseline is
-          deterministic without a network image; the REAL product image loads OVER it at
-          runtime (`live` + a non-empty URL) via `RemoteImage` (live-pinned-card-image-radius). */}
-      <View style={{ height: 92, backgroundColor: PINNED_IMAGE_PLACEHOLDER }}>
+      {/* Image area (design height 88, rb-rn-vod-live-product-card-restyle — was 92).
+          Themed placeholder so the baseline is deterministic without a network image; the
+          REAL product image loads OVER it at runtime (`live` + a non-empty URL) via
+          `RemoteImage` (live-pinned-card-image-radius). */}
+      <View style={{ height: PINNED_IMAGE_HEIGHT, backgroundColor: PINNED_IMAGE_PLACEHOLDER }}>
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
           <Text style={{ fontSize: 22, color: PINNED_IMAGE_GLYPH }}>{'\u{1F5BC}'}</Text>
         </View>
         {/* Real product photo over the placeholder at runtime. `live === false` (snapshot)
             → RemoteImage renders null → placeholder baseline byte-identical. */}
         <RemoteImage live={live} uri={imageURL(product)} resizeMode="cover" />
+        {/* 「介紹中」標籤（rb-rn-vod-live-product-card-restyle，design re-sync R31）：由縮圖下方
+            的小字列改為疊在縮圖底部的滿版色塊——固定珊瑚紅底、白字，對齊 `LBPProductRow` 的
+            「介紹中」橫幅視覺語彙（同一色值 `NARRATE_BANNER_COLOR`）。取代原本畫在下方 padding
+            區塊內、`theme.accent` 圖示+文字的小字列。 */}
+        {isNarrating(product) ? (
+          <View
+            pointerEvents="none"
+            style={{
+              position: 'absolute',
+              left: 0,
+              right: 0,
+              bottom: 0,
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'center',
+              backgroundColor: NARRATE_BANNER_COLOR,
+              paddingVertical: 3,
+              paddingHorizontal: 4,
+            }}
+          >
+            <EqualizerGlyph size={9} color="#FFFFFF" />
+            <Text
+              style={{
+                marginLeft: 3,
+                color: '#FFFFFF',
+                fontSize: 12 * theme.fontScale,
+                fontWeight: '700',
+              }}
+            >
+              {NARRATE_TAG_TEXT}
+            </Text>
+          </View>
+        ) : null}
         {/* Close affordance chip — a NESTED Pressable that dismisses THIS product WITHOUT
             opening the detail: its own onPress consumes the tap so the outer card Pressable
             (`onTap` / open-detail) does not also fire (RN nested-Pressable event consumption,
@@ -463,35 +517,15 @@ function pinnedCard(
         </Pressable>
       </View>
       <View style={{ paddingHorizontal: 8, paddingTop: 6, paddingBottom: 8 }}>
-        {/* Narrate tag (accent) — shown for the narrating product. */}
-        {isNarrating(product) ? (
-          <View
-            style={{
-              marginBottom: 3,
-              flexDirection: 'row',
-              alignItems: 'center',
-            }}
-          >
-            <Text style={{ fontSize: 11, color: theme.accent }}>{'\u{1F4CA}'}</Text>
-            <Text
-              style={{
-                marginLeft: 3,
-                color: theme.accent,
-                fontSize: 11 * theme.fontScale,
-                fontWeight: '700',
-              }}
-            >
-              {NARRATE_TAG_TEXT}
-            </Text>
-          </View>
-        ) : null}
-        {/* Product name (1-line clamp, design dark text). */}
+        {/* Product name (rb-rn-vod-live-product-card-restyle: 2-line clamp, 10pt — was
+            1-line/11pt; the narrate tag that used to render here moved onto the thumbnail
+            as a bottom banner, see above). */}
         <Text
-          numberOfLines={1}
+          numberOfLines={2}
           ellipsizeMode="tail"
           style={{
             color: theme.text,
-            fontSize: 11 * theme.fontScale,
+            fontSize: 10 * theme.fontScale,
             fontWeight: '600',
           }}
         >

@@ -30,6 +30,7 @@ import type { ReactElement } from 'react';
 import { Animated, PanResponder, StyleSheet, View } from 'react-native';
 import type { LayoutChangeEvent } from 'react-native';
 
+import { LivebuySDK } from 'livebuy-react-native';
 import type { LBVideoItem } from 'livebuy-react-native';
 
 import type { ReferenceUITheme } from '../theme';
@@ -41,11 +42,13 @@ import { ProvideTightText } from '../TightText';
 import {
   clampFloatingOffset,
   presenterWidgetCovered,
+  resolveDirectCloseButtonEnabled,
   shouldAutoRestoreOnBindingChange,
   shouldReopenOnVideoChange,
 } from './collapsibleLogic';
 import type { Point, Sizing } from './collapsibleLogic';
 import { LivebuyWidgetVisibility } from '../widget/livebuyWidgetVisibility';
+import { markPlayerClosed } from './liveEntryCloseGate';
 
 /** Resting bottom-right padding of the floating card (parity iOS `floatingInset`). */
 const FLOATING_INSET: Point = { x: 12, y: 24 };
@@ -83,6 +86,15 @@ export function CollapsibleLivebuyPlayer(props: CollapsibleLivebuyPlayerProps): 
   const config = props.config ?? {};
   const openSignal = props.openSignal ?? 0;
 
+  // rb-rn-player-direct-close-button — resolved the SAME way `LivebuyPlayerOverlays` resolves the
+  // header icon (shared pure function), so the icon and this presenter's actual `onMinimize`
+  // behaviour below never diverge. `false` (default) → collapse to the floating preview, unchanged.
+  // `true` → skip the floating step entirely (see `composedConfig.onMinimize` below).
+  const closeDirectly = resolveDirectCloseButtonEnabled(
+    config.enableDirectCloseButton,
+    LivebuySDK.isDirectCloseButtonEnabled(),
+  );
+
   const [isMinimized, setMinimized] = useState(false);
   // Mirror the latest `isMinimized` into a ref so the reopen effect reads it without re-running.
   const isMinimizedRef = useRef(false);
@@ -116,16 +128,50 @@ export function CollapsibleLivebuyPlayer(props: CollapsibleLivebuyPlayerProps): 
   const cardSizeRef = useRef<Sizing>({ width: 0, height: 0 });
   const committedRef = useRef<Point>({ x: 0, y: 0 });
 
-  const resetFloating = (): void => {
+  // Resets only the floating card's drag offset (committed + live Animated value) — NOT
+  // `isMinimized`. Split out (rb-rn-collapsible-player-close-no-reflash) so `close()` below can
+  // reset the drag offset (so a FUTURE new session's floating card starts from the default
+  // bottom-right corner, not wherever the previous card was dragged to) WITHOUT touching
+  // `isMinimized`. See `resetFloating` just below for why that distinction matters.
+  const resetFloatingOffset = (): void => {
     committedRef.current = { x: 0, y: 0 };
     pan.setOffset({ x: 0, y: 0 });
     pan.setValue({ x: 0, y: 0 });
+  };
+
+  // Full restore-to-full-screen: resets the drag offset AND flips `isMinimized` back to `false`.
+  // Used by the three genuine "leave floating, show full-screen" call sites: the floating card's
+  // `onTap`, the "new video while minimized" auto-restore effect, and the `openSignal` effect.
+  // `close()` deliberately does NOT call this (see below).
+  const resetFloating = (): void => {
+    resetFloatingOffset();
     setMinimized(false);
   };
 
+  // close() intentionally resets ONLY the drag offset (`resetFloatingOffset`), NOT `isMinimized`
+  // (rb-rn-collapsible-player-close-no-reflash). `onVideoChanged(null)` merely NOTIFIES the host —
+  // the host owns `video` and reflects it back to `null` asynchronously (its own next re-render;
+  // even under React 18 automatic batching, which usually merges same-handler setState calls into
+  // one re-render, a host using Redux / Context / another async dispatch can still surface an
+  // in-between frame). If `close()` also flipped `isMinimized` to `false` (the old `resetFloating()`
+  // call), that in-between frame would render with `video` STILL non-null (session looks alive) +
+  // `isMinimized` ALREADY false (looks like "show full-screen") — the full-screen player would
+  // flash back into view, requiring the user to close it a second time. Once `video` genuinely
+  // becomes null the component renders nothing regardless of `isMinimized` (see the `video == null`
+  // early return below), so leaving it unset here is safe — and if the host later re-binds a new
+  // session, the existing "new video while minimized" auto-restore effect (deps `[videoId]`) reads
+  // the stale `isMinimized` and correctly calls the FULL `resetFloating()` to open full-screen.
+  // rb-rn-live-entry-close-grace-period: record "now" as the last genuine player-close moment for
+  // the sibling `LivebuyLiveEntry` container to read (via `liveEntryCloseGate.ts`, a module-level
+  // carrier — the two containers share no React tree). This is a pure ADDITION: it does not change
+  // `close()`'s existing order or its existing two effects (`onVideoChanged(null)` then
+  // `resetFloatingOffset()`), and is NOT called from any other site — `resetFloating()`'s three
+  // "still watching, just changed presentation" call sites (floating card `onTap`, the auto-restore
+  // effect, the `openSignal` effect) MUST NOT mark a close.
   const close = (): void => {
     onVideoChanged(null);
-    resetFloating();
+    resetFloatingOffset();
+    markPlayerClosed();
   };
 
   // A newly-bound video (different id) while minimized → close the floating preview and re-present
@@ -218,7 +264,12 @@ export function CollapsibleLivebuyPlayer(props: CollapsibleLivebuyPlayerProps): 
   // OTHER seam passes through unchanged via spread.
   const composedConfig: LivebuyPlayerConfig = {
     ...config,
-    onMinimize: () => setMinimized(true),
+    // rb-rn-player-direct-close-button: `closeDirectly` (resolved above, shared pure function with
+    // `LivebuyPlayerOverlays`'s icon resolution) decides which of these two runs — `false` (default)
+    // keeps the existing collapse-to-floating behaviour, byte-identical to before this flag existed.
+    // `true` skips the floating step entirely and calls the SAME `close()` the floating card's own
+    // close button uses (including its close-grace-period bookkeeping) — `isMinimized` is never set.
+    onMinimize: closeDirectly ? (): void => close() : (): void => setMinimized(true),
     onDismiss: () => close(),
     // In-place switch (swipe / hot-pick / watch-next) → re-bind the FLOATING card's shown video to
     // the switched video's item so the minimized preview shows the switched video, NOT the entry

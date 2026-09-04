@@ -242,7 +242,16 @@ export function LivebuyWidget(props: LivebuyWidgetProps): ReactElement {
   // listener never came back (its `[config.eventListener]` effect does not re-run). The hook holds
   // the host listener in a ref (identity swaps never re-register) and ref-counts the ONE core slot,
   // so widget and player listeners now coexist and outlive each other's unmount.
-  useContainerEventListener(registerListener, { host: config.eventListener });
+  useContainerEventListener(registerListener, {
+    host: config.eventListener,
+    // rb-rn-dropin-container-event-forwarding — selective, opt-in defensive forward to a host-held
+    // EXTERNAL PlayerTemplateAttachment (obtained outside this container, unrelated to this widget's
+    // OWN WidgetTemplateAttachment content pipeline). `undefined` when omitted so this arm stays a
+    // no-op and does not build a new closure each render for nothing.
+    forward: config.externalTemplateAttachment
+      ? (event) => config.externalTemplateAttachment?.handleEvent(event)
+      : undefined,
+  });
 
   // Grid load-more footer → fetch the next page + append (no-op for carousel / demo / past last page).
   const onLoadMore = (): void => {

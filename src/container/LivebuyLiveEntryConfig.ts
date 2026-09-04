@@ -46,8 +46,11 @@ export interface LivebuyLiveEntryConfig {
   onTapVideo?: (item: LBVideoItem) => void;
   /**
    * Close button. Default: `undefined`. Default behaviour = hide until the「next」live
-   * (a new `video.id` re-surfaces it); a host wanting permanent dismissal records its own
-   * flag in `onClose` and conditionally mounts the container.
+   * (a new `video.id` re-surfaces it) — this now genuinely survives the host unmounting and
+   * remounting this container (e.g. opening then closing a player), not just staying dismissed
+   * while this exact component instance is alive (`rb-rn-live-entry-dismiss-survives-remount`;
+   * previously this promise only held within a single mount). A host wanting permanent dismissal
+   * still records its own flag in `onClose` and conditionally mounts the container.
    */
   onClose?: () => void;
 

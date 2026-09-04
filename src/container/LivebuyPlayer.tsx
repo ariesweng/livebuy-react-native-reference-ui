@@ -466,6 +466,12 @@ export function LivebuyPlayer(props: LivebuyPlayerProps): ReactElement {
   useContainerEventListener(registerListener, {
     internal: handleSdkEvent,
     host: config.eventListener,
+    // rb-rn-dropin-container-event-forwarding — selective, opt-in defensive forward to a host-held
+    // EXTERNAL PlayerTemplateAttachment (obtained outside this container). `undefined` when omitted
+    // so this arm stays a no-op and does not build a new closure each render for nothing.
+    forward: config.externalTemplateAttachment
+      ? (event) => config.externalTemplateAttachment?.handleEvent(event)
+      : undefined,
   });
 
   // iOS-gated foreground-resume after a PiP-window pause (rn-refui-pip-pause-foreground-resume, parity

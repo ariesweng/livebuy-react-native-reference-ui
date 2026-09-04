@@ -34,12 +34,30 @@ export const LBTestIDs = {
   railSubtitle: 'lb_rail_subtitle',
   railService: 'lb_rail_service',
   railGoods: 'lb_rail_goods',
+  // rb-rn-live-replay-more-menu-and-video-info-live-copy (design R32) — the VOD side rail's
+  // `LBSideRailKind.More` pill, shown only for a finished-live-replay
+  // (`OperationRailProps.isFinishedLiveReplay`); opens `LiveMoreMenuView`.
+  railMore: 'lb_rail_more',
 
   liveBagButton: 'lb_live_bag_button',
   liveCommentPill: 'lb_live_comment_pill',
   livePersonEdit: 'lb_live_person_edit',
   liveShare: 'lb_live_share',
   liveHeart: 'lb_live_heart',
+  // rb-rn-live-replay-more-menu-and-video-info-live-copy (design R32) — `chatClosed` replay
+  // variant's "更多" / CC buttons on `LiveBottomBarView`. ⚠️ Component-level only; see that
+  // component's file-header comment — the current call site never renders the `chatClosed`
+  // variant (RN routes a finished replay to the VOD side rail's `railMore` pill instead, see
+  // below), so these two ids are exercised only by direct unit tests today, not by any real
+  // render path.
+  liveMore: 'lb_live_more',
+  liveCC: 'lb_live_cc',
+  // The standalone `LiveMoreMenuView` sheet's two action items — REACHABLE in real playback via
+  // the VOD side rail's `railMore` pill (see `railMore` below / `OperationRailView
+  // .isFinishedLiveReplay`), NOT via `liveMore` above.
+  liveMoreMenu: 'lb_live_more_menu',
+  liveMoreMenuShare: 'lb_live_more_menu_share',
+  liveMoreMenuContact: 'lb_live_more_menu_contact',
   announceBanner: 'lb_announce_banner',
   pinnedCard: 'lb_pinned_card',
   pinnedCardClose: 'lb_pinned_card_close',
@@ -50,7 +68,8 @@ export const LBTestIDs = {
   infoPanel: 'lb_info_panel',
   infoTabDetail: 'lb_info_tab_detail',
   infoTabNotice: 'lb_info_tab_notice',
-  infoPanelHome: 'lb_info_panel_home',
+  // `infoPanelHome` ('前往商城首頁' PRIMARY footer button) REMOVED
+  // (rb-rn-live-replay-more-menu-and-video-info-live-copy, design R32 — user-decided removal).
   infoFooterContact: 'lb_info_footer_contact',
   contactModal: 'lb_contact_modal',
   contactCancel: 'lb_contact_cancel',
@@ -134,6 +153,12 @@ export const LBTestIDs = {
   productSearchButton: 'lb_product_search_button',
   cartCtaFooter: 'lb_cart_cta_footer',
   productDetail: 'lb_product_detail',
+  // rb-rn-product-detail-image-gallery (design R34): the `.detail` presentation's swipeable
+  // main-photo container — ONLY present when the gallery is interactive (`photos.length > 1`;
+  // see `ProductDetailSheetView.tsx`'s `swipeable`). A single/zero-photo product carries NO
+  // testID here (byte-identical to the pre-gallery structural tree), so this id is only ever
+  // looked up in multi-photo test scenarios.
+  productDetailPhoto: 'lb_product_detail_photo',
   qtyPlus: 'lb_qty_plus',
   qtyMinus: 'lb_qty_minus',
   favButton: 'lb_fav_button',
@@ -184,10 +209,19 @@ export const LBTestIDs = {
   gridEndLabel: 'lb_grid_end_label',
   cardKindBadge: 'lb_card_kind_badge',
   cardLiveBadge: 'lb_card_live_badge',
-  cardDurationPill: 'lb_card_duration_pill',
+  // `cardDurationPill` REMOVED (rb-rn-carousel-card-pin-viewers-duration-removal, design R33 —
+  // the VOD「▶ mm:ss」duration pill is retired; VOD cards no longer render any kind-badge
+  // content).
   cardUpcomingOverlay: 'lb_card_upcoming_overlay',
-  // `product_card === 'below'`: the surface-styled product row outside the thumbnail, and
-  // the equal-height transparent placeholder drawn in its place when the card has no goods.
+  // rb-rn-carousel-card-pin-viewers-duration-removal (design R33) — top-right pin badge
+  // (`video.pin > 0`, all three kinds) and the LIVE-only viewer-count badge
+  // (`video.showPvNum > 0 && video.watchNum > 0`, next to the LIVE tag). NOT the family-2
+  // chat「置頂留言」feature — see `pinnedCard` / `pinnedBanner` below for that unrelated concept.
+  cardPinBadge: 'lb_card_pin_badge',
+  cardViewerBadge: 'lb_card_viewer_badge',
+  // `product_card === 'below'`: the white-card product row outside the thumbnail (design R33;
+  // was surface-token styled before), and the equal-height transparent placeholder drawn in
+  // its place when the card has no goods.
   cardBelowProductRow: 'lb_card_below_product_row',
   cardBelowProductSpacer: 'lb_card_below_product_spacer',
   floatingWidget: 'lb_floating_widget',
@@ -290,6 +324,12 @@ export function productRecommendationCart(index: number): string {
 /** Per-(group, option) variant chip id, e.g. `variantChip(1, 2) === 'lb_variant_chip_1_2'`. */
 export function variantChip(group: number, option: number): string {
   return `lb_variant_chip_${group}_${option}`;
+}
+
+/** Per-item product-detail gallery thumbnail id (rb-rn-product-detail-image-gallery, design
+ *  R34). Only rendered when the `.detail` presentation has more than one photo. */
+export function productDetailPhotoThumb(index: number): string {
+  return `lb_product_detail_photo_thumb_${index}`;
 }
 
 /** Per-item end-screen hot card id. */

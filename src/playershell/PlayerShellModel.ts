@@ -590,9 +590,16 @@ export const PlayerShellSeeds = {
    * Android / Flutter `defaultRailItems`.
    */
   // Demo / golden seed only (runtime rail = template.operationRailState). Aligned to the design's
-  // VOD side rail (CC / share / contact): Subtitle/Share/ServiceLink enabled; Like/More/Chat/
-  // GuestNameEdit not in the VOD rail (OperationRail renders only RAIL_PRESENTATION_ORDER). Goods
-  // enabled feeds bagCount / the separate floating bag (the rail no longer renders it).
+  // VOD side rail (CC / share / contact): Subtitle/Share/ServiceLink enabled; Like/Chat/
+  // GuestNameEdit not in the VOD rail (OperationRail renders only its presentation order — the
+  // base 3 kinds, plus `More` when `isFinishedLiveReplay` is passed, rb-rn-live-replay-more-
+  // menu-and-video-info-live-copy). Goods enabled feeds bagCount / the separate floating bag
+  // (the rail no longer renders it). `More` is `enabled: true` — matching the REAL template's
+  // `DefaultOperationRail.isEnabled` ("goods / like / share / more are always enabled (spec)",
+  // `react-native-ui/src/OperationRail.ts`); it was previously (incorrectly) seeded `false` here
+  // — harmless before this change since `More` was never in the presentation order at all, but
+  // now that `isFinishedLiveReplay` can append it, the seed needs to match reality for the demo
+  // / test path to show it.
   railItems: [
     { kind: LBSideRailKind.Goods, enabled: true },
     { kind: LBSideRailKind.Chat, enabled: false },
@@ -601,7 +608,7 @@ export const PlayerShellSeeds = {
     { kind: LBSideRailKind.Subtitle, enabled: true },
     { kind: LBSideRailKind.ServiceLink, enabled: true },
     { kind: LBSideRailKind.GuestNameEdit, enabled: false },
-    { kind: LBSideRailKind.More, enabled: false },
+    { kind: LBSideRailKind.More, enabled: true },
   ] as readonly LBSideRailItem[],
 
   /** Demo bag badge of 3 (so the badge renders in the snapshot). */

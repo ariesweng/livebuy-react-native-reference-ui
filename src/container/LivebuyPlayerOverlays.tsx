@@ -49,7 +49,7 @@ import {
 } from './seams';
 import type { PlayerRefLike, SeamDeps } from './seams';
 import { GapSurfacesModel } from '../gapsurfaces/GapSurfacesModel';
-import { switchedVideoItem } from './collapsibleLogic';
+import { resolveDirectCloseButtonEnabled, switchedVideoItem } from './collapsibleLogic';
 
 /** Props for the composed {@link LivebuyPlayerOverlays} tree. */
 export interface LivebuyPlayerOverlaysProps {
@@ -105,6 +105,17 @@ export function LivebuyPlayerOverlays(props: LivebuyPlayerOverlaysProps): ReactE
     liveNow = null,
   } = props;
   const template = attachment.template;
+
+  // rb-rn-player-direct-close-button — resolve the SAME way `CollapsibleLivebuyPlayer` does (shared
+  // pure function), so the header button's icon and the presenter's actual close behaviour never
+  // diverge. Runs for EVERY use of `LivebuyPlayer`, whether or not it is wrapped by
+  // `CollapsibleLivebuyPlayer` (see `LivebuyPlayerConfig.enableDirectCloseButton`'s own doc comment
+  // for the bare-usage caveat: the icon still reflects this, even though a bare `LivebuyPlayer`'s
+  // own `onMinimize` default is unaffected by it).
+  const showCloseIcon = resolveDirectCloseButtonEnabled(
+    config.enableDirectCloseButton,
+    LivebuySDK.isDirectCloseButtonEnabled(),
+  );
 
   // A safe player-ref facade: the seam builders call methods unconditionally; every
   // VOID member no-ops if the native ref is not mounted yet (never throws). The one
@@ -243,6 +254,15 @@ export function LivebuyPlayerOverlays(props: LivebuyPlayerOverlaysProps): ReactE
   // LBLiveChatOverlay `!cleanMode` gate), parity Android / Flutter's existing wiring.
   const [cleanMode, setCleanMode] = useState(false);
 
+  // rb-rn-live-more-sheet-above-chat — mirror PlayerShellView's「更多」(⋯) collapsed-menu open
+  // state the SAME way infoPanelOpen / cleanMode are mirrored above: the menu (`LiveMoreMenuView`)
+  // is presented from INSIDE PlayerShellView's own render tree (Surface 1), so it can never paint
+  // above the family-2 合流聊天 feed (Surface 2, declared AFTER Surface 1 below — RN stacks
+  // z-index-less absolutely-positioned siblings by declaration order). Threading this here lets
+  // the chat feed hide itself while the menu is up, so it isn't hidden behind the chat / doesn't
+  // have its taps swallowed by the chat's scrollable hit-testing.
+  const [moreMenuOpen, setMoreMenuOpen] = useState(false);
+
   // Container-owned product LIST drawer open state (default CLOSED). The GOODS rail / bag tap
   // opens it; the scrim / close button dismisses it (re-openable). Parity iOS
   // `ProductSheetsModel.listPresented` (default false) — no longer auto-presents over the video.
@@ -297,11 +317,18 @@ export function LivebuyPlayerOverlays(props: LivebuyPlayerOverlaysProps): ReactE
           // rb-rn-clean-mode-hide-chat-feed — mirror cleanMode so the sibling FeedWinView
           // (below) can also hide the chat feed while clean mode is on.
           onCleanModeChange={setCleanMode}
+          // rb-rn-live-more-sheet-above-chat — mirror the「更多」menu open state so the sibling
+          // FeedWinView (below) can hide the chat feed while the menu is presented.
+          onMoreMenuOpenChange={setMoreMenuOpen}
           // Once-per-open LIVE gesture hints — host opts in via config (default false).
           showGestureHints={config.showGestureHints}
           // 訂閱徽章可見性（rb-rn-subscribe-favorite-visibility-toggle）：raw 轉發，leaf 元件
           // （PlayerHeaderBarView）owns 唯一的預設值 false（隱藏）。
           showSubscribe={config.showSubscribe}
+          // 右上角按鈕圖示（rb-rn-player-direct-close-button）：容器已用 resolveDirectCloseButtonEnabled
+          // 解析過 config.enableDirectCloseButton ?? LivebuySDK.isDirectCloseButtonEnabled()，這裡轉發
+          // 的是「已解析值」，非 raw config 欄位。
+          showCloseIcon={showCloseIcon}
           // 標題跑馬燈的商家能力閘（rb-rn-marquee-title-scroll）：**raw 轉發**，容器不解讀
           // `extensions` 語意；唯一的 fallback 入口在葉元件 `MarqueeTitle` 的
           // `normalizeTitleScroll`（缺值 / 畸形值一律落「允許捲」，對齊後端未設定即 1）。
@@ -339,6 +366,12 @@ export function LivebuyPlayerOverlays(props: LivebuyPlayerOverlaysProps): ReactE
           // (design screens.jsx:532 LBLiveChatOverlay `!cleanMode` gate). WinEntry / its
           // WinClaimSheetView are unaffected — see FeedWinView.tsx's chatVisible comment.
           cleanMode={cleanMode}
+          // rb-rn-live-more-sheet-above-chat — hide the chat feed while PlayerShellView's
+          // 「更多」(⋯) collapsed menu is presented (the menu lives inside Surface 1's render
+          // tree and can never paint above this Surface 2 sibling otherwise). WinEntry /
+          // ActivityEntry / their sheets are unaffected — see FeedWinView.tsx's chatVisible
+          // comment.
+          moreMenuOpen={moreMenuOpen}
           // rb-rn-event-join-gate:「加入活動」三層閘注入 overlay 自持的 FeedWinModel.joinEvent（唯一到
           // 得了 core 的 chokepoint）。onJoin 為 no-op 觀察者（join 由已被閘的 model.joinEvent 單一送出）。
           joinEventGate={joinEventGate}

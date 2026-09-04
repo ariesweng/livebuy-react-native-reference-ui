@@ -116,7 +116,7 @@ export function _resetSdkEventBusForTesting(): void {
 
 // -- 容器 hook ----------------------------------------------------------------
 
-/** `useContainerEventListener` 的兩個 handler 出口。 */
+/** `useContainerEventListener` 的三個 handler 出口。 */
 export interface ContainerEventHandlers {
   /**
    * 容器自己的內部處理（維護容器不變式：swipe 換片基準 / collapsible 同步 / PiP 追蹤）。
@@ -129,6 +129,18 @@ export interface ContainerEventHandlers {
    * routing。在 `internal` **之後**收到同一個事件。
    */
   readonly host?: SdkEventHandler;
+  /**
+   * 選用的防禦性轉發出口（`rb-rn-dropin-container-event-forwarding`）。轉發給 host 提供的一個
+   * 外部目標 —— 典型情境是 host 在任一 reference-ui 容器**之外**自行呼叫
+   * `livebuy-react-native-ui.attachPlayerTemplate()` 取得的一份 `PlayerTemplateAttachment`
+   * 的 `handleEvent`。這份外部 attachment 的原始 core 註冊會被本容器掛載時的
+   * `subscribeSdkEvents` 訂閱者計數 0→1 重新註冊頂替掉；`forward` 讓 host 把它接回來，透過
+   * 本容器持有的這一格繼續收到事件。與 `internal`/`host` 同機制（ref 持有、`[]` deps 不觸發
+   * 重註冊、獨立 `try/catch` 隔離），在兩者**之後**收到同一個事件（派送序
+   * internal → host → forward）。本模組對「轉發目標實際是什麼」零知識 —— 只當它是
+   * 又一個 `SdkEventHandler`，不 import `PlayerTemplateAttachment` 型別。
+   */
+  readonly forward?: SdkEventHandler;
 }
 
 /**
@@ -141,13 +153,13 @@ export interface ContainerEventHandlers {
  *   • 內部 handler 同樣走 ref，容器每 render 重建該 closure 也保證讀到最新（順帶關掉
  *     stale-closure 這類問題）。
  *
- * 派送順序固定 **internal → host**：內部處理維護的是容器不變式，host 只是額外觀察者；
- * 內部先跑才能保證 host listener 做任何事（含拋錯、含同步 `setState`、含把自己卸載）之前，
- * 容器不變式已經正確。host 轉發包 `try/catch` 且不重拋 —— 拋錯的 host listener 不得破壞
- * 內部處理、也不得逸出至 native emitter。
+ * 派送順序固定 **internal → host → forward**：內部處理維護的是容器不變式，host 只是額外觀察者，
+ * `forward`（選用的防禦性轉發出口）排在最後。內部先跑才能保證 host listener 做任何事（含拋錯、
+ * 含同步 `setState`、含把自己卸載）之前，容器不變式已經正確。`host` 與 `forward` 都包
+ * `try/catch` 且不重拋 —— 拋錯不得破壞前面已完成的處理、也不得逸出至 native emitter。
  *
  * @param register core `registerListener`（由容器注入）
- * @param handlers 內部處理 + host listener
+ * @param handlers 內部處理 + host listener + 選用轉發出口
  */
 export function useContainerEventListener(
   register: RegisterListenerFn,
@@ -157,17 +169,19 @@ export function useContainerEventListener(
   internalRef.current = handlers.internal;
   const hostRef = useRef(handlers.host);
   hostRef.current = handlers.host;
+  const forwardRef = useRef(handlers.forward);
+  forwardRef.current = handlers.forward;
   // `register` 也走 ref：容器傳的一律是同一個 core 匯入，但 ref 讓 `[]` deps 不必把它列進
   // 依賴、也不會因為呼叫端換了函式參考而重註冊。
   const registerRef = useRef(register);
   registerRef.current = register;
 
-  // 兩個 handler 都沒有時**完全不碰** core 那一格。`LivebuyWidget` 沒有內部 handler，host 也沒傳
-  // `config.eventListener` 時舊碼是「早退、根本不註冊」——若改成無條件訂閱，就會把 core 那一格佔走、
-  // 反過來踢掉「host 自己直呼 core `registerListener`」的註冊（core 單槽）。這個 boolean 進 deps
-  // （**只有** boolean，不是 listener identity）保留舊行為：無 handler → 不佔格；handler 之後才出現
-  // → 那時才訂閱。identity 變動仍完全不會 re-register。
-  const hasHandlers = handlers.internal != null || handlers.host != null;
+  // 三個 handler 都沒有時**完全不碰** core 那一格。`LivebuyWidget` 沒有內部 handler，host 也沒傳
+  // `config.eventListener`、也沒有 `forward` 時舊碼是「早退、根本不註冊」——若改成無條件訂閱，就會
+  // 把 core 那一格佔走、反過來踢掉「host 自己直呼 core `registerListener`」的註冊（core 單槽）。這個
+  // boolean 進 deps（**只有** boolean，不是 listener identity）保留舊行為：無 handler → 不佔格；
+  // handler 之後才出現 → 那時才訂閱。identity 變動仍完全不會 re-register。
+  const hasHandlers = handlers.internal != null || handlers.host != null || handlers.forward != null;
 
   useEffect(() => {
     if (!hasHandlers) return;
@@ -177,6 +191,12 @@ export function useContainerEventListener(
         hostRef.current?.(event);
       } catch {
         /* host listener 是觀察者：它拋錯不得破壞內部處理、也不得逸出至 native emitter。 */
+      }
+      try {
+        forwardRef.current?.(event);
+      } catch {
+        /* forward 目標（例如一份外部 PlayerTemplateAttachment）拋錯不得破壞 internal/host 已完成
+           的處理、也不得逸出至 native emitter。 */
       }
     });
     // 一次註冊：handler 全部走 ref，故 identity 變動不需進 deps（放進去就會重註冊 churn）。

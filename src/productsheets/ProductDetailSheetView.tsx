@@ -65,6 +65,21 @@
 // (`ProductImageZoomOverlay`) re-uses the SAME pure function fed the SAME `selectedSpec`,
 // so it magnifies the very image the user tapped rather than re-deriving the ladder.
 //
+// MULTI-IMAGE GALLERY (rb-rn-product-detail-image-gallery, design R34): `.detail`'s 4:3 photo
+// is now a SWIPEABLE gallery over `resolveProductPhoto(...).photos` (the SAME resolved array,
+// never re-derived) — swipe left/right via `PanResponder` (parity `NowIntroducingCarouselView`'s
+// established "no ScrollView, draw only the current frame" convention; this file's own render
+// discipline below explicitly forbids `ScrollView`/`FlatList`, so a native scroll-view pager was
+// never an option) + a below thumbnail strip that appears ONLY when there is more than one photo
+// (tap a thumbnail to jump; every NON-current thumbnail carries a `rgba(0,0,0,0.5)` overlay).
+// `.addToCart`'s 96×96 compact card is UNCHANGED — it still draws a single static photo
+// (`photo.primaryPhoto`), no gallery. The zoom badge now forwards the CURRENTLY selected
+// gallery photo (not always `primaryPhoto`) so the lightbox (`ProductImageZoomOverlay`'s new
+// `overridePhotoURL` prop) magnifies the exact photo the user was viewing. A product with 0/1
+// resolved photos gets NEITHER the swipe responder NOR a testID on the photo container (the
+// gallery machinery is entirely absent, not merely inert), so the existing single-photo
+// structural snapshot baselines stay byte-identical.
+//
 // reference-ui NEVER builds HTTP nor calls core `addToCart` / `toggleAwait` — the
 // 加入購物車 CTA funnels to `onAddToCart` (the container wires it to
 // `model.addToCart()` → `template.addToCart()`, which assembles the route-B request
@@ -159,7 +174,8 @@
 // React import). Prices are STRINGS.
 
 import type { ReactElement } from 'react';
-import { View, Pressable } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { View, Pressable, PanResponder } from 'react-native';
 import { Text } from '../TightText';
 
 import { ZoomBadge } from './ZoomBadge';
@@ -174,7 +190,8 @@ import { resolvePriceDisplay } from './resolvedPriceDisplay';
 import { resolveProductPhoto } from './resolvedProductPhoto';
 import { ProductRowView } from './ProductListView';
 import { recommendationAsDisplayProduct } from './recommendationBreadcrumb';
-import { LBTestIDs, variantChip } from '../testing/LBTestIDs';
+import { clampIndex } from '../playershell/NowIntroducingCarouselView';
+import { LBTestIDs, variantChip, productDetailPhotoThumb } from '../testing/LBTestIDs';
 import type { ReferenceUITheme } from '../theme';
 import type {
   LBProductDetailState,
@@ -206,6 +223,20 @@ const BG_SUNKEN = '#F4F4F6';
 const SOLD_OUT_COLOR = '#9A96A3';
 /** Product-photo placeholder gradient stop (the design's warm media chip). */
 const PHOTO_FILL = '#E27D5A';
+/** Gallery non-current thumbnail overlay (rb-rn-product-detail-image-gallery, design R34
+ *  `rgba(0,0,0,0.5)` — marks every thumbnail OTHER than the currently-selected one). */
+const GALLERY_THUMB_OVERLAY = 'rgba(0,0,0,0.5)';
+/** Gallery thumbnail square size + spacing — no exact px value ships in the upstream design
+ *  contract text for this new strip (`design/contract/claude-design-sync.md` R34 only specifies
+ *  behaviour, not pixels), so this is a RN-local sizing decision chosen to match the family's
+ *  just-updated `MiniCartPeek` thumbnail width (`THUMB_WIDTH = 56`, same change) for visual
+ *  consistency across the sheet. */
+const GALLERY_THUMB_SIZE = 56;
+const GALLERY_THUMB_RADIUS = 8;
+const GALLERY_THUMB_GAP = 8;
+/** Horizontal swipe distance (px) that commits a gallery page flip (parity
+ *  `NowIntroducingCarouselView.SWIPE_DX`). */
+const GALLERY_SWIPE_DX = 40;
 
 // MARK: - Fixed localized copy (static presentation strings — parity to iOS/Android)
 
@@ -524,8 +555,16 @@ export interface ProductDetailProps {
    * Host-wired zoom badge tap → container opens the full-frame `ProductImageZoomOverlay`
    * (rb-rn-product-image-zoom-lightbox). Omitted (demo / snapshot) → the badge renders
    * byte-identical to the prior decorative badge (no `Pressable`; tap inert).
+   *
+   * rb-rn-product-detail-image-gallery (design R34): the callback now receives the photo URL
+   * CURRENTLY shown at the tapped badge — the `.detail` gallery's selected photo, or
+   * `.addToCart`'s single `photo.primaryPhoto` (unaffected by the gallery). The container
+   * forwards this straight into `ProductImageZoomOverlay`'s `overridePhotoURL` prop so the
+   * lightbox magnifies exactly what the user was looking at. The argument MAY be `undefined`
+   * (no resolvable photo — the placeholder was showing); existing call sites that ignore the
+   * argument are source-compatible.
    */
-  readonly onZoomImage?: () => void;
+  readonly onZoomImage?: (photoURL?: string) => void;
 
   // -- rb-rn-product-detail-recommendations (design R21) ----------------------------------
   //
@@ -651,6 +690,74 @@ export function ProductDetail(props: ProductDetailProps): ReactElement {
   // own trimming when building the uri.
   const photo = resolveProductPhoto(detail, variant.selectedSpec);
   const photoUri = photo.primaryPhoto ?? undefined;
+
+  // -- GALLERY (rb-rn-product-detail-image-gallery, design R34): `.detail` ONLY. `.addToCart`
+  // keeps reading `photoUri` above, unaffected. --------------------------------------------
+  //
+  // The gallery's index is a LOCAL presentation-only state (parity `NowIntroducingCarouselView`'s
+  // `index`) — it is NOT part of `photo` and MUST NOT be re-derived by any other consumer.
+  //
+  // INITIAL SELECTION follows `photo.primaryPhoto`'s POSITION in `photo.photos`, not literal
+  // index 0. `resolvedProductPhoto.ts`'s file header is explicit that a leading BLANK entry
+  // (e.g. `['', 'https://cdn/spec-rose.jpg']`) is a source that IS drawable — `primaryPhoto` is
+  // already the first NON-BLANK entry precisely so callers never show a placeholder for a photo
+  // that demonstrably exists. Seeding the gallery at literal index 0 would silently reintroduce
+  // that exact regression for a product whose winning source happens to lead with a blank. Using
+  // `photos.indexOf(primaryPhoto)` REUSES the resolver's own already-computed answer (the SAME
+  // predicate, not a second one) rather than re-scanning for blanks here.
+  const initialPhotoIndex = photo.primaryPhoto === null ? 0 : Math.max(0, photo.photos.indexOf(photo.primaryPhoto));
+  const [selectedPhotoIndex, setSelectedPhotoIndex] = useState(initialPhotoIndex);
+
+  // A ref so the reset effect below always reads the LATEST resolved photo set without being
+  // declared a dependency (see the effect's own comment for why depending on `photo` directly
+  // would be wrong here).
+  const photoRef = useRef(photo);
+  photoRef.current = photo;
+
+  // Reset to the (new) initial selection whenever the OPEN PRODUCT changes (the「更多商品」
+  // recommendation drill-in SWAPS `detail` on the SAME mounted `<ProductDetail>` instance — no
+  // `key` change, so local state like `selectedPhotoIndex` would otherwise carry over a stale
+  // index from the PREVIOUS product's gallery). Deliberately NOT keyed on `variant.selectedSpec`
+  // — a spec switch within the SAME product re-resolves `photo.photos` (rn-product-sheet-spec-
+  // photo-reference-ui) but is NOT treated as "a new gallery"; the defensive clamp below (not an
+  // effect) keeps that case safe even though it does not reset to 0.
+  useEffect(() => {
+    const p = photoRef.current;
+    const idx = p.primaryPhoto === null ? 0 : Math.max(0, p.photos.indexOf(p.primaryPhoto));
+    setSelectedPhotoIndex(idx);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [detail.productId]);
+
+  // Defensive clamp (covers the spec-switch case above, and any future caller that shrinks
+  // `photo.photos` without a productId change): NEVER index out of range.
+  const clampedPhotoIndex = photo.photos.length === 0 ? 0 : Math.min(selectedPhotoIndex, photo.photos.length - 1);
+  const currentGalleryPhotoUri = photo.photos.length === 0 ? undefined : photo.photos[clampedPhotoIndex];
+
+  // The gallery is INTERACTIVE (swipe responder + testID + thumbnail strip) only when there is
+  // more than one photo to browse. `false` for the existing 0/1-photo fixtures — the swipe
+  // responder's handlers and the container testID are then NOT attached at all (not merely
+  // inert), so the existing single-photo structural snapshot baselines stay byte-identical.
+  const gallerySwipeable = photo.photos.length > 1;
+
+  // Refs so the (once-created) PanResponder reads the current index / length without stale
+  // closures (parity `ProductImageZoomOverlay`'s / `NowIntroducingCarouselView`'s pan refs).
+  const galleryIndexRef = useRef(clampedPhotoIndex);
+  galleryIndexRef.current = clampedPhotoIndex;
+  const galleryLenRef = useRef(photo.photos.length);
+  galleryLenRef.current = photo.photos.length;
+
+  const galleryResponder = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_e, g) => Math.abs(g.dx) > Math.abs(g.dy) && Math.abs(g.dx) > 6,
+      onPanResponderRelease: (_e, g) => {
+        if (g.dx < -GALLERY_SWIPE_DX) {
+          setSelectedPhotoIndex(clampIndex(galleryIndexRef.current + 1, galleryLenRef.current));
+        } else if (g.dx > GALLERY_SWIPE_DX) {
+          setSelectedPhotoIndex(clampIndex(galleryIndexRef.current - 1, galleryLenRef.current));
+        }
+      },
+    }),
+  ).current;
 
   // -- Derived presentation (pure) --------------------------------------------
 
@@ -1091,7 +1198,13 @@ export function ProductDetail(props: ProductDetailProps): ReactElement {
             discColor="rgba(255,255,255,0.85)"
             glyphColor="#15131A"
             style={{ position: 'absolute', right: 6, bottom: 6 }}
-            onPress={onZoomImage}
+            // `.addToCart` has no gallery — always forwards the single resolved photo
+            // (rb-rn-product-detail-image-gallery: `onZoomImage` now carries the photo URL).
+            // `onZoomImage` omitted (demo / snapshot) → `undefined` here too, so `ZoomBadge`
+            // stays inert (no `Pressable`) — byte-identical to before this prop grew an
+            // argument. MUST NOT wrap in an always-defined arrow (that would make `ZoomBadge`
+            // wrap in a `Pressable` unconditionally, breaking the existing structural baselines).
+            onPress={onZoomImage == null ? undefined : () => onZoomImage(photoUri)}
           />
         </View>
         <View style={{ flex: 1, marginLeft: 14 }}>
@@ -1186,9 +1299,17 @@ export function ProductDetail(props: ProductDetailProps): ReactElement {
           backgroundColor: theme.background,
         }}
       >
-        {/* Product photo — 4:3 deterministic placeholder + monogram (real image
-            loads over it when live; host can swap in a real photo). */}
+        {/* Product photo — GALLERY (rb-rn-product-detail-image-gallery, design R34): 4:3
+            deterministic placeholder + monogram (real image loads over it when live), now
+            swipeable via `PanResponder` when there is more than one resolved photo (NO
+            ScrollView — this file's render discipline forbids it, and `NowIntroducingCarouselView`
+            already established the "draw only the current frame" convention this mirrors). A
+            0/1-photo product gets NEITHER the swipe handlers NOR a testID here — the gallery
+            machinery is entirely absent, keeping the existing single-photo structural snapshot
+            baselines byte-identical. */}
         <View
+          testID={gallerySwipeable ? LBTestIDs.productDetailPhoto : undefined}
+          {...(gallerySwipeable ? galleryResponder.panHandlers : {})}
           style={{
             height: 168,
             borderRadius: 12,
@@ -1201,18 +1322,65 @@ export function ProductDetail(props: ProductDetailProps): ReactElement {
           <Text style={{ color: '#FFFFFF', fontSize: 26 * theme.fontScale, fontWeight: '900' }}>
             {monogram(detail.name)}
           </Text>
-          {/* Real product image over the placeholder when live (snapshot-safe off). */}
-          <RemoteImage live={live} uri={photoUri} borderRadius={12} />
+          {/* Real product image over the placeholder when live (snapshot-safe off). The
+              CURRENTLY selected gallery photo — `photoUri` (always `primaryPhoto`) is
+              intentionally NOT used here once there is more than one photo to browse. */}
+          <RemoteImage live={live} uri={currentGalleryPhotoUri} borderRadius={12} />
           {/* Tappable zoom badge (design screens.jsx ZoomBadge): 32 white@0.85 disc +
-              magnifier glyph, bottom-trailing inset 10. Tap → onZoomImage opens the lightbox. */}
+              magnifier glyph, bottom-trailing inset 10. Tap → onZoomImage opens the lightbox,
+              forwarding the CURRENTLY selected gallery photo (not always `primaryPhoto`). */}
           <ZoomBadge
             diameter={32}
             discColor="rgba(255,255,255,0.85)"
             glyphColor="#15131A"
             style={{ position: 'absolute', right: 10, bottom: 10 }}
-            onPress={onZoomImage}
+            // Same "stay inert when omitted" discipline as the `.addToCart` badge above.
+            onPress={onZoomImage == null ? undefined : () => onZoomImage(currentGalleryPhotoUri)}
           />
         </View>
+
+        {/* Gallery thumbnail strip (design R34) — ONLY when there is more than one photo to
+            browse (`gallerySwipeable`). Tap a thumbnail to jump straight to that photo; every
+            NON-current thumbnail carries a translucent `rgba(0,0,0,0.5)` overlay so the
+            currently-selected one reads clearly. Plain `Pressable`s in a `flexDirection: 'row'`
+            — NOT a `ScrollView` / `FlatList` (this file's render discipline forbids both); the
+            strip is not expected to overflow the sheet's own width for realistic photo counts,
+            mirroring how the variant-chip row is laid out elsewhere in this file. */}
+        {gallerySwipeable ? (
+          <View style={{ flexDirection: 'row', marginTop: 8 }}>
+            {photo.photos.map((uri, i) => (
+              <Pressable
+                key={i}
+                testID={productDetailPhotoThumb(i)}
+                accessibilityRole="button"
+                onPress={() => setSelectedPhotoIndex(i)}
+                style={{
+                  width: GALLERY_THUMB_SIZE,
+                  height: GALLERY_THUMB_SIZE,
+                  borderRadius: GALLERY_THUMB_RADIUS,
+                  marginRight: i < photo.photos.length - 1 ? GALLERY_THUMB_GAP : 0,
+                  overflow: 'hidden',
+                  backgroundColor: PHOTO_FILL,
+                }}
+              >
+                <RemoteImage live={live} uri={uri} borderRadius={GALLERY_THUMB_RADIUS} />
+                {i !== clampedPhotoIndex ? (
+                  <View
+                    pointerEvents="none"
+                    style={{
+                      position: 'absolute',
+                      top: 0,
+                      left: 0,
+                      right: 0,
+                      bottom: 0,
+                      backgroundColor: GALLERY_THUMB_OVERLAY,
+                    }}
+                  />
+                ) : null}
+              </Pressable>
+            ))}
+          </View>
+        ) : null}
 
         {/* 「Sale」促銷徽章（rb-rn-product-sale-badge，design `ProductDetailSheet`
             ~L812-819）— 插在 4:3 主圖之下、商品名稱之上。 */}

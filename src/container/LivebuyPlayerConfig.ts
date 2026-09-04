@@ -15,7 +15,7 @@
 import type { ViewStyle } from 'react-native';
 import type { LBVideoItem } from 'livebuy-react-native';
 import type { LBSdkEvent, LBWinner, LBProduct } from 'livebuy-react-native';
-import type { LBUIOptions, LBSideRailKind } from 'livebuy-react-native-ui';
+import type { LBUIOptions, LBSideRailKind, PlayerTemplateAttachment } from 'livebuy-react-native-ui';
 import type { SDKConfig } from 'livebuy-react-native';
 import type { HotRow } from '../moments/MomentsModel';
 import type { ReferenceUIDesign } from './ReferenceUIDesign';
@@ -69,6 +69,35 @@ export interface LivebuyPlayerConfig {
    */
   eventListener?: (event: LBSdkEvent) => void;
 
+  /**
+   * 選用的防禦性事件轉發口（`rb-rn-dropin-container-event-forwarding`）。讓 host 把自己在**這個
+   * 容器之外**持有的一份 `livebuy-react-native-ui.attachPlayerTemplate()` 回傳值（或任何實作
+   * `handleEvent` 的等價物，方便測試替身）交給容器 —— 容器每收到一個 SDK 事件時，會**額外**
+   * 呼叫一次 `externalTemplateAttachment.handleEvent(event)`（派送序 internal → host → forward，
+   * 排在既有 {@link LivebuyPlayerConfig.eventListener} 之後）。
+   *
+   * **與 `eventListener` 的差異**：`eventListener` 是 host 的一個「多加一個觀察者」callback；
+   * 這個欄位轉發的對象是一份**真實的外部 `PlayerTemplateAttachment`**，其自身的 `routeEvent`
+   * 內部路由（`WIN_RECEIVED` / `startScreen.phase` 等）靠持續收到事件才會推進。
+   *
+   * **為什麼需要這個欄位**：`subscribeSdkEvents`（`rn-fold-host-listener-into-single-slot`）是
+   * 套件內部模組層單例多工器，只保證**套件內部**訂閱者共用同一格 core `registerListener`。若
+   * host 在這個容器（或任何 reference-ui 容器）之外自行呼叫 `attachPlayerTemplate()`，該呼叫
+   * 落回其 `defaultRegisterListener`，直接對 core 單槽註冊；**之後**任一 reference-ui 容器掛載
+   * 都會頂替掉這份外部原始註冊，使其永久收不到事件。這個欄位讓 host 選擇性地把這份外部
+   * attachment 接回來，透過本容器持有的那一格繼續收到事件。
+   *
+   * **生命週期由 host 自行管理**：容器不會偵測、也無從偵測外部 attachment 是否已
+   * `detach()` —— host 在呼叫外部 attachment 的 `detach()` 的同時，也要把這個欄位設回
+   * `null` / 省略，比照 {@link LivebuyPlayerConfig.sdkConfig} / {@link
+   * LivebuyPlayerConfig.eventListener} 等其他選用欄位既有的「host 自行管理生命週期」慣例。
+   *
+   * **純選用、純加法**：省略（`undefined`）或顯式 `null` 時完全 no-op，容器行為與本欄位存在前
+   * byte-identical；不會讓容器自動偵測「host 是否真的在別處呼叫了 `attachPlayerTemplate()`」
+   * ——轉發永遠是 host 顯式提供才發生的行為。
+   */
+  externalTemplateAttachment?: Pick<PlayerTemplateAttachment, 'handleEvent'> | null;
+
   // -- player-shell -----------------------------------------------------------
 
   /**
@@ -78,6 +107,37 @@ export interface LivebuyPlayerConfig {
    * presentation concern, so a host that wants it overrides `onMinimize`.
    */
   onMinimize?: () => void;
+  /**
+   * Per-instance override for the top-right button's close behaviour
+   * (rb-rn-player-direct-close-button). `undefined` (default) → falls back to the
+   * global `LivebuySDK.isDirectCloseButtonEnabled()` preference (itself default
+   * `false`, set via `LivebuySDK.configure({ enableDirectCloseButton })`); a
+   * non-`undefined` value here WINS over the global preference for THIS player
+   * instance only (including an explicit `false` overriding a global `true`).
+   *
+   * Both decision sites resolve this the SAME way, via the shared pure function
+   * `resolveDirectCloseButtonEnabled` (`collapsibleLogic.ts`), so they never
+   * diverge:
+   * - `LivebuyPlayerOverlays` resolves it into `PlayerHeaderBar`'s `showCloseIcon`
+   *   (minimize icon `◳` ↔ close icon `✕`) — this runs for EVERY use of
+   *   `LivebuyPlayer`, whether or not it is wrapped by `CollapsibleLivebuyPlayer`.
+   * - `CollapsibleLivebuyPlayer` (the turnkey "full-screen + minimize → bottom-right
+   *   floating preview" presenter) resolves it to pick `onMinimize`'s actual
+   *   behaviour: resolved `false` (default) → collapses into the floating preview
+   *   (existing two-step close — the floating card's own close button then fully
+   *   closes it), byte-identical to before this flag existed. Resolved `true` →
+   *   skips the floating step entirely and goes straight through the SAME close
+   *   path the floating card's own close button uses (including the existing
+   *   close-grace-period bookkeeping).
+   *
+   * A host using the bare, non-collapsible `LivebuyPlayer` directly (not wrapped in
+   * `CollapsibleLivebuyPlayer`) has no floating-preview concept to skip, so this
+   * flag does not change what its own `onMinimize` default does on tap — only
+   * `onMinimize` above governs there. Its header button icon still reflects the
+   * resolved value, since icon resolution happens unconditionally one layer below
+   * the presenter split.
+   */
+  enableDirectCloseButton?: boolean;
   /**
    * Tap the video to toggle mute. Default: `playerRef.setMuted(!muted)` so first
    * tap unmutes. (The mute truth lives in the template's `handleMutedChange`,

@@ -43,6 +43,7 @@ import { Text } from '../TightText';
 
 import type { ReferenceUITheme } from '../theme';
 import { ShareGlyph } from './ShareGlyph';
+import { CcGlyph } from './CcGlyph';
 import { BagGlyph } from './BagGlyph';
 import { LBTestIDs } from '../testing/LBTestIDs';
 import { LBSideRailKind } from 'livebuy-react-native-ui';
@@ -63,7 +64,7 @@ const RAIL_GAP = 10; // flex gap between pills (`LBPSideRail`)
 const PILL_SIZE = 40; // 40×40 round pill
 const PILL_GLYPH_SIZE = 18; // glyph size 18
 const BAG_SIZE = 40; // 40×40 floating bag (`LBPBagButton`, rb-rn-gesture-clean-mode-v2 縮小 48→40)
-const BAG_GLYPH_SIZE = 22; // bag glyph size 22 (design `LBPBagButton` Icons.bag size={22}; rb-rn-gesture-clean-mode-v2 縮小 34→22)
+const BAG_GLYPH_SIZE = 28; // bag glyph size 28, ~70% of BAG_SIZE (design `LBPBagButton` Icons.bag size={28}; rb-rn-vod-bag-icon-ratio-restore 校正 rb-rn-gesture-clean-mode-v2 誤植的非等比縮放 22→28)
 const BADGE_MIN_SIZE = 20; // count chip minWidth / height
 const BADGE_FONT_SIZE = 11; // fontSize 11, weight 800
 const BADGE_BORDER_WIDTH = 2; // 2px solid #fff border
@@ -96,6 +97,20 @@ export interface OperationRailProps {
    * construct action-free.
    */
   readonly onTapItem?: (kind: LBSideRailKind) => void;
+  /**
+   * "已結束直播回放" (finished-live-replay) flag (design R32,
+   * rb-rn-live-replay-more-menu-and-video-info-live-copy; source: `PlayerShellModel
+   * .isFinishedLiveReplay`). `true` → this rail is the ONE this state actually renders in RN
+   * (see `LiveBottomBarView.tsx`'s file-header comment: RN routes a finished replay to THIS
+   * side rail, not the LIVE bottom bar — a documented, pre-existing divergence from
+   * iOS/Android) — the rail appends a `LBSideRailKind.More` (`'⋯'`) pill to its presentation
+   * order, opening the collapsed `LiveMoreMenuView` sheet (分享 + 客服) via `onTapItem`. This
+   * REUSES a `More` kind the TEMPLATE layer already models (`react-native-ui`'s `RAIL_ORDER` +
+   * `isEnabled` — always enabled, same as `goods`/`like`/`share`) but reference-ui had never
+   * drawn; NO new view-model. **Default `false`** — every existing call site keeps rendering
+   * the base 3-pill order (CC / share / contact), byte-identical to before this prop existed.
+   */
+  readonly isFinishedLiveReplay?: boolean;
 }
 
 /**
@@ -107,10 +122,16 @@ export interface OperationRailProps {
  * Renders correctly with the default no-op `onTapItem` (snapshot / preview safe).
  */
 /**
- * Fixed side-rail presentation order (design `LBPSideRail`: CC / share / contact). Each kind is
- * drawn ONLY when enabled in `items` — parity iOS `OperationRailView.presentationOrder` +
- * `isEnabled`. GOODS（袋）/ LIKE / MORE / CHAT / GUEST_NAME_EDIT are NOT rail kinds: the bag is a
- * SEPARATE floating affordance ({@link FloatingBagButton}); the others are not in the design rail.
+ * BASE side-rail presentation order (design `LBPSideRail`: CC / share / contact) — a MODULE-LEVEL
+ * constant, deliberately left UNCHANGED by design R32 (`OperationRail` composes the ACTUAL order
+ * at render time from this base + `isFinishedLiveReplay`, rather than mutating this constant
+ * itself — see {@link OperationRail}). Each kind is drawn ONLY when enabled in `items` — parity
+ * iOS `OperationRailView.presentationOrder` + `isEnabled`. GOODS（袋）/ LIKE / CHAT /
+ * GUEST_NAME_EDIT are NOT rail kinds: the bag is a SEPARATE floating affordance
+ * ({@link FloatingBagButton}); the others are not in the design rail. MORE is a rail kind (see
+ * {@link OperationRail}'s `isFinishedLiveReplay`-conditional append) — it is NOT in this base
+ * list because the design's `LBPSideRail` itself never draws it; only the finished-live-replay
+ * variant does (design `live_more`, `screens.jsx`).
  */
 const RAIL_PRESENTATION_ORDER: readonly LBSideRailKind[] = [
   LBSideRailKind.Subtitle,
@@ -120,8 +141,9 @@ const RAIL_PRESENTATION_ORDER: readonly LBSideRailKind[] = [
 
 /**
  * Per-rail-kind E2E testID (registry-sourced). Only the kinds actually rendered by
- * {@link RAIL_PRESENTATION_ORDER} have an entry; other reachable kinds are not drawn in the
- * rail so they need no id here. `undefined` → the pill carries no testID (inert).
+ * {@link OperationRail} (the base {@link RAIL_PRESENTATION_ORDER} plus the conditional
+ * `LBSideRailKind.More`) have an entry; other reachable kinds are not drawn in the rail so they
+ * need no id here. `undefined` → the pill carries no testID (inert).
  */
 function railTestIDFor(kind: LBSideRailKind): string | undefined {
   switch (kind) {
@@ -131,18 +153,28 @@ function railTestIDFor(kind: LBSideRailKind): string | undefined {
       return LBTestIDs.railShare;
     case LBSideRailKind.ServiceLink:
       return LBTestIDs.railService;
+    case LBSideRailKind.More:
+      return LBTestIDs.railMore;
     default:
       return undefined;
   }
 }
 
 export function OperationRail(props: OperationRailProps): ReactElement {
-  const { theme, items, onTapItem } = props;
+  const { theme, items, onTapItem, isFinishedLiveReplay = false } = props;
 
-  // Fixed presentation order (design LBPSideRail: CC / share / contact); each pill drawn ONLY
-  // when its kind is enabled in `items` (parity iOS presentationOrder + isEnabled). The bag is
-  // NOT here — it is the separate FloatingBagButton composed lower by the shell.
-  const visibleKinds = RAIL_PRESENTATION_ORDER.filter((kind) =>
+  // ACTUAL presentation order for this render: the base order (design LBPSideRail: CC / share /
+  // contact) plus, ONLY for a finished-live-replay (design R32's `live_more` trigger), a
+  // trailing `More` pill. Computed here (NOT by mutating the module-level `RAIL_PRESENTATION_
+  // ORDER` constant) so the base order stays a single, stable, always-correct source for every
+  // OTHER call site (isFinishedLiveReplay defaults false → byte-identical to before this prop
+  // existed). Each pill drawn ONLY when its kind is enabled in `items` (parity iOS
+  // presentationOrder + isEnabled). The bag is NOT here — it is the separate FloatingBagButton
+  // composed lower by the shell.
+  const presentationOrder = isFinishedLiveReplay
+    ? [...RAIL_PRESENTATION_ORDER, LBSideRailKind.More]
+    : RAIL_PRESENTATION_ORDER;
+  const visibleKinds = presentationOrder.filter((kind) =>
     items.some((item) => item.kind === kind && item.enabled),
   );
 
@@ -197,9 +229,13 @@ function PillButton(props: {
         justifyContent: 'center',
       }}
     >
-      {/* 分享 改設計稿自繪三節點 ShareGlyph（rb-rn-share-icon-design-align，問題 8）；其餘 kind 維持 glyph。 */}
+      {/* 分享 改設計稿自繪三節點 ShareGlyph（rb-rn-share-icon-design-align，問題 8）；
+          CC 字幕 改設計稿自繪圓角徽章+雙 "c" 曲線 CcGlyph（rb-rn-cc-icon-design-align，
+          parity Android CcGlyph）；其餘 kind 維持 Text glyph（railGlyphFor 本身不變）。 */}
       {kind === LBSideRailKind.Share ? (
         <ShareGlyph color="#FFFFFF" size={PILL_GLYPH_SIZE * theme.fontScale} />
+      ) : kind === LBSideRailKind.Subtitle ? (
+        <CcGlyph color="#FFFFFF" size={PILL_GLYPH_SIZE * theme.fontScale} />
       ) : (
         <Text
           style={{
@@ -299,6 +335,13 @@ function CartBadge(props: {
 // glyphs (no font dependency) so the structural baseline is deterministic — this
 // mirrors the iOS SF Symbol mapping and the Android text-glyph mapping (same
 // design intent).
+//
+// `Share` and `Subtitle` (CC) now bypass this Text glyph for THEIR OWN rail pill
+// (`PillButton` above renders `ShareGlyph` / `CcGlyph` — self-drawn `Icons.share` /
+// `Icons.cc` shapes — instead, rb-rn-share-icon-design-align / rb-rn-cc-icon-design-align).
+// This function's `'↗'` / `'CC'` cases are UNCHANGED and still the single source for
+// other consumers (`LiveBottomBarView`'s `MORE_GLYPH` reuse pattern reads `More`; its
+// separate `CC_GLYPH` constant reads `Subtitle` for its own, un-rewired CC toggle slot).
 
 /** Map a side-rail kind to its deterministic Text glyph. */
 export function railGlyphFor(kind: LBSideRailKind): string {

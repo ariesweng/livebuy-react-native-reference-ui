@@ -342,6 +342,21 @@ export interface FeedWinViewProps {
    */
   readonly cleanMode?: boolean;
   /**
+   * Whether `PlayerShellView`'s「更多」(⋯) collapsed menu (`LiveMoreMenuView`, design R32) is
+   * currently presented (rb-rn-live-more-sheet-above-chat — the container mirrors
+   * `PlayerShellView`'s `onMoreMenuOpenChange` report the SAME way it already mirrors
+   * `onInfoPanelOpenChange` / `onCleanModeChange` into {@link FeedWinViewProps.infoPanelOpen} /
+   * {@link FeedWinViewProps.cleanMode} above, and threads it here). The menu is presented from
+   * INSIDE `PlayerShellView`'s own render tree (Surface 1), so it can never paint above this
+   * Surface-2 sibling's merged chat feed otherwise — `true` hides the merged chat feed (`ChatFeed`)
+   * so it neither occludes the menu nor swallows taps on it via its scrollable hit-testing. Same
+   * as `cleanMode`, it does NOT affect `WinEntry` / `ActivityEntry` (win-claim / activity entry
+   * badges) or their `WinClaimSheetView` / `ActivitySheet` — this boundary is deliberate, shared
+   * with `infoPanelOpen` / `cleanMode` above. Default `false` (source-compatible; standalone /
+   * snapshot instances with no container are unaffected).
+   */
+  readonly moreMenuOpen?: boolean;
+  /**
    * OPTIONAL container-injected「加入活動」three-tier gate (rb-rn-event-join-gate, parity iOS / Android
    * `FeedWinModel.joinEventGate`). The drop-in container builds it (reads the template's identity /
    * operationRail signals + presents the login / nickname controller) and threads it here; this view
@@ -374,6 +389,7 @@ export function FeedWinView(props: FeedWinViewProps): ReactElement {
     chatScrollable = false,
     infoPanelOpen = false,
     cleanMode = false,
+    moreMenuOpen = false,
     joinEventGate,
   } = props;
 
@@ -417,16 +433,20 @@ export function FeedWinView(props: FeedWinViewProps): ReactElement {
   model.joinEventGate = joinEventGate;
 
   // The chat feed is LIVE-only (parity iOS rb-ios-hide-chat-feed-in-vod), hidden while the
-  // info panel is up (parity rb-ios-info-panel-not-covered-by-chat), AND hidden while clean mode
+  // info panel is up (parity rb-ios-info-panel-not-covered-by-chat), hidden while clean mode
   // is on (rb-rn-clean-mode-hide-chat-feed, parity Android / Flutter, design screens.jsx:532
-  // LBLiveChatOverlay `!cleanMode` gate). VOD, info-panel-open, or clean-mode-on → the chat (and
-  // its scrollable hit-testing) is dropped so it neither occludes the info-panel sheet nor
-  // swallows taps on the VOD side rail nor clutters the clean-mode view. `WinEntry` (win-claim
-  // badge) / its `WinClaimSheetView` are UNAFFECTED by ANY of these three gates — in particular
-  // they are NOT gated by `cleanMode` (design `screens.jsx`'s `LBWinEntry` carries no `!cleanMode`
-  // gate; this boundary is deliberate, see FeedWinViewProps.cleanMode's doc comment).
+  // LBLiveChatOverlay `!cleanMode` gate), AND hidden while PlayerShellView's「更多」(⋯) collapsed
+  // menu is presented (rb-rn-live-more-sheet-above-chat — the menu lives inside Surface 1's
+  // render tree and can never paint above this Surface-2 sibling otherwise). VOD, info-panel-
+  // open, clean-mode-on, or more-menu-open → the chat (and its scrollable hit-testing) is dropped
+  // so it neither occludes the info-panel sheet / more menu nor swallows taps on the VOD side
+  // rail nor clutters the clean-mode view. `WinEntry` / `ActivityEntry` (win-claim / activity
+  // entry badges) and their `WinClaimSheetView` / `ActivitySheet` are UNAFFECTED by ANY of these
+  // four gates — in particular they are NOT gated by `cleanMode` or `moreMenuOpen` (design
+  // `screens.jsx`'s `LBWinEntry` carries no such conditional; this boundary is deliberate, see
+  // FeedWinViewProps.cleanMode's / .moreMenuOpen's doc comments).
   const isLive = template?.playerHeaderState.isLive ?? false;
-  const chatVisible = isLive && !infoPanelOpen && !cleanMode;
+  const chatVisible = isLive && !infoPanelOpen && !cleanMode && !moreMenuOpen;
 
   // Forward an event-join「加入」tap. The container owns NO core action — the join exits through the
   // read-only model forwarder (`model.joinEvent` → template `joinEvent` → core `requestEventJoin` +
@@ -555,13 +575,13 @@ export function FeedWinView(props: FeedWinViewProps): ReactElement {
           its scrollable hit-testing neither occludes the info-panel sheet nor swallows the VOD
           side rail's taps (parity iOS rb-ios-hide-chat-feed-in-vod / -info-panel-not-covered). */}
       {chatVisible ? (
-        // right:152 keeps the LEFT-column chat off the bottom-right pinned product card column
+        // right:120 keeps the LEFT-column chat off the bottom-right pinned product card column
         // (parity iOS chatTrailingInset=liveChatTrailingClearance). LIVE-only (chatVisible gate).
         // left:10 aligns the feed's left edge with LiveBottomBarView's bag-icon left edge
         // (BAR_H_PADDING=10) — rb-rn-live-chat-card-edge-align (parity iOS liveChatLeadingClearance).
         // bottom: 動態避讓 — 有公告（model.hasAnnounce）時往上讓出 LBLiveAnnounce 橫幅高度（96→140，
         // rb-rn-live-announce-chat-clearance 問題4）；無公告 → 96（既有 baseline）。
-        <View style={{ position: 'absolute', left: 10, right: 152, bottom: liveChatBottomInset(model.hasAnnounce) }}>
+        <View style={{ position: 'absolute', left: 10, right: 120, bottom: liveChatBottomInset(model.hasAnnounce) }}>
           {/* rb-rn-activity-toast — 群組②「炒氣氛提示」(進場/選購/搶購/中獎) now surfaces HERE,
               above the merged feed, as a transient latest-only toast (moments.jsx `LBActivityToast`
               2026-07-03 呈現位置改版) — ChatFeed itself no longer dispatches 'activity' rows
@@ -680,10 +700,11 @@ export function FeedWinView(props: FeedWinViewProps): ReactElement {
           between simultaneously running activities (dots + swipe). UNLIKE Surface 3's
           `WinClaimSheet` above, this does NOT need a `key`-forced remount on page flip: the page
           index is owned entirely by the template (not a per-open container `useState` like
-          `openClaimWinner`), and `ActivitySheet` holds only ONE piece of local UI state (`joined`,
-          a fire-and-forget CTA flip) that a page flip is not expected to reset — paging to a
-          different simultaneously-running activity is not "a fresh open" the way tapping a new
-          winner is. */}
+          `openClaimWinner`), and `ActivitySheet` holds NO local UI state at all
+          (rb-rn-activity-sheet-cta-repeatable removed its former one-shot `joined` CTA-lock flag —
+          the CTA is now stateless and repeatable), so there is nothing for a page flip to
+          reset — paging to a different simultaneously-running activity is not "a fresh open" the
+          way tapping a new winner is. */}
       {activitySheetOpen && model.currentActivity != null ? (
         <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}>
           <ActivitySheet

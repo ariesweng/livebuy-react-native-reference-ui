@@ -22,9 +22,11 @@
 //                been retired; a VOD card shows nothing at this position),
 //   • a PIN BADGE top-right (see below), independent of LIVE / VOD / UPCOMING,
 //   • a PRODUCT CARD whose placement depends on `product_card` (see below), drawn from a
-//     reference-ui {@link WidgetGoods} value (the RN core `LBVideoItem` has NO `goods`
-//     field; supplied BY VALUE): thumb chip + `goods.name` +「NT$ price」(+ an optional
-//     struck-through `goods.originalPrice` in `below` mode),
+//     reference-ui {@link WidgetGoods} value supplied BY VALUE (this primitive stays
+//     source-agnostic — SUB-VIEW INPUT PATTERN — even though the core `LBVideoItem` now
+//     carries `goods` too, `video-linked-goods-core-rn`; callers derive the default from
+//     it, see `rb-rn-video-linked-goods-auto-render`): thumb chip + `goods.name` +
+//     「NT$ price」(+ an optional struck-through `goods.originalPrice` in `below` mode),
 //   • the `LBVideoItem.title` BELOW the thumbnail — gated by `showTitle`
 //     (rb-rn-floating-widget-hide-title, see TITLE VISIBILITY FLAG below); every
 //     pre-existing consumer (carousel / grid) omits the prop and keeps the title,
@@ -303,11 +305,13 @@ export interface CarouselCardViewProps {
    */
   readonly live?: boolean;
   /**
-   * Optional product card data (reference-ui {@link WidgetGoods} — the RN core
-   * `LBVideoItem` has no `goods` field). When non-null the product card is drawn WHERE
-   * {@link CarouselCardViewProps.productCard} says; null/omitted → no product card (a
-   * live `LBVideoItem` carries none), except that `below` still reserves an equal-height
-   * transparent placeholder. READ-ONLY TAG ONLY — NEVER the family-3 product sheet stack.
+   * Optional product card data (reference-ui {@link WidgetGoods}, supplied BY VALUE —
+   * this primitive never reads `LBVideoItem.goods` itself; callers derive it via
+   * `widgetGoodsFromFeatured`, see `rb-rn-video-linked-goods-auto-render`). When
+   * non-null the product card is drawn WHERE {@link CarouselCardViewProps.productCard}
+   * says; null/omitted → no product card, except that `below` still reserves an
+   * equal-height transparent placeholder. READ-ONLY TAG ONLY — NEVER the family-3
+   * product sheet stack.
    */
   readonly goods?: WidgetGoods | null;
   /**
@@ -410,7 +414,7 @@ export function CarouselCardView(props: CarouselCardViewProps): ReactElement {
         {live && video.preview !== '' ? (
           <LoopingVideoView uri={video.preview} borderRadius={12} />
         ) : (
-          <RemoteImage live={live} uri={video.cover} borderRadius={12} resizeMode="contain" />
+          <RemoteImage live={live} uri={video.cover} borderRadius={12} resizeMode="cover" />
         )}
 
         {/* UPCOMING (直播預告): a full-bleed rgba(0,0,0,0.25) dark mask + a centred date
@@ -480,7 +484,7 @@ export function CarouselCardView(props: CarouselCardViewProps): ReactElement {
             {/* 44×44 product chip: gradient placeholder + (live) the real goods.pic over it
                 (parity iOS productThumb). live===false (snapshot/demo) → RemoteImage renders null. */}
             <View style={styles.goodsThumb}>
-              <RemoteImage live={live} uri={goods.pic} borderRadius={5} resizeMode="contain" />
+              <RemoteImage live={live} uri={goods.pic} borderRadius={5} resizeMode="cover" />
             </View>
             <View style={styles.goodsTextCol}>
               <Text
@@ -530,7 +534,7 @@ export function CarouselCardView(props: CarouselCardViewProps): ReactElement {
           <View testID={LBTestIDs.cardBelowProductRow} style={[styles.belowRow, { width }]}>
             {/* 36×36 product chip: gradient placeholder + (live) the real goods.pic over it. */}
             <View style={styles.belowRowThumb}>
-              <RemoteImage live={live} uri={goods.pic} borderRadius={5} resizeMode="contain" />
+              <RemoteImage live={live} uri={goods.pic} borderRadius={5} resizeMode="cover" />
             </View>
             <View style={styles.belowRowTextCol}>
               <Text

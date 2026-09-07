@@ -141,6 +141,26 @@ export class ProductSheetsModel {
   }
 
   /**
+   * The core-fed products snapshot in RAW BACKEND ORDER (`productOverlayState.products`) — NOT
+   * introducing-first-reordered (contrast {@link products} above, which reads
+   * `productsIntroducingFirst`). Backs the product-row NUMBER BADGE
+   * (rb-rn-product-row-number-badge, design R35): a row's number is its 1-based position in
+   * THIS list, so it stays stable across an introducing-product reorder (LIVE) and simply
+   * reflects the backend's own delivered order (VOD / replay — a fixed list, no reorder at
+   * all). `productOverlayState.products` is an EXISTING public template field (`DefaultTemplate
+   * .ts`'s `productOverlayState` getter already returns it) — this getter adds no view-model
+   * capability, it is the first reference-ui reader of this existing field. For demo instances
+   * returns {@link ProductSheetsSeeds.products} (the SAME seed array {@link products} falls back
+   * to when unbound — the demo seeds are never reordered either way, so both getters agree for
+   * demo instances). Parity iOS / Android / Flutter `ProductSheetsModel.productsBackendOrder`.
+   */
+  get productsBackendOrder(): readonly LBProduct[] {
+    return this.template == null
+      ? ProductSheetsSeeds.products
+      : this.template.productOverlayState.products;
+  }
+
+  /**
    * ALL products currently being introduced LIVE (`narrate_status == 2`) — mirrors the EXISTING
    * view-model capability `DefaultPlayerTemplate.liveActiveProducts` (rb-rn-live-now-introducing-carousel;
    * already consumed by the SEPARATE `PlayerShellModel.liveActiveProducts`, family-1's LIVE

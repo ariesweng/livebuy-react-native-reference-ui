@@ -82,12 +82,24 @@ const CARD_PADDING = 8;
 const CARD_RADIUS = 4;
 /** Gap between the thumbnail / info / close (`gap: 10`). */
 const H_GAP = 10;
-/** Thumbnail width — flush to the card's left/top/bottom edges, height is
- *  content-driven (`alignItems: 'stretch'`), design `width: 3.5rem` = 56px
- *  (rb-rn-product-detail-image-gallery, design R34: 60 → 56; RN's `alignItems: 'stretch'`
- *  already stretches this thumbnail natively, so — unlike the web design source, which needed
- *  an explicit `height` to compensate for a CSS-only quirk — no companion height fix is
- *  needed here). */
+/** Thumbnail width — flush to the card's left/top/bottom edges, design
+ *  `width: 3.5rem` = 56px (rb-rn-product-detail-image-gallery, design R34: 60 → 56).
+ *
+ *  FIXED 56×56 SQUARE (rb-rn-minicart-image-square-cover): the thumbnail is now a
+ *  hard-coded square — its outer `<View>` sets BOTH `width: THUMB_WIDTH` and
+ *  `height: THUMB_WIDTH`, sharing this one constant. This supersedes an earlier,
+ *  incorrect assumption (recorded here from rb-rn-product-detail-image-gallery)
+ *  that the outer `Pressable`'s `alignItems: 'stretch'` (row cross-axis) already
+ *  "stretches this thumbnail natively" so no companion `height` was needed — that
+ *  reasoning did not hold: `stretch` sizes the thumbnail to whatever height the
+ *  row's TALLEST sibling (the name/price info column, `paddingVertical: CARD_PADDING`
+ *  + two lines of text) happens to render at, which has no relationship to
+ *  `THUMB_WIDTH` and is not guaranteed to be 56. The design's `LBPMiniCart`
+ *  thumbnail (`design/templates/minimal/sdk-components.jsx`) is itself an explicit
+ *  `width: '3.5rem', height: '3.5rem'` square — not a CSS-only quirk needing
+ *  compensation. This fixed square applies to BOTH call sites (the floating
+ *  mini-cart peek and the VOD「正在介紹中」carousel card, `fullWidth` only
+ *  controls the outer card's width, never the thumbnail). */
 const THUMB_WIDTH = 56;
 /** Trailing close-circle diameter (`width/height: 22`). */
 const CLOSE_SIZE = 22;
@@ -227,10 +239,14 @@ export function MiniCartPeek(props: MiniCartPeekProps): ReactElement {
       {/* Product thumbnail (LBPMiniCart photo — deterministic placeholder): a solid
           fill with a monogram (NO network image), mirroring `ProductDetail`'s photo
           placeholder. Flush to the card's left/top/bottom edges — no own
-          borderRadius; the outer Pressable's overflow clip rounds its left corners. */}
+          borderRadius; the outer Pressable's overflow clip rounds its left corners.
+          Fixed 56×56 square (rb-rn-minicart-image-square-cover): `width` and
+          `height` both pin to `THUMB_WIDTH`, no longer relying on the outer row's
+          `alignItems: 'stretch'` to passively size this thumbnail's height. */}
       <View
         style={{
           width: THUMB_WIDTH,
+          height: THUMB_WIDTH,
           backgroundColor: PHOTO_FILL,
           alignItems: 'center',
           justifyContent: 'center',

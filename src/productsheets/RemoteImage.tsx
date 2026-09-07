@@ -18,7 +18,7 @@
 // Pure presentation — no animation / randomness. jsx automatic runtime (no React import).
 
 import { useEffect, useState, type ReactElement } from 'react';
-import { Image, StyleSheet, type StyleProp, type ImageStyle } from 'react-native';
+import { Image, StyleSheet, type StyleProp, type ImageStyle, type ImageLoadEvent } from 'react-native';
 import { referenceUiHttpsUpgraded } from '../referenceUiImageUrl';
 
 /** Props for the {@link RemoteImage} overlay. */
@@ -32,11 +32,29 @@ export interface RemoteImageProps {
   /** Optional extra positioning style (the caller fills the placeholder bounds). */
   readonly style?: StyleProp<ImageStyle>;
   /**
-   * How the loaded image fills the frame. Default `'cover'` (product-sheet thumbs fill). The
-   * widget card cover + product chip pass `'contain'` so the WHOLE image shows (iOS
-   * `RemoteStillImageView` default `.scaleAspectFit`).
+   * How the loaded image fills the frame. Default `'cover'` (most callers, including the
+   * widget card cover / product chip, rely on this default or pass it explicitly —
+   * `rb-rn-widget-carousel-card-image-cover` retired the earlier `'contain'` override that
+   * used to make the WHOLE image show for those three call sites).
    */
   readonly resizeMode?: 'cover' | 'contain';
+  /**
+   * Opt-in explicit display size (rb-rn-product-detail-main-image-scale-down-letterbox). When
+   * provided, the loaded `<Image>` renders at this EXACT `width`/`height` as a normal
+   * (non-absolute) flow child instead of the default `StyleSheet.absoluteFill` overlay — the
+   * caller's own container is expected to center it (`alignItems`/`justifyContent`) and size
+   * itself to match. Omitted (default, every OTHER existing call site) → behavior is byte-
+   * identical to before this prop existed — the absolute-fill overlay is untouched.
+   */
+  readonly intrinsicSize?: { readonly width: number; readonly height: number };
+  /**
+   * Opt-in load callback (rb-rn-product-detail-main-image-scale-down-letterbox) — fires the
+   * loaded image's NATIVE pixel size (`nativeEvent.source.width` / `.height`) once the
+   * underlying `<Image>` finishes loading, letting the caller compute a scale-down-letterbox
+   * layout (see `resolveScaleDownLetterbox` in `ProductDetailSheetView.tsx`). Omitted
+   * (default) → no behavior change; the underlying `<Image onLoad>` handler is simply absent.
+   */
+  readonly onLoad?: (size: { width: number; height: number }) => void;
 }
 
 /**
@@ -47,7 +65,7 @@ export interface RemoteImageProps {
  * (snapshot / demo) path adds NO `<Image>` to the structural tree.
  */
 export function RemoteImage(props: RemoteImageProps): ReactElement | null {
-  const { live = false, uri, borderRadius = 0, style, resizeMode = 'cover' } = props;
+  const { live = false, uri, borderRadius = 0, style, resizeMode = 'cover', intrinsicSize, onLoad } = props;
   const [failed, setFailed] = useState(false);
   const trimmed = typeof uri === 'string' ? uri.trim() : '';
   // Reset the failure latch whenever the bound uri changes — a single `onError` on one URL
@@ -66,8 +84,18 @@ export function RemoteImage(props: RemoteImageProps): ReactElement | null {
     <Image
       source={{ uri: referenceUiHttpsUpgraded(trimmed) }}
       onError={() => setFailed(true)}
+      onLoad={
+        onLoad == null
+          ? undefined
+          : (e: ImageLoadEvent) =>
+              onLoad({ width: e.nativeEvent.source.width, height: e.nativeEvent.source.height })
+      }
       resizeMode={resizeMode}
-      style={[StyleSheet.absoluteFill, { borderRadius }, style]}
+      style={
+        intrinsicSize == null
+          ? [StyleSheet.absoluteFill, { borderRadius }, style]
+          : [{ width: intrinsicSize.width, height: intrinsicSize.height, borderRadius }, style]
+      }
     />
   );
 }

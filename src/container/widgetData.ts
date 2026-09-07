@@ -16,7 +16,8 @@ import { decodeWidgetSnapshot } from 'livebuy-react-native-ui';
 import type { LBWidgetSnapshot, WidgetTemplateAttachment } from 'livebuy-react-native-ui';
 import type { LBVideoItem, LBWidgetSettings } from 'livebuy-react-native';
 
-import { WidgetSeeds } from '../widget/WidgetModel';
+import { WidgetSeeds, widgetGoodsFromFeatured } from '../widget/WidgetModel';
+import type { WidgetGoods } from '../widget/WidgetModel';
 
 /** Container layout mode. carousel / grid only (floating / minimized need a single live). */
 export type WidgetContainerMode = 'carousel' | 'grid';
@@ -51,6 +52,28 @@ export function lbWidgetEffectiveTap(
   openDefaultPlayer: (item: LBVideoItem) => void,
 ): (item: LBVideoItem) => void {
   return hostTap ?? openDefaultPlayer;
+}
+
+/**
+ * Resolve the effective per-card goods overlay function for the turnkey
+ * `LivebuyWidget` container (`rb-rn-video-linked-goods-auto-render`, RN sibling of
+ * Flutter's `lbWidgetResolvedGoodsFor`): host-supplied `hostGoodsFor` (config.goodsFor)
+ * takes FULL priority when provided (a complete override, including a per-item
+ * explicit `null` return to hide that card); else, while showing the opted-in demo
+ * fixtures (`usingDemo`), the deterministic {@link WidgetSeeds.goodsFor} seed overlay
+ * (unchanged — the demo fixtures never carry `.goods`); else (the common real-host
+ * case: no `goodsFor` wired, live data) each card's overlay is derived from its own
+ * core `item.goods` (`video-linked-goods-core-rn`) via {@link widgetGoodsFromFeatured}
+ * — `item.goods == null` → no card, same as before this default existed. Pure — no
+ * React dependency — so the container and its tests share one implementation.
+ */
+export function lbWidgetResolvedGoodsFor(
+  hostGoodsFor: ((item: LBVideoItem) => WidgetGoods | null) | undefined,
+  { usingDemo }: { usingDemo: boolean },
+): (item: LBVideoItem) => WidgetGoods | null {
+  if (hostGoodsFor != null) return hostGoodsFor;
+  if (usingDemo) return WidgetSeeds.goodsFor;
+  return (item: LBVideoItem) => widgetGoodsFromFeatured(item.goods);
 }
 
 /**

@@ -52,23 +52,33 @@
 //   (`normalizeProductCardMode`) resolves it; this model MUST NOT normalize, and the
 //   normalized value MUST NOT be written back here.
 //
-// ── goods overlay (RN core delta, mirrors Flutter) ───────────────────────────────
+// ── goods overlay (video-linked-goods-core-rn closed the RN parity gap;
+//    rb-rn-video-linked-goods-auto-render wires the default here) ────────────────
 //   The design's `LBPCarouselCard` carries a bottom dark-glass product overlay
-//   (`item.product` → name / price). On iOS / Android the core `LBVideoItem` exposes
+//   (`item.product` → name / price). iOS / Android core `LBVideoItem` has long exposed
 //   `goods: LBFeaturedGood?`; the RN core `LBVideoItem` (`react-native/src/
-//   LivebuySDK.ts`, confirmed) has NO `goods` field and there is NO RN `LBFeaturedGood`
-//   export. To honour the spec's product-overlay requirement WITHOUT touching core,
-//   this reference-ui layer carries a tiny READ-ONLY value type {@link WidgetGoods}
-//   (`name` / `pic` / `price`) supplied BY VALUE for demo / golden cards. A live
-//   template `LBVideoItem` carries no goods, so the live path renders the overlay only
-//   when the host explicitly supplies a {@link WidgetGoods} (it never reaches back into
-//   core / template). This is the RN analogue of the Flutter / Android delta.
+//   LivebuySDK.ts`) now carries the SAME field (`goods?: LBFeaturedGood`,
+//   `video-linked-goods-core-rn`, 2026-09) — the earlier "RN core has no `goods` field"
+//   note here is stale. The reference-ui layer still carries a tiny READ-ONLY value type
+//   {@link WidgetGoods} (`name` / `pic` / `price` / `originalPrice`) supplied BY VALUE to
+//   the shared `CarouselCardView` primitive (SUB-VIEW INPUT PATTERN — the primitive
+//   itself is source-agnostic and MUST NOT read `LBVideoItem.goods` directly; this is a
+//   deliberate design choice, not a core-capability workaround). {@link
+//   widgetGoodsFromFeatured} converts the core `LBFeaturedGood | undefined` into this
+//   by-value type. The family-5 surfaces (`Carousel` / `VideoShopGrid`, see
+//   `CarouselView.tsx` / `VideoShopGridView.tsx`) and the turnkey `LivebuyWidget`
+//   container now DEFAULT to deriving each card's overlay from `item.goods` via this
+//   function when the host omits `goodsFor`; a host-supplied `goodsFor` remains a full
+//   OVERRIDE escape hatch (including explicitly returning `null` to hide a card), taking
+//   precedence over the derived value. This model's own demo path (`template == null`)
+//   is UNCHANGED — the deterministic {@link WidgetSeeds} videos never populate `.goods`,
+//   so {@link WidgetSeeds.goodsFor} remains the demo / golden overlay source.
 //
 // No react / react-native import here — pure reads + plain-literal demo seeds, so it
 // stays unit-testable in a plain node environment (parity with the family-1/2/3/4
 // Models).
 
-import type { LBVideoItem } from 'livebuy-react-native';
+import type { LBFeaturedGood, LBVideoItem } from 'livebuy-react-native';
 import { LBWidgetContentMode } from 'livebuy-react-native-ui';
 import type { DefaultWidgetTemplate, LBWidgetContent } from 'livebuy-react-native-ui';
 import { visibleVideos, visibleLive } from './widgetVisibility';
@@ -76,11 +86,16 @@ import { visibleVideos, visibleLive } from './widgetVisibility';
 /**
  * A tiny read-only product-overlay value for the shared {@link CarouselCardView}'s
  * bottom dark-glass overlay (`LBPCarouselCard` `item.product`). Mirrors the
- * iOS / Android `LBFeaturedGood` overlay fields (`name` / `pic` / `price`) WITHOUT
- * depending on a core type the RN `LBVideoItem` does not carry. `price` is a raw
- * string (rendered verbatim after the「NT$ 」prefix); `pic` is a URL the reference-ui
- * NEVER fetches (deterministic placeholder only). Supplied BY VALUE. RN sibling of
- * the Flutter `WidgetGoods` value type.
+ * iOS / Android `LBFeaturedGood` overlay fields (`name` / `pic` / `price` /
+ * `originalPrice`). Historically this existed to work around the RN core
+ * `LBVideoItem` not carrying a `goods` field at all; that gap is now closed
+ * (`video-linked-goods-core-rn`) and {@link widgetGoodsFromFeatured} converts the
+ * core `LBFeaturedGood | undefined` into this type — but `WidgetGoods` itself still
+ * exists, so the shared `CarouselCardView` primitive keeps a by-value,
+ * source-agnostic input (SUB-VIEW INPUT PATTERN) rather than reaching into
+ * `LBVideoItem` itself. `price` is a raw string (rendered verbatim after the「NT$ 」
+ * prefix); `pic` is a URL the reference-ui NEVER fetches (deterministic placeholder
+ * only). Supplied BY VALUE. RN sibling of the Flutter `WidgetGoods` value type.
  */
 export interface WidgetGoods {
   /** Product name (1-line clamp in the overlay). */
@@ -92,14 +107,37 @@ export interface WidgetGoods {
   /**
    * OPTIONAL raw original price — the source for the struck-through「was」price the
    * `product_card === 'below'` product row draws (design `LBPCardProductRow`'s
-   * `product.was`). It is the RN stand-in for the iOS / Android `LBFeaturedGood
-   * .originalPrice`, which the RN core `LBVideoItem` has no equivalent of; since
-   * `WidgetGoods` is a reference-ui-owned by-value type, carrying it here needs no core /
-   * view-model change. Omitted / empty after trim → NO struck-through price is drawn at
+   * `product.was`). Mirrors the iOS / Android `LBFeaturedGood.originalPrice` field
+   * (the RN core `LBFeaturedGood` now carries the same field,
+   * `video-linked-goods-core-rn` — {@link widgetGoodsFromFeatured} copies it
+   * verbatim). Omitted / empty after trim → NO struck-through price is drawn at
    * all. The `inside` overlay never draws one (the design's `LBPCardProductOverlay` has no
    * `was`). Raw passthrough — it runs through the same currency de-duplication as `price`.
    */
   readonly originalPrice?: string;
+}
+
+/**
+ * Converts the core `LBFeaturedGood | undefined` (`LBVideoItem.goods`,
+ * `video-linked-goods-core-rn`) into this layer's by-value {@link WidgetGoods} — the
+ * DEFAULT data source the family-5 surfaces (`Carousel` / `VideoShopGrid`) and the
+ * turnkey `LivebuyWidget` container now derive a card's product overlay from when the
+ * host omits `goodsFor` (`rb-rn-video-linked-goods-auto-render`). `undefined` → `null`
+ * (a video with no linked product renders no card, same as an unbound demo card).
+ * `soldOut` / `stock` / `status` are NOT mapped — this primitive never consumed those
+ * three raw flags (parity iOS / Android `CarouselCardView`, which likewise ignore
+ * them for this overlay). Pure — no rounding / currency reformatting / trimming (the
+ * existing `strikePrice` consumer already handles the "empty after trim → no
+ * strikethrough" convention; this function does not duplicate that trim).
+ */
+export function widgetGoodsFromFeatured(featured: LBFeaturedGood | undefined): WidgetGoods | null {
+  if (featured == null) return null;
+  return {
+    name: featured.name,
+    pic: featured.pic,
+    price: featured.price,
+    originalPrice: featured.originalPrice,
+  };
 }
 
 /**

@@ -67,8 +67,14 @@ import { Text } from '../TightText';
 import { ShareGlyph } from '../playershell/ShareGlyph';
 import { CartGlyph } from './CartGlyph';
 import { EqualizerGlyph } from './EqualizerGlyph';
-import { ShopBagGlyph } from './ShopBagGlyph';
-import { productRowOverlay, ProductBagNarratingBadge, type ProductRowMode } from './ProductRowOverlay';
+import { CartFillGlyph } from './CartFillGlyph';
+import { HotGlyph } from './HotGlyph';
+import {
+  productRowOverlay,
+  productRowNumberBadge,
+  ProductBagNarratingBadge,
+  type ProductRowMode,
+} from './ProductRowOverlay';
 import { ProductStatusBadge } from './ProductStatusBadge';
 import { RemoteImage } from './RemoteImage';
 import { SheetHeaderCloseButton } from './SheetHeaderCloseButton';
@@ -122,6 +128,10 @@ const NARRATE_BANNER_COLOR = 'rgba(240,50,70,0.7)';
 /** Shared empty-set default for {@link ProductListProps.introducingProductIds} (avoids allocating
  *  a fresh `Set` per render when the prop is omitted — VOD / demo / no callers passing it yet). */
 const NO_INTRODUCING_IDS: ReadonlySet<string> = new Set();
+/** Shared empty-array default for {@link ProductListProps.productsBackendOrder}
+ *  (rb-rn-product-row-number-badge). Omitted → `productRowNumberBadge`'s `findIndex` always
+ *  misses → `null` → no badge renders, existing call sites/snapshots byte-identical. */
+const NO_BACKEND_ORDER: readonly LBProduct[] = [];
 
 // MARK: - Static copy (LBPSheetHeader / LBPProductRow / LBPCartCTA labels)
 
@@ -178,6 +188,16 @@ export interface ProductListProps {
    * `ProductBagNarratingBadge.isNarrating`. Parity iOS / Android `introducingProductIds`.
    */
   readonly introducingProductIds?: ReadonlySet<string>;
+  /**
+   * The core-fed products snapshot in RAW BACKEND ORDER (`ProductSheetsModel
+   * .productsBackendOrder` ← `productOverlayState.products`) — NOT the introducing-first
+   * DISPLAY order {@link ProductListProps.products} carries. Backs the product-row NUMBER
+   * BADGE (rb-rn-product-row-number-badge, design R35): each row's badge number is its
+   * 1-based position in THIS list, via the pure `productRowNumberBadge(mode, product.id,
+   * productsBackendOrder)`. Omitted (default empty array) → every row's `findIndex` misses →
+   * no badge renders (existing call sites stay byte-identical). Read-only.
+   */
+  readonly productsBackendOrder?: readonly LBProduct[];
   /**
    * 縮圖疊層的播放模式（product-row-status-overlay）：`'vod'` → 播放 icon；`'live'` → 介紹中
    * 落在 narrating row；`'replay'` → 介紹中 落在 `playbackPosition ∈ [beginTime, endTime]` 的商品，
@@ -283,6 +303,7 @@ export function ProductList(props: ProductListProps): ReactElement {
     cartCount,
     live = false,
     introducingProductIds = NO_INTRODUCING_IDS,
+    productsBackendOrder = NO_BACKEND_ORDER,
     mode = null,
     playbackPosition = 0,
     onOpenProduct,
@@ -387,6 +408,15 @@ export function ProductList(props: ProductListProps): ReactElement {
             product.endTime,
             playbackPosition,
           );
+          // 縮圖左上角編號徽章（rb-rn-product-row-number-badge, design R35）：由純函式
+          // productRowNumberBadge 算出，來源是 BACKEND ORDER（`productsBackendOrder`，原始未依
+          // 「介紹中」重排的順序），不是這個迴圈本身在跑的 `displayed`（介紹中優先 + 搜尋過濾後的
+          // 顯示順序）——避免編號隨介紹中商品變動而跳動。VOD 恆 null；找不到該 id 亦回 null。
+          const numberBadge = productRowNumberBadge(
+            effectiveMode,
+            product.id,
+            productsBackendOrder,
+          );
           return (
             <ProductRowView
               key={product.id}
@@ -395,9 +425,11 @@ export function ProductList(props: ProductListProps): ReactElement {
               theme={theme}
               product={product}
               live={live}
+              mode={effectiveMode}
               showPlay={overlay.showPlay}
               isIntroducing={overlay.showIntroducing}
               showShare={overlay.showShare}
+              numberBadge={numberBadge}
               onOpenProduct={onOpenProduct}
               onQuickAdd={onQuickAdd}
               onNotifyRestock={onNotifyRestock}
@@ -623,12 +655,24 @@ export interface ProductRowViewProps {
   layout?: ProductRowLayout;
   hideSub?: boolean;
   live?: boolean;
+  // `row`-only (rb-rn-product-row-vod-intro-mask): the resolved playback mode
+  // (`ProductListView`'s `effectiveMode`) — drives WHICH visual `showPlay` / `isIntroducing`
+  // render as. `mode === 'vod'` → the NEW unified centered play button / full-bleed equalizer
+  // mask (design R36); anything else (including omitted — direct `ProductRowView` callers that
+  // predate this prop, e.g. this file's own structural tests) → the EXISTING bottom「看講解」
+  // pill / 「介紹中」coral banner, byte-identical. Ignored by `grid` (no live-narrating concept).
+  mode?: ProductRowMode | null;
   // `row`-only: 縮圖疊層的播放 affordance（product-row-status-overlay）：由純函式
   // productRowOverlay 算出，與「介紹中」(`isIntroducing`) 互斥。VOD → true；active-live →
   // false；replay → 不在介紹窗時 true。Ignored by `grid` (cross-video recommendation cards have
   // no live-narrating concept).
   showPlay?: boolean;
   isIntroducing?: boolean;
+  // `row`-only: 縮圖左上角編號徽章（rb-rn-product-row-number-badge, design R35）：由純函式
+  // productRowNumberBadge 算出（`null` → VOD 或找不到該 id，不畫）。`isIntroducing && !soldOut`
+  // 時內容換成 HotGlyph + "HOT"，否則顯示這個數字。Ignored by `grid`（跨影片推薦卡沒有「介紹中 /
+  // 播放模式」的概念）。
+  numberBadge?: number | null;
   // `row`-only: 列分享 icon 是否顯示（rb-rn-live-hide-product-share, design R12）：由
   // `productRowOverlay(...)` 的 `showShare`（`= mode !== 'live'`）算出。預設 `true`（既有內部呼叫
   // 相容）；進行中直播（`'live'`）時隱藏——沒有已定案的「開始銷售時間」，分享連結無法帶出正確時間點
@@ -672,14 +716,91 @@ export function ProductRowView(props: ProductRowViewProps): ReactElement {
 // TARGET is unchanged: the thumbnail still forwards `onPlayClick` (falls back to
 // `onSeekToIntro` when `undefined`).
 
+// MARK: - VOD-only thumbnail overlays (rb-rn-product-row-vod-intro-mask, design R36)
+//
+// `row`-only (see `RowLayoutBody`'s `mode === 'vod'` branch above where these are used).
+// Parity iOS `ProductRowView.vodPlayOverlay`/`vodIntroducingMask`, Android `VodPlayOverlay`/
+// `VodIntroducingMask`. Neither reads `soldOut` itself — the CALLER already gates
+// `VodIntroducingMask` behind `isIntroducing && !soldOut` (`introducingForBadge`, same
+// priority rule as the existing LIVE/REPLAY banner).
+
+/** VOD `upcoming` phase: a centered black circular play button (`rgba(0,0,0,0.5)`, 32px),
+ *  replacing the bottom「看講解」pill for `mode === 'vod'` rows only. Design
+ *  `sdk-components.jsx:LBPProductRow`'s `playOverlay` (`vodPhase === 'upcoming'`). The `▶`
+ *  glyph is a plain `Text` char scaled by `theme.fontScale` — same convention this file
+ *  already uses for every other Text-rendered play glyph (`GridPlayButton`, the retired
+ *  「看講解」pill's own `▶`), unlike the custom-drawn `EqualizerGlyph`/`HotGlyph` below which
+ *  stay a literal unscaled `size`. */
+function VodPlayOverlay(props: { theme: ReferenceUITheme }): ReactElement {
+  const { theme } = props;
+  return (
+    <View
+      pointerEvents="none"
+      style={{
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}
+    >
+      <View
+        style={{
+          width: 32,
+          height: 32,
+          borderRadius: 16,
+          backgroundColor: 'rgba(0,0,0,0.5)',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        <Text style={{ color: '#FFFFFF', fontSize: 15 * theme.fontScale, fontWeight: 'bold' }}>
+          ▶
+        </Text>
+      </View>
+    </View>
+  );
+}
+
+/** VOD `now` phase: a full-bleed `rgba(0,0,0,0.5)` mask + centered white equalizer glyph, NO
+ *  text — visually distinct from the LIVE/REPLAY bottom-anchored coral「介紹中」banner (same
+ *  semantic — this product is currently being introduced — different presentation), replacing
+ *  it for `mode === 'vod'` rows only. Reuses the existing `EqualizerGlyph` (same bars as the
+ *  LIVE/REPLAY banner's, just larger: 18 here vs 9 there), matching design `introBadge`'s VOD
+ *  branch. The 64×64 thumbnail `Pressable`'s `overflow: 'hidden'` clips this to the rounded
+ *  corners exactly like the banner it replaces. */
+function VodIntroducingMask(): ReactElement {
+  return (
+    <View
+      pointerEvents="none"
+      style={{
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        backgroundColor: 'rgba(0,0,0,0.5)',
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}
+    >
+      <EqualizerGlyph size={18} color="#FFFFFF" />
+    </View>
+  );
+}
+
 function RowLayoutBody(props: {
   index?: number;
   theme: ReferenceUITheme;
   product: LBProduct;
   hideSub: boolean;
   live?: boolean;
+  mode?: ProductRowMode | null;
   showPlay?: boolean;
   isIntroducing?: boolean;
+  numberBadge?: number | null;
   showShare?: boolean;
   onOpenProduct?: (product: LBProduct) => void;
   onQuickAdd?: (product: LBProduct) => void;
@@ -694,8 +815,10 @@ function RowLayoutBody(props: {
     product,
     hideSub,
     live = false,
+    mode = null,
     showPlay = false,
     isIntroducing = false,
+    numberBadge = null,
     showShare = true,
     onOpenProduct,
     onQuickAdd,
@@ -709,6 +832,11 @@ function RowLayoutBody(props: {
   const soldOut = ProductStatusBadge.resolve(product) === ProductStatusBadge.SoldOut;
   // out_soon / hot 小徽章只認**明確** label（label 空不臆測 → demo / 舊後端中性）。
   const explicitBadge = ProductStatusBadge.fromLabel(product.label);
+  // 縮圖左上角編號徽章的 HOT 內容切換（rb-rn-product-row-number-badge, design R35）：沿用既有底部
+  // 「介紹中」橫幅的 `isIntroducing && !soldOut` 優先序（goods-status-label-render③，sold_out >
+  // narrating）——售完商品即使正在介紹中，也只顯示純數字，不換 HOT，避免同一張縮圖對「是否介紹中」
+  // 給出矛盾的視覺答案。
+  const introducingForBadge = isIntroducing && !soldOut;
   // 名 / 明細鈕 → open the FULL browse detail sheet.
   const open = (): void => onOpenProduct?.(product);
   // 加購鈕 → open the COMPACT add-to-cart sheet (in-stock). A SOLD-OUT row's 補貨 bell
@@ -759,54 +887,116 @@ function RowLayoutBody(props: {
             overflow: 'hidden',
           }}
         >
-          {/* Play affordance — VOD / replay only (`showPlay = !live`). LIVE has no
-              timeline to scrub, so it is hidden for live rows. Bottom-centered「看講解」text
-              pill (design R21, rb-rn-product-row-play-hint-pill) — replaces the prior
-              center black-circle icon; the thumbnail's rounded-12 `overflow: 'hidden'`
-              clips it exactly like the "介紹中" banner below. */}
-          {showPlay ? (
-            <View
-              style={{
-                position: 'absolute',
-                left: 0,
-                right: 0,
-                bottom: 4,
-                alignItems: 'center',
-              }}
-            >
-              <View
-                style={{
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  borderRadius: 999,
-                  backgroundColor: PLAY_HINT_BG,
-                  paddingHorizontal: 8,
-                  paddingVertical: 3,
-                }}
-              >
-                <Text
-                  style={{ color: PLAY_HINT_TEXT, fontSize: 9 * theme.fontScale, fontWeight: 'bold' }}
-                >
-                  ▶
-                </Text>
-                <View style={{ width: 3 }} />
-                <Text
+          {/* VOD (rb-rn-product-row-vod-intro-mask, design R36): a DIFFERENT, unified
+              three-phase visual — centered play button / full-bleed equalizer mask / no
+              overlay — replaces the「看講解」pill below and the「介紹中」banner further down
+              for `mode === 'vod'` ONLY. `mode !== 'vod'` (`'live'` / `'replay'`, or omitted —
+              direct `ProductRowView` callers that predate this prop) keeps those existing
+              visuals byte-identical. */}
+          {mode === 'vod' ? (
+            <>
+              {showPlay ? <VodPlayOverlay theme={theme} /> : null}
+              {introducingForBadge ? <VodIntroducingMask /> : null}
+            </>
+          ) : (
+            /* Play affordance — VOD / replay only (`showPlay = !live`). LIVE has no
+               timeline to scrub, so it is hidden for live rows. Bottom-centered「看講解」text
+               pill (design R21, rb-rn-product-row-play-hint-pill) — replaces the prior
+               center black-circle icon; the thumbnail's rounded-12 `overflow: 'hidden'`
+               clips it exactly like the "介紹中" banner below. */
+            <>
+              {showPlay ? (
+                <View
                   style={{
-                    color: PLAY_HINT_TEXT,
-                    fontSize: 9.5 * theme.fontScale,
-                    fontWeight: '600',
+                    position: 'absolute',
+                    left: 0,
+                    right: 0,
+                    bottom: 4,
+                    alignItems: 'center',
                   }}
                 >
-                  看講解
+                  <View
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      borderRadius: 999,
+                      backgroundColor: PLAY_HINT_BG,
+                      paddingHorizontal: 8,
+                      paddingVertical: 3,
+                    }}
+                  >
+                    <Text
+                      style={{
+                        color: PLAY_HINT_TEXT,
+                        fontSize: 9 * theme.fontScale,
+                        fontWeight: 'bold',
+                      }}
+                    >
+                      ▶
+                    </Text>
+                    <View style={{ width: 3 }} />
+                    <Text
+                      style={{
+                        color: PLAY_HINT_TEXT,
+                        fontSize: 9.5 * theme.fontScale,
+                        fontWeight: '600',
+                      }}
+                    >
+                      看講解
+                    </Text>
+                  </View>
+                </View>
+              ) : null}
+            </>
+          )}
+          <RemoteImage live={live} uri={photoUri} borderRadius={12} />
+          {/* 縮圖左上角編號徽章（rb-rn-product-row-number-badge, design R35）：黑底半透明白字，
+              外側兩角圓角（對應設計 0.25rem 0 0.25rem 0）。`numberBadge == null`（VOD / 找不到該
+              id）→ 不畫。介紹中（且未售完）時內容換成 HotGlyph + "HOT"，否則顯示純數字——售完商品
+              仍顯示數字（不因售完而整個隱藏，design 的售完灰霧遮罩繪製順序在徽章之下）。 */}
+          {numberBadge != null ? (
+            <View
+              pointerEvents="none"
+              style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                minWidth: 18,
+                height: 18,
+                paddingHorizontal: introducingForBadge ? 6 : 5,
+                borderTopLeftRadius: 4,
+                borderBottomRightRadius: 4,
+                backgroundColor: 'rgba(0,0,0,0.7)',
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              {introducingForBadge ? (
+                <>
+                  <HotGlyph size={10} color="#FFFFFF" />
+                  <View style={{ width: 3 }} />
+                  <Text
+                    style={{ color: '#FFFFFF', fontSize: 11 * theme.fontScale, fontWeight: 'bold' }}
+                  >
+                    HOT
+                  </Text>
+                </>
+              ) : (
+                <Text
+                  style={{ color: '#FFFFFF', fontSize: 11 * theme.fontScale, fontWeight: 'bold' }}
+                >
+                  {String(numberBadge)}
                 </Text>
-              </View>
+              )}
             </View>
           ) : null}
-          <RemoteImage live={live} uri={photoUri} borderRadius={12} />
           {/* 「介紹中」橫幅 — 貼齊縮圖底部、左右填滿（accent 底滿版 + 白色等化器 + 白字）。
               clipped to the thumbnail's rounded-12 by the Pressable's `overflow: 'hidden'`.
-              優先序 sold_out > narrating：售罄時壓過「介紹中」橫幅（goods-status-label-render ③）。 */}
-          {isIntroducing && !soldOut ? (
+              優先序 sold_out > narrating：售罄時壓過「介紹中」橫幅（goods-status-label-render ③）。
+              `mode === 'vod'`：本橫幅由上方的 `VodIntroducingMask`（無文字滿版遮罩）取代，此處
+              MUST NOT 重複渲染（rb-rn-product-row-vod-intro-mask）。 */}
+          {mode !== 'vod' && introducingForBadge ? (
             <View
               pointerEvents="none"
               style={{
@@ -1215,9 +1405,10 @@ function CartCTAFooter(props: {
             justifyContent: 'center',
           }}
         >
-          {/* rb-rn-cart-cta-shopbag-glyph: design `LBPCartCTA` uses the white outline `shopBag`
-              (full handle ring + mouth line), NOT the multicolor 🛍 emoji. */}
-          <ShopBagGlyph color="#FFFFFF" size={20 * theme.fontScale} />
+          {/* rb-rn-icon-parity-bag-cart-batch: design `LBPCartCTA` moved (2026-08-25) from the
+              outline `shopBag` bag silhouette to the filled `cartFill` basket-with-hook-handle
+              glyph; `ShopBagGlyph` is retired (deleted). NOT the multicolor 🛍 emoji. */}
+          <CartFillGlyph color="#FFFFFF" size={20 * theme.fontScale} />
           <View style={{ width: 10 }} />
           <Text style={{ color: '#FFFFFF', fontSize: 16 * theme.fontScale, fontWeight: 'bold' }}>
             {CART_LABEL}

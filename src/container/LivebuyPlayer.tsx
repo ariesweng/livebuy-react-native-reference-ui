@@ -72,6 +72,7 @@ import { ProvideTightText } from '../TightText';
 import { refreshSubtitleCuesIfUrlChanged, subtitleToggleEnabled } from './subtitlePipeline';
 import type { VTTCue } from '../playershell/VTTSubtitleParser';
 import { liveEntryGate } from './liveEntryLogic';
+import { deriveHeaderChromeFields, deriveServiceLinkAvailable } from './channelChrome';
 
 export type { LivebuyPlayerConfig } from './LivebuyPlayerConfig';
 
@@ -537,6 +538,26 @@ export function LivebuyPlayer(props: LivebuyPlayerProps): ReactElement {
         // contextually from `LivebuyPlayerCoreProps.onChannelChange`'s declared signature.
         onChannelChange={(info): void => {
           serviceLinkRef.current = info.serviceLink;
+          // player-channel-chrome-wiring-reference-ui-rn — auto-derive the PlayerHeader top-bar
+          // chrome (title / hostName / shopLogo / shareUrl / isLive / isFinishedLiveReplay) on
+          // every channel load, parity iOS/Android `ingestChannel`'s auto-feed (RN has no
+          // `ingestChannel`; `onChannelChange` is the host-fed equivalent trigger point — see
+          // `channelChrome.ts`). `isFinishedLiveReplay` is now computed too
+          // (isfinishedlivereplay-wiring-reference-ui-rn) — `channel-type-bridge-core-rn` bridged
+          // `channel.type` onto `LBPlayerChannelInfo`, so `deriveHeaderChromeFields` derives it
+          // via the existing `isFinishedLiveReplay(type, liveStatus)` pure function and this same
+          // call forwards it (partial-merge — no second call needed).
+          attachmentRef.current?.template.handleHeaderChrome(deriveHeaderChromeFields(info));
+          // Same channel load also flips the side-rail「聯繫商家」icon's visibility. Fired HERE,
+          // as its OWN independent call — NOT folded into the subtitle pipeline's `setAvailable`
+          // callback below — so it does not implicitly depend on
+          // `refreshSubtitleCuesIfUrlChanged`'s internal timing (design.md Decision 2).
+          // `handleRailEnablement` takes a `Partial<LBSideRailEnablement>` and merges per-field
+          // (verified against `OperationRail.handleEnablement`), so this call and the
+          // `subtitleAvailable`-only call below cannot clobber each other regardless of order.
+          attachmentRef.current?.template.handleRailEnablement({
+            serviceLinkAvailable: deriveServiceLinkAvailable(info.serviceLink),
+          });
           // VOD CC 字幕（rb-react-native-subtitle-vtt-caption-display）：抓取 + 解析
           // `channel.subtitle_url`（換片防呆 + staleness 邏輯見 `subtitlePipeline.ts`），同時餵
           // `handleRailEnablement({ subtitleAvailable })` 讓側欄 CC 鈕的可見性正確反映這支影片是否

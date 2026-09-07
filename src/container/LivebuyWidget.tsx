@@ -43,7 +43,6 @@ import type { WidgetTemplateAttachment } from 'livebuy-react-native-ui';
 
 import type { ReferenceUITheme } from '../theme';
 import { ReferenceUIThemeResolver } from '../theme';
-import { WidgetSeeds } from '../widget/WidgetModel';
 
 import { useContainerEventListener } from './containerEventListener';
 import { resolveDesign } from './ReferenceUIDesign';
@@ -52,6 +51,7 @@ import type { WidgetContainerMode } from './widgetData';
 import {
   lbWidgetDemoSnapshot,
   lbWidgetEffectiveTap,
+  lbWidgetResolvedGoodsFor,
   lbWidgetShouldAutoRefreshTick,
   lbWidgetShouldUseDemoFallback,
   loadWidgetPage,
@@ -274,9 +274,10 @@ export function LivebuyWidget(props: LivebuyWidgetProps): ReactElement {
       });
   };
 
-  // The RN core `LBVideoItem` has no `goods` field: live cards show NO overlay unless
-  // the host supplies `goodsFor`; the opted-in demo path uses the seed overlays.
-  const goodsFor = config.goodsFor ?? (usingDemo ? WidgetSeeds.goodsFor : (): null => null);
+  // rb-rn-video-linked-goods-auto-render: host `config.goodsFor` (full override) >
+  // opted-in demo seed overlays > (the common case) each card's own `item.goods`
+  // (`video-linked-goods-core-rn`) — see `lbWidgetResolvedGoodsFor`.
+  const goodsFor = lbWidgetResolvedGoodsFor(config.goodsFor, { usingDemo });
 
   // Config for the default-open player (dropin-widget-default-open-player-rn): inherits the widget's
   // design; dismiss / minimize close the Modal.

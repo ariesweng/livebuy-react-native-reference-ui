@@ -148,15 +148,24 @@
 //       onClose?: () => void;                           // top-right close → host
 //   }): ReactElement
 //
-// The container passes the deterministic per-card goods overlay via
-// `WidgetSeeds.goodsFor` (the RN core `LBVideoItem` has no `goods` field). The host
-// path supplies its own `goodsFor` (or `() => null` → no overlay).
+// goods overlay resolution (rb-rn-video-linked-goods-auto-render): host-supplied
+// `goodsFor` (this container's own prop) is a full OVERRIDE, taking precedence over
+// everything else, including an explicit `null` return to hide a card. Omitted →
+// this bare demo instance (`widgetTemplate == null`, e.g. a preview / structural
+// snapshot with nothing attached) falls back to the deterministic
+// `WidgetSeeds.goodsFor` (unchanged — the seed videos never populate `.goods`, so
+// this keeps every existing golden byte-identical); a LIVE bound template
+// (`widgetTemplate != null`) instead derives each card's overlay from the core
+// `item.goods` (`video-linked-goods-core-rn`) via `widgetGoodsFromFeatured`. The
+// turnkey drop-in `LivebuyWidget` resolves its OWN three-tier `goodsFor` before
+// reaching this container (`widgetData.ts`'s `lbWidgetResolvedGoodsFor`), so from
+// here its result always lands in the first (host-override) branch.
 
 import { useEffect, useState } from 'react';
 import type { ReactElement } from 'react';
 
 import type { ReferenceUITheme } from '../theme';
-import { WidgetModel, WidgetSeeds } from './WidgetModel';
+import { WidgetModel, WidgetSeeds, widgetGoodsFromFeatured } from './WidgetModel';
 import type { WidgetGoods } from './WidgetModel';
 import { externalLiveAwareTap } from './ExternalLive';
 
@@ -190,9 +199,15 @@ export interface WidgetOverlayViewProps {
   readonly theme: ReferenceUITheme;
 
   /**
-   * Optional per-card product overlay resolver (reference-ui {@link WidgetGoods} — the
-   * RN core `LBVideoItem` has no `goods` field). Defaults to {@link WidgetSeeds.goodsFor}
-   * (deterministic demo overlays). Pass `() => null` for no overlay.
+   * Optional per-card product overlay resolver (reference-ui {@link WidgetGoods}).
+   * PROVIDED → full OVERRIDE for every card (including an explicit `null` return to
+   * hide a card), taking precedence over `item.goods`. OMITTED
+   * (`rb-rn-video-linked-goods-auto-render`) → this bare demo instance
+   * (`widgetTemplate == null`) falls back to {@link WidgetSeeds.goodsFor}
+   * (deterministic demo overlays, unchanged); a LIVE bound `widgetTemplate` instead
+   * derives each card's overlay from the core `item.goods`
+   * (`video-linked-goods-core-rn`) via `widgetGoodsFromFeatured`. Pass `() => null`
+   * to force no overlay regardless of `item.goods`.
    */
   readonly goodsFor?: (item: LBVideoItem) => WidgetGoods | null;
 
@@ -277,10 +292,18 @@ export function WidgetOverlayView(props: WidgetOverlayViewProps): ReactElement |
   const routedTapVideo = externalLiveAwareTap(onTapVideo);
   const routedTapFloating = externalLiveAwareTap(onTapFloating);
 
-  // Per-card goods overlay resolver (host-supplied or the deterministic demo). The RN
-  // core `LBVideoItem` has no `goods` field, so the overlay is supplied BY VALUE here.
-  const resolveGoods = (item: LBVideoItem): WidgetGoods | null =>
-    (goodsFor ?? WidgetSeeds.goodsFor)(item);
+  // Per-card goods overlay resolver (rb-rn-video-linked-goods-auto-render): host
+  // override > (this bare demo instance's) deterministic seed > item.goods default.
+  // `widgetTemplate == null` is this component's OWN demo signal (a preview /
+  // structural snapshot with nothing attached) — the seed videos never populate
+  // `.goods`, so keeping `WidgetSeeds.goodsFor` there leaves every existing golden
+  // byte-identical. A live bound template derives from the core `item.goods`
+  // (`video-linked-goods-core-rn`) via `widgetGoodsFromFeatured` instead.
+  const resolveGoods = (item: LBVideoItem): WidgetGoods | null => {
+    if (goodsFor != null) return goodsFor(item);
+    if (widgetTemplate == null) return WidgetSeeds.goodsFor(item);
+    return widgetGoodsFromFeatured(item.goods);
+  };
 
   switch (model.mode) {
     case LBWidgetContentMode.Carousel:

@@ -78,6 +78,7 @@ import type { ReferenceUITheme } from '../theme';
 import { ReferenceUIWidgetEmbedTheme } from '../widgetEmbedTheme';
 import { LBTestIDs, gridCard } from '../testing/LBTestIDs';
 import { CarouselCardView } from './CarouselCardView';
+import { widgetGoodsFromFeatured } from './WidgetModel';
 import type { WidgetGoods } from './WidgetModel';
 
 import type { LBVideoItem } from 'livebuy-react-native';
@@ -139,10 +140,15 @@ export interface VideoShopGridProps {
    */
   readonly lastPage: number;
   /**
-   * Optional per-card product overlay resolver (reference-ui {@link WidgetGoods} — the
-   * RN core `LBVideoItem` has no `goods` field; supplied BY VALUE). Omitted → no
-   * overlay on any card. The container passes `WidgetSeeds.goodsFor` for the demo /
-   * golden path.
+   * Optional per-card product overlay resolver (reference-ui {@link WidgetGoods}).
+   * OMITTED (the most common case, `rb-rn-video-linked-goods-auto-render`) → each
+   * cell's overlay is DERIVED BY DEFAULT from the core `item.goods`
+   * (`video-linked-goods-core-rn`) via {@link widgetGoodsFromFeatured} — `item.goods
+   * == null` → no overlay on that cell, non-null → the four fields are converted
+   * verbatim. PROVIDED → the resolver's return value is a full OVERRIDE for every
+   * cell, taking precedence over `item.goods` (including an explicit `null` return,
+   * which hides that cell's overlay even when `item.goods` is non-null). The
+   * container passes `WidgetSeeds.goodsFor` for the demo / golden path.
    */
   readonly goodsFor?: (item: LBVideoItem) => WidgetGoods | null;
   /**
@@ -274,7 +280,7 @@ export function VideoShopGrid(props: VideoShopGridProps): ReactElement {
               <CarouselCardView
                 theme={theme}
                 video={item}
-                goods={goodsFor ? goodsFor(item) : null}
+                goods={goodsFor ? goodsFor(item) : widgetGoodsFromFeatured(item.goods)}
                 width={CELL_WIDTH}
                 live={live}
                 // Raw hand-off — the card owns the single fallback (`normalizeProductCardMode`).

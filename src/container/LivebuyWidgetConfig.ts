@@ -99,10 +99,15 @@ export interface LivebuyWidgetConfig {
   onVideosChanged?: (videos: readonly LBVideoItem[]) => void;
 
   /**
-   * Per-card product overlay resolver. The RN core `LBVideoItem` has NO `goods`
-   * field (the bridge omits it), so a real product overlay can only come from the
-   * host here. Default: live cards show NO overlay; the opted-in demo fixtures use
-   * the deterministic seed overlays.
+   * OPTIONAL OVERRIDE for the per-card product overlay
+   * (`rb-rn-video-linked-goods-auto-render`). Default (omitted, the common case):
+   * each live card's overlay is derived automatically from its own core
+   * `item.goods` (`LBVideoItem.goods`, `video-linked-goods-core-rn`) — `item.goods
+   * == null` → no overlay on that card; the opted-in demo fixtures still use the
+   * deterministic seed overlays. Providing this callback FULLY REPLACES that
+   * default for every card (including an explicit per-item `null` return to hide a
+   * card that does carry `item.goods`) — it is an escape hatch, not the only data
+   * source.
    */
   goodsFor?: (item: LBVideoItem) => WidgetGoods | null;
 

@@ -175,7 +175,7 @@
 
 import type { ReactElement } from 'react';
 import { useEffect, useRef, useState } from 'react';
-import { View, Pressable, PanResponder } from 'react-native';
+import { View, Pressable, PanResponder, type LayoutChangeEvent } from 'react-native';
 import { Text } from '../TightText';
 
 import { ZoomBadge } from './ZoomBadge';
@@ -237,6 +237,51 @@ const GALLERY_THUMB_GAP = 8;
 /** Horizontal swipe distance (px) that commits a gallery page flip (parity
  *  `NowIntroducingCarouselView.SWIPE_DX`). */
 const GALLERY_SWIPE_DX = 40;
+
+/** Result of {@link resolveScaleDownLetterbox}. */
+export interface ScaleDownLetterboxResult {
+  readonly scale: number;
+  readonly displayWidth: number;
+  readonly displayHeight: number;
+}
+
+/**
+ * Scale-down-letterbox layout math (rb-rn-product-detail-main-image-scale-down-letterbox,
+ * CSS `object-fit: scale-down` semantics — used ONLY by the `.detail` main photo, see D1 of
+ * this change's design.md). Pure, zero-render, deterministic — extracted so it is unit-
+ * testable without mounting a component (`docs/unit-test-discipline.md` 純函式抽出原則).
+ *
+ * `scale = min(1, containerWidth / imageNativeWidth, maxHeight / imageNativeHeight)`, where
+ * `maxHeight = containerWidth * 2`. Equal-ratio scaling — both axes share the SAME `scale` —
+ * NEVER upscales (`scale` is capped at `1`: a native size already smaller than the bounding
+ * box is drawn at its own size, never stretched to fill it), and NEVER crops (the whole image
+ * always fits inside the `containerWidth × maxHeight` box). `displayWidth` / `displayHeight`
+ * are the size the caller SHOULD draw the image at; the caller centers it within the
+ * container and sizes the container's own height to `displayHeight`.
+ *
+ * A non-positive `containerWidth`, `imageNativeWidth`, or `imageNativeHeight` (layout / the
+ * image's natural size not measured yet) is a degenerate input — returns an all-zero result
+ * rather than dividing by zero / producing `NaN` or `Infinity`. Callers MUST treat that as
+ * "not resolvable yet" and keep their existing fixed-size placeholder layout instead of
+ * using it (see `mainPhotoLetterbox` below, which only calls this once both measurements are
+ * known — this guard is defensive, not the primary gate).
+ */
+export function resolveScaleDownLetterbox(
+  containerWidth: number,
+  imageNativeWidth: number,
+  imageNativeHeight: number,
+): ScaleDownLetterboxResult {
+  if (containerWidth <= 0 || imageNativeWidth <= 0 || imageNativeHeight <= 0) {
+    return { scale: 0, displayWidth: 0, displayHeight: 0 };
+  }
+  const maxHeight = containerWidth * 2;
+  const scale = Math.min(1, containerWidth / imageNativeWidth, maxHeight / imageNativeHeight);
+  return {
+    scale,
+    displayWidth: imageNativeWidth * scale,
+    displayHeight: imageNativeHeight * scale,
+  };
+}
 
 // MARK: - Fixed localized copy (static presentation strings — parity to iOS/Android)
 
@@ -758,6 +803,43 @@ export function ProductDetail(props: ProductDetailProps): ReactElement {
       },
     }),
   ).current;
+
+  // -- SCALE-DOWN-LETTERBOX main-image layout (rb-rn-product-detail-main-image-scale-down-
+  // letterbox) — `.detail` main photo ONLY, and ONLY once `live` AND the photo has actually
+  // measured: the CONTAINER's own width (via `onLayout`) and the loaded image's NATIVE pixel
+  // size (via `RemoteImage`'s opt-in `onLoad`). Until BOTH are known — or whenever `live` is
+  // false (snapshot / demo) — `mainPhotoLetterbox` stays `null` and the container below keeps
+  // its EXISTING fixed 168-height / `cover` layout byte-identical (Non-Goal: the `live ===
+  // false` path MUST NOT be touched by any of this).
+  const [mainPhotoContainerWidth, setMainPhotoContainerWidth] = useState<number | null>(null);
+  const [mainPhotoNaturalSize, setMainPhotoNaturalSize] = useState<{
+    width: number;
+    height: number;
+  } | null>(null);
+
+  // A gallery photo swap (swipe / thumbnail tap, or a different product's initial selection —
+  // `currentGalleryPhotoUri` already reflects both) invalidates the PREVIOUS photo's measured
+  // natural size; it must never be reused to size the NEWLY selected photo (design.md D2's
+  // 「per-URL 生命週期」requirement, same discipline as `RemoteImage`'s own `failed`-latch reset
+  // on `trimmed` above). `mainPhotoContainerWidth` is intentionally NOT reset here — the
+  // CONTAINER itself does not remount / resize across a gallery page flip.
+  useEffect(() => {
+    setMainPhotoNaturalSize(null);
+  }, [currentGalleryPhotoUri]);
+
+  const handleMainPhotoLayout = (e: LayoutChangeEvent): void => {
+    setMainPhotoContainerWidth(e.nativeEvent.layout.width);
+  };
+  const handleMainPhotoLoad = (size: { width: number; height: number }): void => {
+    setMainPhotoNaturalSize(size);
+  };
+
+  // `null` until BOTH measurements are in (see comment above) — the ONLY gate the render below
+  // consults to pick between the old fixed-168/`cover` layout and the new dynamic one.
+  const mainPhotoLetterbox =
+    live && mainPhotoContainerWidth != null && mainPhotoNaturalSize != null
+      ? resolveScaleDownLetterbox(mainPhotoContainerWidth, mainPhotoNaturalSize.width, mainPhotoNaturalSize.height)
+      : null;
 
   // -- Derived presentation (pure) --------------------------------------------
 
@@ -1306,26 +1388,56 @@ export function ProductDetail(props: ProductDetailProps): ReactElement {
             already established the "draw only the current frame" convention this mirrors). A
             0/1-photo product gets NEITHER the swipe handlers NOR a testID here — the gallery
             machinery is entirely absent, keeping the existing single-photo structural snapshot
-            baselines byte-identical. */}
+            baselines byte-identical.
+
+            SCALE-DOWN-LETTERBOX (rb-rn-product-detail-main-image-scale-down-letterbox): once
+            `mainPhotoLetterbox` resolves (live + both measurements known), the container's own
+            height becomes the scaled `displayHeight` (never the old fixed 168) and its
+            background turns pure white — replacing the `PHOTO_FILL` placeholder tint, which is
+            for "no image yet" only, never for "image loaded, letterboxed" (design.md D1). Until
+            then (live===false, OR live===true but not yet measured) the layout is UNCHANGED. */}
         <View
           testID={gallerySwipeable ? LBTestIDs.productDetailPhoto : undefined}
           {...(gallerySwipeable ? galleryResponder.panHandlers : {})}
+          onLayout={live ? handleMainPhotoLayout : undefined}
           style={{
-            height: 168,
+            height: mainPhotoLetterbox == null ? 168 : mainPhotoLetterbox.displayHeight,
             borderRadius: 12,
-            backgroundColor: PHOTO_FILL,
+            backgroundColor: mainPhotoLetterbox == null ? PHOTO_FILL : '#FFFFFF',
             alignItems: 'center',
             justifyContent: 'center',
             overflow: 'hidden',
           }}
         >
-          <Text style={{ color: '#FFFFFF', fontSize: 26 * theme.fontScale, fontWeight: '900' }}>
-            {monogram(detail.name)}
-          </Text>
+          {/* The monogram placeholder glyph is a normal (non-absolute) flow child — it is only
+              drawn while there is no loaded-and-measured real photo to show instead (mirrors the
+              old always-covered-by-absoluteFill behavior; once the real image is measured it
+              becomes the SOLE flow child below, so it alone drives the container's centering —
+              see resolveScaleDownLetterbox's doc comment). */}
+          {mainPhotoLetterbox == null ? (
+            <Text style={{ color: '#FFFFFF', fontSize: 26 * theme.fontScale, fontWeight: '900' }}>
+              {monogram(detail.name)}
+            </Text>
+          ) : null}
           {/* Real product image over the placeholder when live (snapshot-safe off). The
               CURRENTLY selected gallery photo — `photoUri` (always `primaryPhoto`) is
-              intentionally NOT used here once there is more than one photo to browse. */}
-          <RemoteImage live={live} uri={currentGalleryPhotoUri} borderRadius={12} />
+              intentionally NOT used here once there is more than one photo to browse.
+              `onLoad` always wired (harmless no-op when `live` is false — `RemoteImage`
+              itself renders nothing then). `intrinsicSize` is set only once
+              `mainPhotoLetterbox` is known, switching `RemoteImage` from its default
+              absolute-fill `cover` overlay to an explicit `displayWidth`×`displayHeight`
+              flow child that the container above centers. */}
+          <RemoteImage
+            live={live}
+            uri={currentGalleryPhotoUri}
+            borderRadius={12}
+            intrinsicSize={
+              mainPhotoLetterbox == null
+                ? undefined
+                : { width: mainPhotoLetterbox.displayWidth, height: mainPhotoLetterbox.displayHeight }
+            }
+            onLoad={handleMainPhotoLoad}
+          />
           {/* Tappable zoom badge (design screens.jsx ZoomBadge): 32 white@0.85 disc +
               magnifier glyph, bottom-trailing inset 10. Tap → onZoomImage opens the lightbox,
               forwarding the CURRENTLY selected gallery photo (not always `primaryPhoto`). */}

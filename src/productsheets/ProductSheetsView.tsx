@@ -790,6 +790,11 @@ export function ProductSheetsView(props: ProductSheetsViewProps): ReactElement {
             <ProductList
               theme={theme}
               products={model.products}
+              // 縮圖左上角編號徽章（rb-rn-product-row-number-badge, design R35）：BACKEND ORDER
+              // （未依「介紹中」重排的原始順序）—— 與上面 `products`（介紹中優先的顯示順序）是
+              // 同一 productOverlayState 物件的不同欄位，刻意分開傳，避免徽章編號跟著介紹中商品
+              // 的排序位置跳動。
+              productsBackendOrder={model.productsBackendOrder}
               cartCount={model.cartCTA.count}
               live={live}
               // rn-product-bag-multi-narrating: the FULL set of LIVE narrate_status==2 products

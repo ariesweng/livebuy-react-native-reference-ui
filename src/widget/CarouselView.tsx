@@ -68,6 +68,7 @@ import type { ReferenceUITheme } from '../theme';
 import { ReferenceUIWidgetEmbedTheme } from '../widgetEmbedTheme';
 import { LBTestIDs, carouselCard } from '../testing/LBTestIDs';
 import { CarouselCardView, DEFAULT_CARD_WIDTH } from './CarouselCardView';
+import { widgetGoodsFromFeatured } from './WidgetModel';
 import type { WidgetGoods } from './WidgetModel';
 
 import type { LBVideoItem } from 'livebuy-react-native';
@@ -108,9 +109,15 @@ export interface CarouselProps {
   /** Optional section subtitle (dim, below the title). Nullish / empty → no subtitle line. */
   readonly subtitle?: string;
   /**
-   * Per-card product overlay resolver (reference-ui {@link WidgetGoods} — the RN core
-   * `LBVideoItem` has no `goods` field). Omitted / returns null → no overlay; demo /
-   * golden pass `WidgetSeeds.goodsFor`.
+   * Per-card product overlay resolver (reference-ui {@link WidgetGoods}).
+   * OMITTED (the most common case, `rb-rn-video-linked-goods-auto-render`) → each
+   * card's overlay is DERIVED BY DEFAULT from the core `item.goods`
+   * (`video-linked-goods-core-rn`) via {@link widgetGoodsFromFeatured} — `item.goods
+   * == null` → no overlay, non-null → the four fields are converted verbatim.
+   * PROVIDED (host opts in, or demo / golden pass `WidgetSeeds.goodsFor`) → the
+   * resolver's return value is a full OVERRIDE for every card, taking precedence
+   * over `item.goods` (including an explicit `null` return, which hides that card's
+   * overlay even when `item.goods` is non-null).
    */
   readonly goodsFor?: (item: LBVideoItem) => WidgetGoods | null;
   /**
@@ -206,7 +213,7 @@ export function Carousel(props: CarouselProps): ReactElement {
       <CarouselCardView
         theme={theme}
         video={item}
-        goods={goodsFor != null ? goodsFor(item) : null}
+        goods={goodsFor != null ? goodsFor(item) : widgetGoodsFromFeatured(item.goods)}
         width={DEFAULT_CARD_WIDTH}
         live={live}
         // Raw hand-off — the card owns the single fallback (`normalizeProductCardMode`).

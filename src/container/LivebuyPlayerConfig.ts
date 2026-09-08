@@ -232,6 +232,20 @@ export interface LivebuyPlayerConfig {
   showSubscribe?: boolean;
 
   /**
+   * 播放器頂欄觀看人數徽章要不要顯示 (rb-rn-viewer-count-visibility-toggle)。
+   *
+   * **Default（省略）＝ `true`（顯示）**——與 {@link showSubscribe} 的預設 `false` 相反：這個旗標
+   * 讓 host **選擇關閉**既有行為（一律顯示），不是讓 host 選擇開啟一個預設隱藏的功能。省略此欄位
+   * 對既有呼叫端是 byte-identical（非 BREAKING），parity iOS/Android/Flutter 同名
+   * `showViewerCount`（皆預設 `true`）。
+   *
+   * 顯式傳 `false` 時，即使 `isLive === true`（含回放）也不畫觀看人數徽章；同一段落的 LIVE 紅膠囊
+   * （`isLive && !isReplay`）不受影響。不改變觀看人數資料本身（`viewerCount` 照常從 core 更新）——
+   * 純粹是 reference-ui 渲染端的呈現旗標。
+   */
+  showViewerCount?: boolean;
+
+  /**
    * 播放器頂欄影片標題「長標題是否以跑馬燈捲動」（rb-rn-marquee-title-scroll，design R15）。
    *
    * 收的是後端 `POST /sdk/config` 回應 `data.extensions.video_title_scroll` 的 **raw 值**
@@ -326,9 +340,13 @@ export interface LivebuyPlayerConfig {
    */
   onSeekToProductIntro?: (product: LBProduct) => void;
   /**
-   * 商品列表列**分享鈕**點擊 → 系統分享，連結帶該商品介紹時間 `?t=beginTime`（issue 6）. Default:
-   * no-op——RN reference-ui 把 per-product 系統分享委派 host（與 `onShare` 一致，純 JS 層不直接呼叫
-   * 原生分享）；host override 以套件純函式 `productShareUrlString` 組連結 + RN `Share.share` 呈現.
+   * 商品列表列**分享鈕**點擊 → 系統分享，連結帶該商品介紹時間 `?t=beginTime`（issue 6，
+   * rb-rn-product-list-share-tap-noop 修正）. Default: 以 `channel.share_url`
+   * （`playerHeaderState.shareUrl`）+ `?t=<beginTime>`（經套件純函式 `productShareUrlString`）經
+   * `onShare` 頻道分享已在用的同一個系統分享出口（`Share.share`）真的開系統分享；`channel.share_url`
+   * 本身為空才退回 core 頻道級分享事件（`operationPanel.simulateShareTap()`，parity iOS
+   * `presentProductShare` 的空 `shareUrl` fallback）。host 設此 closure 完全覆蓋（自畫 sheet /
+   * 流程，零變更）。
    */
   onShareProduct?: (product: LBProduct) => void;
   /**
@@ -419,7 +437,7 @@ export interface LivebuyPlayerConfig {
   /**
    * `done`（discount）折扣碼「複製」. Default: no-op —— 本層保留版面 + 本地「已複製」回饋，
    * 實際寫入剪貼簿委派 host（RN 核心 `Clipboard` 已 deprecated，外部剪貼簿套件違反本層零外部
-   * 依賴原則；與 `onShareProduct` 的既有委派慣例一致）。
+   * 依賴原則）。
    */
   onCopyClaimCode?: (code: string) => void;
 

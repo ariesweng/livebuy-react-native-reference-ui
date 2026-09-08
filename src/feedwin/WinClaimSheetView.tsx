@@ -362,8 +362,8 @@ export interface WinClaimSheetProps {
   readonly onDismiss?: () => void;
   /**
    * `done`（discount）折扣碼「複製」—— 本層保留版面 + 本地「已複製」回饋，實際寫入剪貼簿
-   * **委派 host**（RN 核心的 `Clipboard` 已 deprecated，外部剪貼簿套件違反本層零外部依賴原則；
-   * 與 `onShareProduct` 委派 host 的既有慣例一致）。預設 no-op。
+   * **委派 host**（RN 核心的 `Clipboard` 已 deprecated，外部剪貼簿套件違反本層零外部依賴原則）。
+   * 預設 no-op。
    */
   readonly onCopyCode?: (code: string) => void;
   /**

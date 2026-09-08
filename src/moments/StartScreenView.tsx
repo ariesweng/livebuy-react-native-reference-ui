@@ -53,11 +53,23 @@
 // (no ScrollView/FlatList, no network-uri Image, no Animated anywhere else) is
 // UNCHANGED. `.buffering` / `.splash` / `.done` are untouched by this change.
 //
+// NETWORK-URI IMAGE EXCEPTION (`.loading` cover ONLY — see spec.md ADDED requirement +
+// `player-loading-cover-background-reference-ui-rn` design.md): `.loading`'s backdrop MAY
+// additionally draw the channel's real cover photo via `RemoteImage`
+// (`../productsheets/RemoteImage`) — a network-`uri` `<Image>` — ONLY when the host-fed `live`
+// prop is `true` AND a non-empty `coverUrl` is bound in (parity iOS `StartScreenView
+// .loadingCoverURL(live:coverUrl:)`, parity Android `StartScreenView.kt`). This is a SECOND
+// narrowly-scoped carve-out of the "no network-uri Image" rule, additive to the loading-mark
+// exception above. `live` defaults to falsy at every EXISTING call site, so the cover branch is
+// dead there and the tree stays byte-identical to before this change (including the recorded
+// `start-screen-loading` snapshot). Every other constraint in this file is UNCHANGED;
+// `.buffering` / `.splash` / `.done` are untouched by this change.
+//
 // jsx automatic runtime — no `import React`. Returns `ReactElement` (NOT
 // JSX.Element, which is absent under @types/react 19); `done` returns `null`.
 
 import type { ReactElement } from 'react';
-import { View, Pressable } from 'react-native';
+import { View, Pressable, StyleSheet } from 'react-native';
 import { Text } from '../TightText';
 
 import { StartScreenPhase } from 'livebuy-react-native-ui';
@@ -66,6 +78,7 @@ import type { ReferenceUITheme } from '../theme';
 import { LBTestIDs } from '../testing/LBTestIDs';
 import { ChevronForwardGlyph } from './ChevronForwardGlyph';
 import { LoadingMarkAnimation } from './loading-mark/LoadingMarkAnimation';
+import { RemoteImage } from '../productsheets/RemoteImage';
 
 // MARK: - Fixed decorative design tokens (literal minimal hex / rgba)
 //
@@ -76,6 +89,8 @@ import { LoadingMarkAnimation } from './loading-mark/LoadingMarkAnimation';
 
 /** Loading brand backdrop (`background: '#0C0C10'`). */
 const BRAND_BACKDROP = '#0C0C10';
+/** Dark mask over the `.loading` cover photo (`rgba(0,0,0,0.35)`, parity iOS/Android). */
+const LOADING_COVER_MASK = 'rgba(0,0,0,0.35)';
 /** Skip pill capsule fill — `rgba(20,20,24,0.6)`. */
 const CHROME_FILL_SKIP = 'rgba(20,20,24,0.6)';
 /** On-glass white. */
@@ -88,6 +103,30 @@ const ON_GLASS = '#FFFFFF';
  *  tapping it only FORWARDS `onSkip`. */
 const SKIP_LABEL = '略過介紹';
 
+/**
+ * Pure gate deciding whether `.loading`'s solid brand backdrop should be replaced by the
+ * channel's real cover photo + dark mask (parity iOS `StartScreenView.loadingCoverURL(live:
+ * coverUrl:)`, parity this file family's `resolveShopLogoUri` degradation-ladder discipline —
+ * the draw site MUST express its condition as THIS return value, not re-derive an equivalent
+ * check, so decision and drawing cannot drift apart).
+ *
+ * Degradation ladder:
+ *   1. `live !== true`                          → `undefined` (demo / snapshot never hits the
+ *      network — keeps the recorded `start-screen-loading` baseline byte-identical)
+ *   2. missing / blank `coverUrl` (after trim)   → `undefined` (no cover → the solid brand
+ *      backdrop stays the final pixel, same graceful-degradation carve-out as iOS/Android)
+ *   3. otherwise                                 → the TRIMMED cover url string
+ */
+export function resolveLoadingCoverUri(
+  live: boolean | undefined,
+  coverUrl: string | undefined,
+): string | undefined {
+  if (live !== true) return undefined;
+  if (typeof coverUrl !== 'string') return undefined;
+  const trimmed = coverUrl.trim();
+  return trimmed.length === 0 ? undefined : trimmed;
+}
+
 /** Props for the family-4 start-moment surface (SUB-VIEW INPUT PATTERN). */
 export interface StartScreenProps {
   // -- 1. theme (FIRST, always) ----------------------------------------------
@@ -98,6 +137,23 @@ export interface StartScreenProps {
   /** The start lifecycle phase (`DefaultStartScreenState.phase`). Drives which
    *  branch renders: `loading` / `buffering` / `splash` / `done`. Read-only. */
   readonly phase: StartScreenPhase;
+
+  /**
+   * The channel's cover photo URL (`MomentsModel.loadingCover` ← `channel.cover`), used
+   * ONLY on the `loading` phase via {@link resolveLoadingCoverUri} to replace the solid brand
+   * backdrop with the real cover photo + dark mask (parity iOS/Android). Empty / missing / not
+   * `live` → the existing solid `#0C0C10` backdrop (graceful degradation). Bound BY VALUE from
+   * `MomentsView`, never the model itself.
+   */
+  readonly coverUrl?: string;
+
+  /**
+   * Live-flag gate (parity `RemoteImage.live` / `EndScreen.live`) — `false`/omitted (the
+   * DEFAULT — demo / structural snapshot) → `.loading` renders NOTHING extra (existing
+   * `start-screen-loading` baseline stays byte-identical); `true` (host runtime) + a non-empty
+   * {@link coverUrl} → the real cover photo + mask draw over the brand backdrop.
+   */
+  readonly live?: boolean;
 
   // -- 3. optional action callback (LAST, defaulting to a no-op) -------------
   /** Splash「略過介紹」open intent → host → core `Player.skipStart()`. This surface
@@ -113,10 +169,10 @@ export interface StartScreenProps {
  * `skipStart()`).
  */
 export function StartScreen(props: StartScreenProps): ReactElement | null {
-  const { theme, phase } = props;
+  const { theme, phase, coverUrl, live } = props;
   switch (phase) {
     case StartScreenPhase.Loading:
-      return renderLoading(theme);
+      return renderLoading(theme, coverUrl, live);
     case StartScreenPhase.Buffering:
       // Renders NOTHING (rb-rn-intro-chrome-buffering-parity, parity to iOS): when the
       // playback engine stalls the canonical state stays `buffering`, so the phase stayed
@@ -141,8 +197,17 @@ export function StartScreen(props: StartScreenProps): ReactElement | null {
  *  `rb-rn-loading-announce-restyle`) — the design now shows the bare brand spinner only.
  *  `LoadingMarkAnimation` itself (the PNG-sequence playback) is unchanged (rb-rn-loading-
  *  mark-png-sequence, iOS parity — see the RENDER DISCIPLINE / NO-ANIMATION RULE EXCEPTION
- *  note above this file's imports). */
-function renderLoading(theme: ReferenceUITheme): ReactElement {
+ *  note above this file's imports).
+ *
+ *  At RUNTIME (`live === true` + a non-empty `coverUrl`, gated via {@link
+ *  resolveLoadingCoverUri}) the solid backdrop is additionally overlaid with the channel's real
+ *  cover photo (`RemoteImage`) + a `rgba(0,0,0,0.35)` dark mask, drawn BEFORE
+ *  `LoadingMarkAnimation` so the brand mark stays on top and clearly readable
+ *  (`player-loading-cover-background-reference-ui-rn`, parity iOS/Android). The demo / snapshot
+ *  path (`live` omitted — the DEFAULT) draws neither node, keeping the recorded
+ *  `start-screen-loading` baseline byte-identical. */
+function renderLoading(theme: ReferenceUITheme, coverUrl?: string, live?: boolean): ReactElement {
+  const resolvedCoverUri = resolveLoadingCoverUri(live, coverUrl);
   return (
     <View
       testID={LBTestIDs.momentLoading}
@@ -153,6 +218,12 @@ function renderLoading(theme: ReferenceUITheme): ReactElement {
         justifyContent: 'center',
       }}
     >
+      {resolvedCoverUri !== undefined && (
+        <>
+          <RemoteImage live={live} uri={resolvedCoverUri} resizeMode="cover" />
+          <View style={[StyleSheet.absoluteFill, { backgroundColor: LOADING_COVER_MASK }]} />
+        </>
+      )}
       <LoadingMarkAnimation size={76} />
     </View>
   );

@@ -21,6 +21,25 @@
 // back down to the original floor, then the threshold on top" (which could exceed the screen's
 // draggable range on a short screen and made the sheet feel impossible to close). See this
 // change's design.md for the full root-cause analysis.
+//
+// rb-rn-sheetkit-resize-floor-not-reanchored: that fix's `gestureStartFloor` result used to be
+// written BACK into `floorFractionRef` (via `setFloorFraction`) — the SAME ref `onPanResponderMove`
+// reads as the resize clamp's lower bound. Once re-anchored to the current (already-resized)
+// height, `minFraction === startFraction` algebraically, so `dragState`'s resize clamp could
+// never move the card back down at all — any subsequent downward drag went 100% into dismiss
+// budget, with no reachable "shrink back toward the natural size" outcome (real-hardware
+// regression: a short-content sheet, resized up then down in two separate gestures, got stuck at
+// the oversized height with a persistent blank area). Parity Android
+// `rb-android-sheetkit-resize-floor-reanchor-fix` / iOS `rb-ios-sheetkit-resize-shrink-after-
+// grow-fix` (both 2026-08-26) hit and fixed the identical tension by splitting one shared floor
+// into two independent ones. This module now does the same: `floorFractionRef` (fed by
+// `cardOnLayout`) is the STRUCTURAL resize floor and is NEVER re-anchored by a gesture — see
+// `onPanResponderMove`'s unchanged use of it. A new `dismissFloorRef`, re-anchored every gesture
+// via the SAME `gestureStartFloor` call, feeds ONLY the dismiss-excess calculation in
+// `onPanResponderRelease` — so dismissing after a prior resize-up still costs only
+// `DISMISS_THRESHOLD_PX` (this fix's own goal is preserved), while a downward drag first shrinks
+// the card toward its true structural floor on ANY gesture, not just the presentation's first
+// one.
 
 import { useEffect, useRef, useState } from 'react';
 import {
@@ -116,11 +135,50 @@ export function dragState(
 }
 
 /**
- * The floor to use for a NEW gesture's resize/dismiss budget (rb-rn-sheetkit-dismiss-after-
- * resize-fix). Exported — like {@link dragState} — so this fix is directly unit-testable
- * despite the `PanResponder` jest-mock limitation (see the file-header testability note):
- * `onPanResponderGrant` itself can never be simulated through a renderer, but the value it
- * computes can be asserted directly.
+ * The outcome of a gesture RELEASE (rb-rn-sheetkit-resize-floor-not-reanchored) — exported, like
+ * {@link dragState} and {@link gestureStartFloor}, so the ACTUAL fix (which floor feeds the
+ * dismiss decision vs. the resize outcome, and that dismiss is checked FIRST) is directly
+ * unit-testable despite the `PanResponder` jest-mock limitation: `onPanResponderRelease` itself
+ * can never be simulated through a renderer, but this is the pure decision it delegates to.
+ *
+ * Checks the DISMISS decision first, against `dismissFloorFraction` (this gesture's own
+ * re-anchored floor — see {@link gestureStartFloor}); only when that does NOT cross
+ * {@link DISMISS_THRESHOLD_PX} does it compute the RESIZE outcome, against
+ * `resizeFloorFraction` (the presentation's fixed STRUCTURAL floor, never re-anchored — see the
+ * file-header doc). A regression that swaps which floor feeds which decision, or that checks the
+ * resize outcome before dismiss, changes this function's return value for a resized-up
+ * presentation's later, separate gesture — see `sheetDragGesture.test.tsx` for the pinning
+ * tests this enables.
+ */
+export function releaseOutcome(
+  gestureBaseFraction: number,
+  resizeFloorFraction: number,
+  dismissFloorFraction: number,
+  translationHeight: number,
+  screenHeightPx: number,
+): { readonly dismiss: true } | { readonly dismiss: false; readonly heightFraction: number } {
+  const { dragOffset: dismissExcess } = dragState(
+    gestureBaseFraction,
+    dismissFloorFraction,
+    translationHeight,
+    screenHeightPx,
+  );
+  if (dismissExcess > DISMISS_THRESHOLD_PX) {
+    return { dismiss: true };
+  }
+  const { heightFraction } = dragState(gestureBaseFraction, resizeFloorFraction, translationHeight, screenHeightPx);
+  return { dismiss: false, heightFraction };
+}
+
+/**
+ * The floor to use for a NEW gesture's dismiss budget AND its resize accumulator's starting
+ * point (rb-rn-sheetkit-dismiss-after-resize-fix; as of rb-rn-sheetkit-resize-floor-not-
+ * reanchored this feeds `dismissFloorRef` / `gestureBaseRef` ONLY — see the file-header doc for
+ * why the resize CLAMP's own floor, `floorFractionRef`, is deliberately no longer derived from
+ * this function's result). Exported — like {@link dragState} — so this fix is directly
+ * unit-testable despite the `PanResponder` jest-mock limitation (see the file-header
+ * testability note): `onPanResponderGrant` itself can never be simulated through a renderer,
+ * but the value it computes can be asserted directly.
  *
  * A gesture's floor is whatever height is ACTUALLY in effect right now: the height a PRIOR
  * gesture in this same presentation cycle already committed (`committedHeightFraction`), or —
@@ -170,9 +228,10 @@ export interface UseSheetDragGestureResult {
   /**
    * Attach to the `onLayout` of the View wrapping the card content — latches the floor
    * fraction once per presentation from the FIRST non-zero measured height. This latch feeds
-   * `dragState` as the resize floor for the presentation's FIRST gesture only — every gesture
-   * after that re-derives its own floor from the height the prior gesture committed (see
-   * {@link gestureStartFloor}, rb-rn-sheetkit-dismiss-after-resize-fix). It deliberately does
+   * `dragState` as the RESIZE floor for EVERY gesture (rb-rn-sheetkit-resize-floor-not-
+   * reanchored — this value is deliberately never re-anchored to a later, resized-up height; see
+   * the file-header doc for why). A separate, per-gesture-re-anchored floor (see
+   * {@link gestureStartFloor}) is used only for the DISMISS decision. It deliberately does
    * NOT call `onHeightPctChange` (see that prop's doc) — a mount-time layout pass is not a
    * drag gesture, so a content-sized sheet the user hasn't touched yet stays content-sized.
    */
@@ -209,6 +268,14 @@ export function useSheetDragGesture(options: UseSheetDragGestureOptions): UseShe
   // this, never from the previous move's result (gestureState.dy is measured from the gesture
   // start, not the last event).
   const gestureBaseRef = useRef(0);
+  // This GESTURE's own dismiss reference floor (rb-rn-sheetkit-resize-floor-not-reanchored,
+  // parity Android `rb-android-sheetkit-resize-floor-reanchor-fix` / iOS `rb-ios-sheetkit-
+  // resize-shrink-after-grow-fix`) — re-anchored at the start of every gesture
+  // (`onPanResponderGrant`) via `gestureStartFloor`, same as `gestureBaseRef`. Read ONLY by
+  // `onPanResponderRelease`'s dismiss decision — completely separate from `floorFractionRef`
+  // (the STRUCTURAL floor fed to `onPanResponderMove`'s resize clamp, which this fix stops
+  // re-anchoring). See the file-header doc for the full two-floor rationale.
+  const dismissFloorRef = useRef<number | null>(null);
 
   // Reset per presentation cycle ("關閉重開回預設") — `visible` transitioning to `true` clears
   // the latch so the NEXT `onLayout` re-measures this presentation's own resting height.
@@ -245,20 +312,18 @@ export function useSheetDragGesture(options: UseSheetDragGestureOptions): UseShe
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
       onPanResponderGrant: () => {
-        // rb-rn-sheetkit-dismiss-after-resize-fix: re-derive the floor for THIS gesture from
-        // whatever height is actually in effect right now, instead of leaving it pinned to the
-        // mount-time `onLayout` latch across every gesture in the presentation. `mountFloor` may
-        // still be `null` here in the (should-not-happen-in-practice) case a gesture starts
-        // before any layout has measured anything — guarded below so that defensive no-op
-        // (mirrored in onPanResponderMove / onPanResponderRelease) is preserved exactly: the
-        // ref is only ever refreshed once it already holds a real, non-null floor.
+        // rb-rn-sheetkit-resize-floor-not-reanchored: re-derive this GESTURE's own accumulator
+        // start / dismiss reference from whatever height is actually in effect right now — but,
+        // unlike the superseded rb-rn-sheetkit-dismiss-after-resize-fix design, do NOT write this
+        // back into `floorFractionRef` any more. `floorFractionRef` (fed exclusively by
+        // `cardOnLayout`) stays the presentation's fixed STRUCTURAL floor for the resize clamp
+        // (`onPanResponderMove`) across every gesture — see the file-header doc for why sharing
+        // one ref for both purposes made the resize clamp degenerate (`minFraction ===
+        // startFraction`) on any gesture after the first resize-up.
         const mountFloor = floorFractionRef.current;
         const startFraction = gestureStartFloor(heightPctRef.current, mountFloor ?? 0);
         gestureBaseRef.current = startFraction;
-        if (mountFloor != null) {
-          floorFractionRef.current = startFraction;
-          setFloorFraction(startFraction);
-        }
+        dismissFloorRef.current = startFraction;
       },
       onPanResponderMove: (_evt: GestureResponderEvent, gesture: PanResponderGestureState) => {
         const floor = floorFractionRef.current;
@@ -270,27 +335,24 @@ export function useSheetDragGesture(options: UseSheetDragGestureOptions): UseShe
         onHeightPctChangeRef.current?.(heightFraction);
       },
       onPanResponderRelease: (_evt: GestureResponderEvent, gesture: PanResponderGestureState) => {
-        const floor = floorFractionRef.current;
-        if (floor == null) return;
+        const resizeFloor = floorFractionRef.current;
+        if (resizeFloor == null) return;
+        const dismissFloor = dismissFloorRef.current ?? resizeFloor;
         const screenHeight = Dimensions.get('window').height;
-        const { heightFraction, dragOffset } = dragState(
-          gestureBaseRef.current,
-          floor,
-          gesture.dy,
-          screenHeight,
-        );
-        if (dragOffset > DISMISS_THRESHOLD_PX) {
+
+        // rb-rn-sheetkit-resize-floor-not-reanchored: delegate to the pure `releaseOutcome` —
+        // dismiss decision FIRST (against THIS gesture's own dismiss floor), resize outcome only
+        // if not dismissing (against the STRUCTURAL floor). See that function's own doc.
+        const outcome = releaseOutcome(gestureBaseRef.current, resizeFloor, dismissFloor, gesture.dy, screenHeight);
+        if (outcome.dismiss) {
           // Past the dismiss threshold — forward the intent; the caller flips `visible` false
           // and the existing SlideUpSheet 0.32s slide-out animation takes over. The height
           // state is NOT committed (the sheet is going away).
           onDismissRef.current?.();
           return;
         }
-        // Either bounced back to the floor (dragOffset was > 0 but under threshold) or simply
-        // settles at the user's dragged-up/down (but still >= floor) height — `dragState`
-        // already guarantees `heightFraction === floor` whenever `dragOffset > 0`.
-        heightPctRef.current = heightFraction;
-        onHeightPctChangeRef.current?.(heightFraction);
+        heightPctRef.current = outcome.heightFraction;
+        onHeightPctChangeRef.current?.(outcome.heightFraction);
       },
     }),
   ).current;

@@ -319,6 +319,8 @@ export function MomentsView(props: MomentsViewProps): ReactElement | null {
       <StartScreen
         theme={theme}
         phase={model.startPhase}
+        coverUrl={model.loadingCover}
+        live={live}
         onSkip={handleSkip}
       />
     );

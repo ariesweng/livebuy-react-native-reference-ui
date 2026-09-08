@@ -31,8 +31,10 @@
 // container seam's default sends `Like` to core, rb-rn-like-tap-wire; share / nickname / 留言
 // raise the dedicated `onShare` / `onNickname` / `onComment` intents). Plain
 // `View` / `Text` / `Pressable` only (NO ScrollView / FlatList) so the structural
-// snapshot is deterministic. Glyphs are stable Text glyphs (no font dependency),
-// parity with `OperationRailView.railGlyphFor`. The bar itself paints NO background
+// snapshot is deterministic. Glyphs are a mix: nickname / share / CC / like are self-drawn
+// vector components (`PersonEditGlyph` / `ShareGlyph` / `CcGlyph` / `HeartFillGlyph`); 更多
+// (`⋯`) is still a stable Text glyph, parity with `OperationRailView.railGlyphFor`. The bar
+// itself paints NO background
 // (rb-rn-live-chrome-gradient-removal — the design's bottom scrim is removed, not
 // approximated).
 //
@@ -70,6 +72,7 @@ import { ShareGlyph } from './ShareGlyph';
 import { PersonEditGlyph } from './PersonEditGlyph';
 import { BagGlyph } from './BagGlyph';
 import { CcGlyph } from './CcGlyph';
+import { HeartFillGlyph } from './HeartFillGlyph';
 import { railGlyphFor } from './OperationRailView';
 import { LBTestIDs } from '../testing/LBTestIDs';
 import { LBSideRailKind } from 'livebuy-react-native-ui';
@@ -108,7 +111,12 @@ const COMMENT_FONT_SIZE = 13; // 留言... 13px left
 // Glyphs (Text, parity with OperationRailView.railGlyphFor — deterministic).
 // 設定暱稱 改用自繪 PersonEditGlyph（人頭 + 鉛筆 badge，View 拼），不再用 emoji '👤'
 // （rb-align-nickname-icon-person-edit）。
-const LIKE_GLYPH = '♥';
+// `LIKE_GLYPH` (`'♥'` literal, `<Text>`-rendered) is REMOVED (rb-rn-heart-burst-icon-parity,
+// parity-debt-ledger.md #20): the LIKE button below now draws the self-drawn `HeartFillGlyph`
+// (same vector component `HeartBurst.tsx` uses for the flying burst) — a literal Unicode
+// character renders in an emoji style on some devices/fonts and ignores the caller's `color`
+// tint, the same class of bug Android fixed (`rb-android-heart-burst-deemoji`) and Flutter fixed
+// (`rb-flutter-heart-burst-icon-parity`).
 const COMMENT_PLACEHOLDER = '留言...';
 /** `chatClosed` variant placeholder (design-literal, same pattern as `COMMENT_PLACEHOLDER`). */
 const CHAT_CLOSED_PLACEHOLDER = '聊天室已關閉';
@@ -185,6 +193,15 @@ export interface LiveBottomBarProps {
    * comment for why this is currently unreachable from real playback.
    */
   readonly onMore?: () => void;
+  /**
+   * Like-button "lit up" state (design R37, `LBLiveBottomBar`'s `liked` prop,
+   * rb-rn-live-like-burst-restyle). `true` → the heart glyph tints {@link ReferenceUITheme.accent};
+   * `false` (default) → white. Replaces the prior unconditional `theme.accent` fill — the design
+   * now only lights the icon up WHILE the like burst plays (see `PlayerShellView.tsx`'s
+   * `triggerLikeBurst`, which flips this true immediately on tap and back to false after the
+   * burst's hold duration).
+   */
+  readonly liked?: boolean;
 }
 
 /** Which thing the flex comment area draws (`chatClosed` variant, design R32) — pure,
@@ -232,6 +249,7 @@ export function LiveBottomBarView(props: LiveBottomBarProps): ReactElement {
     bagOnly = false,
     chatClosed = false,
     ccOn = false,
+    liked = false,
     onBag,
     onComment,
     onNickname,
@@ -333,7 +351,11 @@ export function LiveBottomBarView(props: LiveBottomBarProps): ReactElement {
             </IconButton>
           )}
           <View style={{ width: BAR_GAP }} />
-          <IconButton testID={LBTestIDs.liveHeart} glyph={LIKE_GLYPH} tint={theme.accent} onTap={onLike} />
+          {/* liked ? accent : white (design R37) — replaces the prior unconditional accent fill;
+              see the `liked` prop's own doc-comment above. */}
+          <IconButton testID={LBTestIDs.liveHeart} tint={liked ? theme.accent : '#FFFFFF'} onTap={onLike}>
+            <HeartFillGlyph color={liked ? theme.accent : '#FFFFFF'} size={ICON_GLYPH_SIZE} />
+          </IconButton>
         </>
       )}
     </View>

@@ -25,12 +25,15 @@
 // REUSED PRIMITIVE: every grid cell is a shared `CarouselCardView` (the family-5
 // 9:16 card — LBPCarouselCard). This surface NEVER re-draws a card from scratch; it
 // only arranges `CarouselCardView`s into rows of TWO + draws the footer. The cell
-// width is a FIXED half-column ({@link CELL_WIDTH}) so the two columns split the
-// fixed snapshot canvas evenly (the design passes `width="100%"` to the card inside a
-// `repeat(2, 1fr)` grid). `CarouselCardView` takes an explicit `width`, so each cell
-// is handed the resolved half-column rather than a flexible cell (a flexible cell +
-// a fixed card width would fight / overflow), parity with the iOS / Android / Flutter
-// `cellWidth`.
+// width is a LIVE-CONTAINER-DERIVED half-column ({@link computeCellWidth},
+// rb-rn-grid-cell-width-responsive) so the two columns split the ACTUAL render width
+// evenly on any container size, not just the fixed 393pt golden canvas (the design
+// passes `width="100%"` to the card inside a `repeat(2, 1fr)` grid). `CarouselCardView`
+// takes an explicit `width`, so each cell is handed the resolved half-column rather
+// than a flexible cell (a flexible cell + a fixed card width would fight / overflow),
+// parity with the iOS `GeometryReader` / Android `BoxWithConstraints` / Flutter
+// `LayoutBuilder` dynamic `cellWidth` derivation. {@link CELL_WIDTH} is only the
+// pre-measurement fallback (see its doc comment) — it is NOT the live cell width.
 //
 // ⚠️ RENDER DISCIPLINE — NO ScrollView / FlatList / SectionList / VirtualizedList in
 // rendered content (the verified family-1..4 + iOS / Android / Flutter lesson). The
@@ -70,8 +73,10 @@
 // (rb-rn-carousel-bgcolor) — `widget_bgcolor` is therefore visible on both family-5
 // widget surfaces, not just this one.
 
+import { useState } from 'react';
 import type { ReactElement } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
+import type { LayoutChangeEvent } from 'react-native';
 import { Text } from '../TightText';
 
 import type { ReferenceUITheme } from '../theme';
@@ -99,13 +104,40 @@ const GRID_GAP = 10;
 const MAX_GRID_CARDS = 6;
 
 /**
- * The per-cell half-column width. `CarouselCardView` uses a FIXED `width`, so we pin a
- * concrete half-column rather than a flexible cell (a flexible cell + a fixed card
- * width would fight). On the fixed 393-wide golden canvas the usable half-column is
- * `(393 - GRID_PADDING*2 - GRID_GAP) / 2 ≈ 179.5` — parity with Android `cellWidth =
- * 179.dp` / iOS `cellWidth(forContainerWidth:)` / Flutter `_cellWidth = 179`.
+ * FALLBACK half-column width used until the outer container's first `onLayout`
+ * measurement lands (`rb-rn-grid-cell-width-responsive`). `VideoShopGrid` seeds its
+ * `cellWidth` state from this constant so the very first paint — before any real
+ * container-width measurement exists — renders a fixed-shape `CarouselCardView` cell
+ * rather than a visually-collapsing 0-width one. It is NOT the live cell width: once
+ * `onLayout` fires, {@link computeCellWidth} derives the REAL half-column from the
+ * measured container width, matching Android `BoxWithConstraints` / iOS
+ * `GeometryReader` / Flutter `LayoutBuilder` dynamic derivation (parity —
+ * `rb-android-grid-cell-width-responsive` / `rb-flutter-grid-cell-width-responsive`).
+ * On the fixed 393-wide golden canvas the two values coincide:
+ * `(393 - GRID_PADDING*2 - GRID_GAP) / 2 ≈ 179.5` rounds to this constant.
  */
 const CELL_WIDTH = 179;
+
+/**
+ * Derive the two-column half-cell width from the LIVE measured width of the outer grid
+ * container (`styles.container`, which itself carries `paddingHorizontal: GRID_PADDING`)
+ * — `rb-rn-grid-cell-width-responsive`.
+ *
+ * ⚠️ RN / Yoga measurement semantics (why this is NOT a verbatim port of Flutter's
+ * `LayoutBuilder` formula): `onLayout` is attached directly to the padded container
+ * node itself, and a node's own `onLayout.layout.width` reports that node's own
+ * border-box size — it is NOT reduced by padding declared on that same node (padding
+ * only shrinks the space available to that node's CHILDREN, not what the node reports
+ * about itself). `containerWidth` here is therefore the PRE-padding-subtraction size,
+ * so `gridPadding` MUST be subtracted twice (once per side) in addition to `gridGap` —
+ * unlike Flutter, whose `LayoutBuilder` measures INSIDE its `Padding` widget and so
+ * only needs to subtract `gridGap` once. The result is byte-identical to the design's
+ * own literal canvas formula (`(393 - GRID_PADDING*2 - GRID_GAP) / 2 ≈ 179.5`) and to
+ * the Android / Flutter fixed formulas.
+ */
+export function computeCellWidth(containerWidth: number): number {
+  return Math.max(0, (containerWidth - GRID_PADDING * 2 - GRID_GAP) / 2);
+}
 
 // MARK: - Fixed presentation strings
 
@@ -260,28 +292,45 @@ export function VideoShopGrid(props: VideoShopGridProps): ReactElement {
   // so today's pixels (and every existing baseline) are untouched.
   const theme = ReferenceUIWidgetEmbedTheme.derive(resolvedTheme, widgetColor, widgetBgcolor);
 
+  // Live container-width-derived cell width (rb-rn-grid-cell-width-responsive). Seeded
+  // from the CELL_WIDTH fallback so the first paint (before onLayout fires) still draws
+  // a fixed-shape cell; onLayout on the padded outer container below re-derives the real
+  // value via computeCellWidth once the actual render width is known.
+  const [cellWidth, setCellWidth] = useState<number>(CELL_WIDTH);
+  const handleContainerLayout = (e: LayoutChangeEvent): void => {
+    setCellWidth(computeCellWidth(e.nativeEvent.layout.width));
+  };
+
   const maxCards = props.maxCards === undefined ? MAX_GRID_CARDS : props.maxCards;
   const autoLoadOnScroll = props.autoLoadOnScroll ?? false;
   const rows = chunkRows(videos, maxCards);
   const more = hasMore(currentPage, lastPage);
 
   return (
-    <View testID={LBTestIDs.widgetGrid} style={[styles.container, { backgroundColor: theme.background }]}>
+    <View
+      testID={LBTestIDs.widgetGrid}
+      onLayout={handleContainerLayout}
+      style={[styles.container, { backgroundColor: theme.background }]}
+    >
       {/* 2-column grid: PLAIN Column of Row rows (TWO cards per row) — NEVER a grid /
-          FlatList. Each cell is handed the fixed half-column CELL_WIDTH so the two
-          columns split the canvas evenly; CarouselCardView fills its cell. */}
+          FlatList. Each cell is handed the live-measured cellWidth (computeCellWidth) so the
+          two columns split the ACTUAL render width evenly; CarouselCardView fills its cell. */}
       {rows.map((row, rowIndex) => (
         <View
           key={`grid-row-${rowIndex}`}
           style={[styles.row, rowIndex < rows.length - 1 ? styles.rowGap : null]}
         >
           {row.map((item, cellIndex) => (
-            <View key={item.id} testID={gridCard(rowIndex * 2 + cellIndex)} style={styles.cell}>
+            <View
+              key={item.id}
+              testID={gridCard(rowIndex * 2 + cellIndex)}
+              style={[styles.cell, { width: cellWidth }]}
+            >
               <CarouselCardView
                 theme={theme}
                 video={item}
                 goods={goodsFor ? goodsFor(item) : widgetGoodsFromFeatured(item.goods)}
-                width={CELL_WIDTH}
+                width={cellWidth}
                 live={live}
                 // Raw hand-off — the card owns the single fallback (`normalizeProductCardMode`).
                 productCard={productCard}
@@ -290,7 +339,7 @@ export function VideoShopGrid(props: VideoShopGridProps): ReactElement {
             </View>
           ))}
           {/* Keep the 2-col grid rhythm when the final row has a single (odd) cell. */}
-          {row.length === 1 ? <View style={styles.cell} /> : null}
+          {row.length === 1 ? <View style={[styles.cell, { width: cellWidth }]} /> : null}
         </View>
       ))}
 
@@ -335,7 +384,8 @@ const styles = StyleSheet.create({
     marginBottom: GRID_GAP,
   },
   cell: {
-    width: CELL_WIDTH,
+    // width is injected dynamically (rb-rn-grid-cell-width-responsive — see cellWidth /
+    // computeCellWidth above); this static entry only carries the inter-column gap.
     marginRight: GRID_GAP,
   },
   footer: {

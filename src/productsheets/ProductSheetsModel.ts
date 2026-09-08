@@ -179,9 +179,9 @@ export class ProductSheetsModel {
   // -- Surface 1: ProductList ← product-row thumbnail overlay mode (product-row-status-overlay) --
   //
   // Playback-mode signals for the row thumbnail overlay. Mirrored from the template
-  // `playerHeaderState.isLive` / `playbackProgressState.isReplay` / `.position`. For
-  // demo instances (`template == null`) return false / false / 0 so {@link rowMode} is
-  // `null` → ProductList falls back to the real-frame `live` flag (snapshots byte-identical).
+  // `playerHeaderState.isLive` / `playerHeaderState.isFinishedLiveReplay` / `playbackProgressState
+  // .position`. For demo instances (`template == null`) return false / false / 0 so {@link rowMode}
+  // is `null` → ProductList falls back to the real-frame `live` flag (snapshots byte-identical).
   // Parity iOS / Android `ProductSheetsModel.isLive` / `isReplay` / `position`.
 
   /** LIVE/VOD flag (`playerHeaderState.isLive`). Demo → false. */
@@ -189,9 +189,21 @@ export class ProductSheetsModel {
     return this.template?.playerHeaderState.isLive ?? false;
   }
 
-  /** Replay variant flag (`playbackProgressState.isReplay`). Demo → false. */
+  /**
+   * 已結束直播回放旗標（`playerHeaderState.isFinishedLiveReplay` — `type == 3 || (type == 2 &&
+   * liveStatus == 3)`，host-fed via `handleHeaderChrome`）。**getter 名稱維持 `isReplay`**（既有
+   * `rowMode` 商品列縮圖覆蓋層模式的公開介面），但資料來源 MUST NOT 讀 `playbackProgressState
+   * .isReplay`——那是一個語意完全不同、互斥的窄義 DVR 旗標（直播仍在進行中、播放頭被拖到直播邊緣後方，
+   * `liveStatus == 1` 時才可能為 `true`；對「已結束直播回放」的影片永遠是 `false`，會讓 `rowMode`
+   * 誤判為 `'vod'` —— rb-rn-product-row-replay-flag-fix 修正的接線錯誤）。對照 family-1
+   * `PlayerShellModel` 已正確拆成兩個獨立 getter（`PlayerShellModel.isReplay` ←
+   * `playbackProgressState.isReplay`；`PlayerShellModel.isFinishedLiveReplay` ←
+   * `playerHeaderState.isFinishedLiveReplay`，`PlayerShellModel.ts:123-144`）——`ProductSheetsModel`
+   * 這裡只有單一「該不該當回放渲染」的消費端（`rowMode`），故不比照拆成兩個 getter，直接把 `isReplay`
+   * 指向正確來源。Demo → false.
+   */
   get isReplay(): boolean {
-    return this.template?.playbackProgressState.isReplay ?? false;
+    return this.template?.playerHeaderState.isFinishedLiveReplay ?? false;
   }
 
   /** Current playhead seconds (`playbackProgressState.position`). Demo → 0. */

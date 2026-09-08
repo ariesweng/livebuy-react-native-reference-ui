@@ -37,6 +37,9 @@
 //       pinnedProducts,        //    (by value, from PlayerShellModel.livePinnedProducts)
 //       hostCaption,           //    host-supplied static copy (GAP NOTE)
 //       showGestureHints,      //    static presentation toggle
+//       autoFadeGestureHints,  //    3.5s-delay 0.6s-ease-out auto-fade toggle (default false,
+//                               //    rb-rn-live-overlay-gesture-hint-autofade — parity iOS/
+//                               //    Android/Flutter)
 //       onTapPinnedProduct })  // 3. action callback (last, default no-op)
 //
 // The announce / caption / gesture hints carry no tap intent. The ONLY action is
@@ -53,17 +56,20 @@
 // as a single-line truncated `Text` (the iOS `MarqueeText` first frame is offset
 // 0, so the static truncated line IS the deterministic baseline — no animation
 // state here). Icons are simple Text glyphs / shaped Views (deterministic). No
-// randomness.
+// randomness. `autoFadeGestureHints` (rb-rn-live-overlay-gesture-hint-autofade) is the ONE
+// opt-in exception — it defaults `false` (render tree byte-identical to the rest of this
+// determinism contract) and is never enabled by the structural snapshot test.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type { ReactElement } from 'react';
-import { useRef, useState } from 'react';
-import { View, Pressable, PanResponder } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { Animated, Easing, View, Pressable, PanResponder } from 'react-native';
 import { Text } from '../TightText';
 
 import { PageDots, clampIndex } from './NowIntroducingCarouselView';
 import { RemoteImage } from '../productsheets/RemoteImage';
 import { EqualizerGlyph } from '../productsheets/EqualizerGlyph';
+import { ProductStatusBadge } from '../productsheets/ProductStatusBadge';
 import type { ReferenceUITheme } from '../theme';
 import type { LBProduct } from 'livebuy-react-native';
 import { LBTestIDs } from '../testing/LBTestIDs';
@@ -106,12 +112,22 @@ const PINNED_IMAGE_HEIGHT = 100;
 const NARRATE_BANNER_COLOR = 'rgba(240,50,70,0.7)';
 /** Horizontal swipe distance (px) that commits a pinned-card page flip (parity iOS 40). */
 const PINNED_SWIPE_DX = 40;
+/** Pinned-card sold-out price-line text color (rb-rn-live-pinned-card-soldout-label, color
+ *  corrected by rb-rn-live-pinned-card-soldout-label-color-fix): the sold-out-specific
+ *  `#9A96A3` used elsewhere in this package (`ProductListView.SOLD_OUT_COLOR` /
+ *  `MiniCartPeekView.SOLD_OUT_COLOR` / `ProductDetailSheetView.SOLD_OUT_COLOR`) — matching
+ *  iOS's own now-corrected `soldOutColor`. The original landing mistakenly used `#6B6775`
+ *  (this package's general dim-text token, e.g. `TEXT_DIM` in `ProductListView.tsx` — used for
+ *  struck-through original price etc, not sold-out labels). */
+const SOLD_OUT_TEXT_COLOR = '#9A96A3';
 
 // Static localized copy (matching iOS `LiveOverlayChromeView` + `LBPGestureHint`).
 /** Host caption label ("主持人"). */
 const HOST_CAPTION_LABEL = '主持人';
 /** Narrate-tag copy shown on the pinned card ("介紹中"). */
 const NARRATE_TAG_TEXT = '介紹中';
+/** Sold-out price-line label ("已售完", rb-rn-live-pinned-card-soldout-label). */
+const SOLD_OUT_LABEL = '已售完';
 /** Gesture-hint copy (static localized presentation strings). */
 // rb-rn-gesture-clean-mode-v2 (design R29): a short tap now unconditionally toggles「乾淨模式」
 // (replacing the R23 mute-toggle semantics this copy used to describe) — fixed to a single
@@ -161,6 +177,19 @@ export interface LiveOverlayChromeProps {
    */
   readonly showGestureHints?: boolean;
   /**
+   * Auto-fade the gesture-hint pills to fully transparent 3.5s after they appear (0.6s ease-out),
+   * parity iOS `LiveOverlayChromeView.swift:124,189,216-224` / Android `LiveOverlayChrome.kt`
+   * (`rb-android-live-overlay-gesture-hint-autofade`) / Flutter `live_overlay_chrome_view.dart`
+   * (`rb-flutter-live-overlay-gesture-hint-autofade`). Defaults to `false` (existing behaviour:
+   * the hints stay fully opaque forever, no timer/animation side effect — reference-ui baseline
+   * byte-identical). `true` mirrors `live` (demo/snapshot placeholder vs real content) — NOT
+   * `model.isLive` (a different, orthogonal flag; this component only ever renders on the
+   * `model.isLive === true` branch of `PlayerShellView`, so using `isLive` here would make this
+   * prop always evaluate `true`, defeating its demo/snapshot exclusion — rb-rn-live-overlay-
+   * gesture-hint-autofade design.md D2).
+   */
+  readonly autoFadeGestureHints?: boolean;
+  /**
    * Live-runtime image gate (parity iOS/Android `live` — `!paintsBackgroundPlaceholder`).
    * `true` → the pinned card loads the real product photo via `RemoteImage`; `false`
    * (demo / snapshot — DEFAULT) → the deterministic placeholder shows (no `<Image>`,
@@ -206,6 +235,7 @@ export function LiveOverlayChrome(props: LiveOverlayChromeProps): ReactElement {
     pinnedProducts,
     hostCaption = '',
     showGestureHints = true,
+    autoFadeGestureHints = false,
     live = false,
     onTapPinnedProduct = NO_OP,
     onDismissPinnedProduct = NO_OP_ID,
@@ -249,7 +279,7 @@ export function LiveOverlayChrome(props: LiveOverlayChromeProps): ReactElement {
             justifyContent: 'center',
           }}
         >
-          {gestureHints(theme)}
+          <FadingGestureHints autoFade={autoFadeGestureHints}>{gestureHints(theme)}</FadingGestureHints>
         </View>
       ) : null}
 
@@ -436,6 +466,11 @@ function pinnedCard(
   onTap: () => void,
   onDismiss: (id: string) => void,
 ): ReactElement {
+  // 售完商品的價格欄顯示「已售完」，取代價格（rb-rn-live-pinned-card-soldout-label，parity iOS
+  // rb-ios-live-pinned-card-soldout-label）。沿用單一真相來源 ProductStatusBadge（同一判斷已用於
+  // ProductListView.tsx），不新建繞過它的 raw `product.soldOut === 1` 判斷。與卡片是否出現 / 「介紹中」
+  // ribbon 是否顯示正交——皆不受此影響。
+  const soldOut = ProductStatusBadge.resolve(product) === ProductStatusBadge.SoldOut;
   return (
     <Pressable
       testID={LBTestIDs.pinnedCard}
@@ -531,16 +566,18 @@ function pinnedCard(
         >
           {product.name}
         </Text>
-        {/* Live price (accent). `priceShow` is the pre-formatted string. */}
+        {/* Live price (accent) — or 「已售完」(dim) when sold out
+            (rb-rn-live-pinned-card-soldout-label, parity iOS textDim semibold/dim). `priceShow`
+            is the pre-formatted string. */}
         <Text
           style={{
             marginTop: 3,
-            color: theme.accent,
+            color: soldOut ? SOLD_OUT_TEXT_COLOR : theme.accent,
             fontSize: 13 * theme.fontScale,
-            fontWeight: '800',
+            fontWeight: soldOut ? '700' : '800',
           }}
         >
-          {livePriceText(product)}
+          {soldOut ? SOLD_OUT_LABEL : livePriceText(product)}
         </Text>
       </View>
     </Pressable>
@@ -590,10 +627,64 @@ function hostCaptionOverlay(theme: ReferenceUITheme, caption: string): ReactElem
 
 // ── LBPGestureHint — centered static gesture hints ──────────────────────────
 
+/** Delay (ms) before the gesture-hint pills start fading out, when `autoFade` (rb-rn-live-overlay-
+ *  gesture-hint-autofade). Parity iOS `.delay(3.5)` / Android `delay(3500)` / Flutter
+ *  `Timer(const Duration(milliseconds: 3500))`. */
+const GESTURE_HINT_FADE_DELAY_MS = 3500;
+/** Fade-out animation duration (ms), when `autoFade`. Parity iOS `.easeOut(duration: 0.6)` /
+ *  Android `tween(durationMillis = 600, easing = LinearOutSlowInEasing)` / Flutter
+ *  `AnimatedOpacity(duration: const Duration(milliseconds: 600), curve: Curves.easeOut)`. */
+const GESTURE_HINT_FADE_DURATION_MS = 600;
+
+/**
+ * Locally-scoped fade-out timer / animation wrapper for the gesture-hint pill group
+ * (`autoFadeGestureHints`, parity iOS `LiveOverlayChromeView.swift:124,189,216-224` / Android
+ * `LiveOverlayChrome.kt:179,247,626-639` / Flutter `_FadingGestureHints`). `LiveOverlayChrome`
+ * itself stays a plain function-driven render — this is the ONE component in this file that needs
+ * a hook, mirroring `HeartBurst.tsx`'s precedent of localizing short-lived animation state to the
+ * smallest necessary scope instead of upgrading the whole surface.
+ *
+ * `autoFade === false` (default) returns `children` UNCHANGED — no `Animated.View` / `setTimeout`
+ * / `Animated.Value` is ever constructed — so the render tree SHAPE (and therefore the existing
+ * byte-identical `toMatchSnapshot()` baseline) is unaffected. `autoFade === true` starts a one-shot
+ * `setTimeout` (`GESTURE_HINT_FADE_DELAY_MS`); once it fires, `Animated.timing` fades the wrapping
+ * `Animated.View`'s opacity to 0 over `GESTURE_HINT_FADE_DURATION_MS` with an ease-out curve,
+ * matching iOS / Android / Flutter 1:1. The delay is a plain `setTimeout` (not `Animated.timing`'s
+ * own `delay` config) so the two phases ("still opaque" vs "fading") are independently observable
+ * under `jest.useFakeTimers()` — this package's jest `Animated.timing` mock stubs `.start()` to
+ * complete SYNCHRONOUSLY regardless of its config, so a single delayed `Animated.timing` call would
+ * be indistinguishable from an immediate one under test. Mirrors `HeartBurst.tsx`'s existing
+ * "`setTimeout` owns the timeline, `Animated.timing` owns the visual interpolation" split.
+ */
+function FadingGestureHints(props: {
+  autoFade: boolean;
+  children: ReactElement;
+}): ReactElement {
+  const { autoFade, children } = props;
+  const opacity = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    if (!autoFade) return;
+    const timer = setTimeout(() => {
+      Animated.timing(opacity, {
+        toValue: 0,
+        duration: GESTURE_HINT_FADE_DURATION_MS,
+        easing: Easing.out(Easing.ease),
+        useNativeDriver: true,
+      }).start();
+    }, GESTURE_HINT_FADE_DELAY_MS);
+    return (): void => clearTimeout(timer);
+  }, [autoFade, opacity]);
+
+  if (!autoFade) return children;
+  return <Animated.View style={{ opacity }}>{children}</Animated.View>;
+}
+
 /**
  * Two centered dark hint pills (`LBPGestureHint`): tap-to-toggle-clean-mode, swipe-to-switch
  * (rb-rn-gesture-clean-mode-v2 — the long-press hint pill is removed entirely, see `HINT_TAP`'s
- * doc comment). Pure static localized copy.
+ * doc comment). Pure static localized copy. Wrapped by {@link FadingGestureHints} at the call site
+ * for the optional `autoFadeGestureHints` auto-fade (rb-rn-live-overlay-gesture-hint-autofade).
  */
 function gestureHints(theme: ReferenceUITheme): ReactElement {
   return (

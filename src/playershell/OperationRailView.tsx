@@ -342,6 +342,21 @@ function CartBadge(props: {
 // This function's `'↗'` / `'CC'` cases are UNCHANGED and still the single source for
 // other consumers (`LiveBottomBarView`'s `MORE_GLYPH` reuse pattern reads `More`; its
 // separate `CC_GLYPH` constant reads `Subtitle` for its own, un-rewired CC toggle slot).
+//
+// `Like`'s case is DEAD CODE for rendering purposes: `Like` is not a member of
+// `RAIL_PRESENTATION_ORDER` (this rail never draws a Like pill — see that constant's own
+// doc comment) and the demo model seeds it `enabled: false`, so `PillButton` never actually
+// reaches its `<Text>{railGlyphFor(kind)}</Text>` fallback branch for this kind. Its value was
+// the literal Unicode `'♥'` (parity-debt-ledger.md #20 — the same class of bug Android fixed in
+// `rb-android-heart-burst-deemoji`, Flutter fixed in `rb-flutter-heart-burst-icon-parity`, and RN
+// itself fixed for the two REACHABLE `'♥'` sites — the LIKE button in `LiveBottomBarView.tsx` and
+// the flying burst in `HeartBurst.tsx`, both now `HeartFillGlyph`). Unlike `'↗'` / `'CC'` above,
+// this value has no other consumer that needs it to stay byte-identical (only this switch and
+// this file's own tests read it), so — rather than leave the actual problem CHARACTER sitting in
+// source — its value is replaced with a non-emoji ASCII placeholder (`rb-rn-heart-burst-icon-
+// parity`). A real `PillButton` render branch for `Like` is deliberately NOT added here: it would
+// be an untestable dead branch (no path in this file's public API can ever feed `Like` into
+// `PillButton`), which this repo's testability discipline disallows.
 
 /** Map a side-rail kind to its deterministic Text glyph. */
 export function railGlyphFor(kind: LBSideRailKind): string {
@@ -351,7 +366,7 @@ export function railGlyphFor(kind: LBSideRailKind): string {
     case LBSideRailKind.Chat:
       return '💬'; // bubble.left.fill / Icons.chat
     case LBSideRailKind.Like:
-      return '♥'; // heart.fill
+      return 'like'; // heart.fill — never rendered (see comment block above)
     case LBSideRailKind.Share:
       return '↗'; // square.and.arrow.up / Icons.share
     case LBSideRailKind.Subtitle:

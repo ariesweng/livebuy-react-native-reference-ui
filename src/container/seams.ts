@@ -82,6 +82,17 @@ export type PlayerRefLike = Pick<
    * subtitleEnabled })`，見 `container/subtitlePipeline.ts` 與 `LivebuyPlayer.tsx` 的接線）。
    */
   simulateSubtitleToggleTap(): void;
+  /**
+   * 頻道級分享出口（facade → core `operationPanel.simulateShareTap()`；
+   * rb-rn-product-list-share-tap-noop）。橋接命令 `operationPanel_simulateShareTap` 打到 native
+   * `operationPanelView.simulateShareTap()`，下游是 core 既有的頻道級分享事件（由有接 listener 的
+   * host 自行呈現）。這是 {@link defaultShareProduct} 在 `channelShareUrl` 為空時的 fallback 出口
+   * ——parity iOS `presentProductShare` 對空 `shareUrl` 的既有 fallback（`player.performShare()`，
+   * 同樣是頻道級事件）/ Flutter `performDefaultShareProduct` 的 `operationPanel.simulateShareTap()`
+   * fallback。與 `onShare`（頻道 / footer 分享 seam）走的是**不同**出口：`onShare` 直接經
+   * `shareSystem` 開系統分享，這裡是「商品連結組不出來時退回頻道事件」的保底，不是分享本身。
+   */
+  simulateShareTap(): void;
 };
 
 /**
@@ -123,8 +134,9 @@ export function buildAwardClaimInjection(playerRef: {
 /**
  * 組商品分享連結（issue 6）：在 `base`（= `channel.share_url`）後加上商品介紹時間 `t=<beginTime>`（秒）。
  * Pure（無副作用）所以單元測 + host override 共用一份實作（iOS / Android / Flutter `productShareURLString`
- * parity）。RN reference-ui 把 per-product 系統分享委派 host（與既有 `onShare` 一致），此 helper 供 host
- * 自組連結後以 `Share.share` 呈現。
+ * parity）。容器的 `onShareProduct` DEFAULT（{@link defaultShareProduct}）已用此 helper 組連結經
+ * `shareSystem`（`onShare` 頻道分享既有在用的同一個系統分享出口）真的開系統分享
+ * （`rb-rn-product-list-share-tap-noop`）；host override 仍可直接呼叫此 helper 自組連結。
  * - `base` 為空 → 回 `''`。
  * - `beginTime` 為 null 或負 → 回 `base`（不加 `?t=`）。
  * - `base` 已含 query（`?`）→ 用 `&` 串接，否則 `?`。
@@ -134,6 +146,40 @@ export function productShareUrlString(base: string, beginTime: number | null | u
   if (beginTime == null || beginTime < 0) return base;
   const sep = base.includes('?') ? '&' : '?';
   return `${base}${sep}t=${beginTime}`;
+}
+
+/**
+ * 🔴 DEFAULT `onShareProduct` 決策（issue 6 真修復，rb-rn-product-list-share-tap-noop）。修法前
+ * `onShareProduct` 的預設是 `((): void => undefined)` —— 純 no-op，於是零 config 的
+ * `<LivebuyPlayer />` 點商品列表列的分享 icon **完全沒有效果**，儘管 RN 早已有現成的
+ * {@link productShareUrlString}（已單元測）與 `onShare` 頻道分享既有在用的系統分享出口
+ * （`shareSystem`）。iOS `presentProductShare` / Android `presentProductShare` / Flutter
+ * `performDefaultShareProduct` 三端皆已是真系統分享，RN 是四端唯一還帶著純 no-op 預設的一端。
+ *
+ * 用 {@link productShareUrlString} 組出帶 `channelShareUrl` + `?t=<beginTime>` 的商品專屬連結，非空
+ * 時交給呼叫端注入的 `shareSystem`（`onShare` 已在用的**同一個**系統分享出口，不重新發明第二套）真的
+ * 開系統分享。**`channelShareUrl` 本身為空**（`productShareUrlString` 因此回空字串）時，SHALL 呼叫
+ * `onEmptyShareUrl` 而非 `shareSystem`——parity iOS `presentProductShare` 對空 `shareUrl` 的既有
+ * fallback（`player.performShare()`，頻道級分享事件）與 Flutter `performDefaultShareProduct` 的
+ * `operationPanel.simulateShareTap()` fallback，呼叫端（`buildSheetHandlers`）把它接到
+ * `playerRef.simulateShareTap()`。這是刻意的頻道級 fallback，**不是**殘留的無效路徑。
+ *
+ * 抽成具名純函式（依賴以參數注入，而非直接讀 `SeamDeps`）的理由同 {@link defaultOpenProduct} /
+ * {@link defaultRailTap}：inline arrow 在 jest 環境測不到；本函式本身不含任何 React / RN value
+ * import，可用字面字串 + capturing fake 直接單元測。
+ */
+export function defaultShareProduct(
+  channelShareUrl: string,
+  beginTime: number | null | undefined,
+  shareSystem: (url: string) => void,
+  onEmptyShareUrl: () => void,
+): void {
+  const url = productShareUrlString(channelShareUrl, beginTime);
+  if (url.length === 0) {
+    onEmptyShareUrl();
+    return;
+  }
+  shareSystem(url);
 }
 
 /**
@@ -572,9 +618,20 @@ export function buildSheetHandlers(deps: SeamDeps): {
       ((product: LBProduct): void => {
         if (product.beginTime != null) playerRef.seek(product.beginTime);
       }),
-    // 列分享 → 系統分享帶 ?t=（issue 6）：RN reference-ui 把 per-product 系統分享委派 host（與 onShare
-    // 一致），故預設 no-op；host 以 `productShareUrlString` 組連結 + `Share.share` 呈現。
-    onShareProduct: config.onShareProduct ?? ((): void => undefined),
+    // 列分享 → 系統分享帶 ?t=（issue 6，rb-rn-product-list-share-tap-noop 修正）：DEFAULT 以
+    // channel.share_url（attachment.template.playerHeaderState.shareUrl，與 onShare 頻道分享同一個
+    // 讀法）+ ?t=<beginTime>（經 productShareUrlString）真的經 shareSystem（onShare 已在用的同一個
+    // 系統分享出口）開系統分享；channel.share_url 本身為空才退回 playerRef.simulateShareTap()
+    // 頻道級分享事件（parity iOS presentProductShare 的空 shareUrl fallback，非殘留 no-op，見
+    // defaultShareProduct 的說明）。
+    onShareProduct:
+      config.onShareProduct ??
+      ((product: LBProduct): void => {
+        const url = attachment.template.playerHeaderState.shareUrl;
+        defaultShareProduct(url, product.beginTime, shareSystem, () =>
+          playerRef.simulateShareTap(),
+        );
+      }),
     // 「更多商品」推薦卡播放圖示 → 换片（rb-rn-product-detail-recommendations，design.md D3）：比照
     // `onPickHot`（下方 `buildMomentHandlers`）的核心動作，但省略 `switchedVideoItem` 手動組裝——
     // `LBProductRecommendation` 沒有 cover/title/duration，`switchVideo(videoId)`（省略 `item`）已內建

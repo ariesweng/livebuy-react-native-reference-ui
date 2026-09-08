@@ -59,6 +59,7 @@ import type { ReferenceUITheme } from '../theme';
 import { RemoteImage } from '../productsheets/RemoteImage';
 import { LBTestIDs } from '../testing/LBTestIDs';
 import { MarqueeTitle } from './MarqueeTitleView';
+import { PeopleGlyph } from './PeopleGlyph';
 import { SpeakerSlashGlyph, SpeakerWaveGlyph } from './SpeakerGlyphs';
 
 // MARK: - Decorative design tokens (literal hex from live-chrome.jsx)
@@ -120,6 +121,18 @@ export interface PlayerHeaderBarProps {
    * behaviour once mounted) — this flag only decides whether it is drawn.
    */
   readonly showSubscribe?: boolean;
+  /**
+   * Whether the viewer-count badge (people glyph + count, next to the LIVE pill) renders at all
+   * (rb-rn-viewer-count-visibility-toggle). `true` (DEFAULT) → the badge follows the existing rule
+   * (`isLive` → shown, including replay). `false` → the badge MUST NOT mount, even while
+   * `isLive === true` (including replay). OPPOSITE polarity from {@link showSubscribe}'s `false`
+   * default — this flag lets a host OPT OUT of the always-shown-while-live behaviour, not opt in
+   * to a hidden-by-default one; omitting it is byte-identical to today (non-BREAKING). The
+   * container forwards `config.showViewerCount` verbatim (this is the ONE place the fallback is
+   * decided). Only gates the viewer-count badge — the LIVE pill (`isLive && !isReplay`) is
+   * unaffected by this flag. Does NOT touch the underlying `viewerCount` value/data pipeline.
+   */
+  readonly showViewerCount?: boolean;
   /**
    * Merchant capability gate for the title marquee (rb-rn-marquee-title-scroll), RAW —
    * `POST /sdk/config`'s `data.extensions.video_title_scroll` exactly as the host read it
@@ -281,6 +294,7 @@ function renderHostPill(props: PlayerHeaderBarProps): ReactElement {
     theme, title, hostName, shopLogo, isSubscribed, viewerCount, onToggleSubscribe, isLive, isReplay,
     live = false,
     showSubscribe = false,
+    showViewerCount = true,
     titleScroll,
   } = props;
   return (
@@ -339,7 +353,10 @@ function renderHostPill(props: PlayerHeaderBarProps): ReactElement {
             {hostName}
           </Text>
           {/* Per design `LBPHostBadge`: LIVE pill ⟺ isLive && !isReplay; viewer count
-              ⟺ isLive (replay KEEPS the count, only HIDES the pill; VOD shows neither).
+              ⟺ isLive && showViewerCount (rb-rn-viewer-count-visibility-toggle: the host gate is
+              ANDed on TOP of the existing isLive rule — replay KEEPS the count, only HIDES the
+              pill; VOD shows neither; showViewerCount === false hides the count even while
+              isLive, but the LIVE pill's own gate above is UNAFFECTED by this flag).
               The spacer folds into each gate so no dangling gap remains when hidden. */}
           {isLive && !isReplay ? (
             <>
@@ -347,7 +364,7 @@ function renderHostPill(props: PlayerHeaderBarProps): ReactElement {
               {renderLivePill(theme)}
             </>
           ) : null}
-          {isLive ? (
+          {isLive && showViewerCount ? (
             <>
               <View style={{ width: 6 }} />
               {renderViewerBadge(theme, viewerCount)}
@@ -562,8 +579,9 @@ function renderViewerBadge(theme: ReferenceUITheme, viewerCount: number): ReactE
         paddingVertical: 2,
       }}
     >
-      {/* People glyph — a deterministic Text glyph (no vector-icons dep). */}
-      <Text style={{ color: ON_GLASS_DIM, fontSize: 11 * theme.fontScale }}>{'\u{1F465}'}</Text>
+      {/* People glyph — self-drawn react-native-svg vector glyph (rb-rn-viewer-count-badge-vector-glyph),
+          parity with Android's already-verified `IconGlyphs.kt` `PeopleGlyph`. */}
+      <PeopleGlyph color={ON_GLASS_DIM} size={11 * theme.fontScale} />
       <View style={{ width: 3 }} />
       <Text
         numberOfLines={1}

@@ -102,6 +102,11 @@ import { BottomSheetPresenter } from '../productsheets/BottomSheetPresenter';
 import { LiveOverlayChrome, visiblePinnedProducts } from './LiveOverlayChromeView';
 import { NowIntroducingCarousel } from './NowIntroducingCarouselView';
 import { HeartBurst } from './HeartBurst';
+import {
+  likeBurstSpawnDelayMs,
+  likedHoldDurationMs,
+  resolveLikeBurstCount,
+} from './likeBurstAnimation';
 import { LiveBottomBarView } from './LiveBottomBarView';
 import { LiveMoreMenuView } from './LiveMoreMenuView';
 import { UpcomingCountdownView } from './UpcomingCountdownView';
@@ -160,6 +165,18 @@ export interface PlayerShellViewProps {
    * behaviour once mounted.
    */
   readonly showSubscribe?: boolean;
+  /**
+   * Whether the header's viewer-count badge renders at all (rb-rn-viewer-count-visibility-toggle).
+   * The container forwards `config.showViewerCount`. Default `true` (leaf `PlayerHeaderBar` owns
+   * the fallback) — the OPPOSITE polarity from `showSubscribe` above: this flag lets a host
+   * OPT OUT of the existing always-shown-while-live behaviour, not opt in to a hidden-by-default
+   * one. Forwarded verbatim (no fallback applied at this layer) to BOTH `<PlayerHeaderBar>` call
+   * sites below (the LIVE/VOD main branch and the upcoming-countdown branch), same reasoning as
+   * `showSubscribe`. Only gates the viewer-count badge — the LIVE pill (`isLive && !isReplay`) is
+   * unaffected. Does NOT touch the underlying `viewerCount` data pipeline (core keeps updating it
+   * regardless) — a pure reference-ui presentation flag.
+   */
+  readonly showViewerCount?: boolean;
   /**
    * Whether the header's trailing top-right button shows a close (✕) icon instead of the minimize
    * (`◳`) icon (rb-rn-player-direct-close-button). The container (`LivebuyPlayerOverlays`) resolves
@@ -657,6 +674,7 @@ export function PlayerShellView(props: PlayerShellViewProps): ReactElement {
     onToggleMute,
     onToggleSubscribe,
     showSubscribe,
+    showViewerCount,
     showCloseIcon,
     titleScroll,
     onTapRailItem,
@@ -732,6 +750,45 @@ export function PlayerShellView(props: PlayerShellViewProps): ReactElement {
   // LIVE 底部 bar 愛心 burst tick（rb-rn-live-bottom-heart-burst，問題 5）：愛心點擊遞增 → 即時飄心。
   // 靜止態（tick 不變）→ HeartBurst render null → snapshot 中立。
   const [liveHeartTick, setLiveHeartTick] = useState(0);
+  // 讚鈕 `liked`（亮色）態（design R37，rb-rn-live-like-burst-restyle）：由 `triggerLikeBurst`
+  // 立即設 true、依顆數計時後恢復 false，驅動 `LiveBottomBarView` 的 `liked` prop（見下方兩個呼叫點）。
+  const [liveLiked, setLiveLiked] = useState(false);
+  const likeHeldTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const likeBurstSpawnTimersRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
+
+  // Cleanup the like-burst timers on unmount (mirrors the established `scrubCollapseTimerRef` /
+  // `pendingCleanModeToggleTimerRef` pattern elsewhere in this file).
+  useEffect(
+    () => () => {
+      if (likeHeldTimerRef.current != null) clearTimeout(likeHeldTimerRef.current);
+      likeBurstSpawnTimersRef.current.forEach((timer) => clearTimeout(timer));
+      likeBurstSpawnTimersRef.current.clear();
+    },
+    [],
+  );
+
+  /**
+   * LIVE 讚鈕點擊 → 隨機 1–4 顆愛心，間隔 300ms 依序觸發 `liveHeartTick`（design R37
+   * `likeAnimation()`，見 `likeBurstAnimation.ts`）；同時立即點亮 `liveLiked`，依顆數計時後恢復。
+   * Pure count/delay/duration math lives in `likeBurstAnimation.ts`; this function only owns the
+   * side-effecting timer scheduling.
+   */
+  const triggerLikeBurst = (): void => {
+    const count = resolveLikeBurstCount();
+    for (let i = 0; i < count; i++) {
+      const spawnTimer = setTimeout(() => {
+        likeBurstSpawnTimersRef.current.delete(spawnTimer);
+        setLiveHeartTick((t) => t + 1);
+      }, likeBurstSpawnDelayMs(i));
+      likeBurstSpawnTimersRef.current.add(spawnTimer);
+    }
+    setLiveLiked(true);
+    if (likeHeldTimerRef.current != null) clearTimeout(likeHeldTimerRef.current);
+    likeHeldTimerRef.current = setTimeout(() => {
+      likeHeldTimerRef.current = null;
+      setLiveLiked(false);
+    }, likedHoldDurationMs(count));
+  };
 
   // 影片區寬度（rb-rn-gesture-clean-mode-v2）：RN 沒有 SwiftUI 同步 GeometryReader，改用既有
   // `onLayout` 慣例（`PlaybackProgressBarView.trackWidth` 已示範同一手法）量測，供 `tapZone` 純函式
@@ -1084,6 +1141,13 @@ export function PlayerShellView(props: PlayerShellViewProps): ReactElement {
             onMinimize={onMinimize}
             onToggleSubscribe={onToggleSubscribe}
             showSubscribe={showSubscribe}
+            // rb-rn-viewer-count-visibility-toggle — raw forward, same reasoning as showSubscribe
+            // above: even though this upcoming branch always passes isLive={false} below (so the
+            // viewer-count gate `isLive && showViewerCount` never fires here regardless), this
+            // call site MUST still forward the flag — omitting it would leave a silent dead spot
+            // if this branch's `isLive` semantics ever change (the same discipline `titleScroll` /
+            // `showCloseIcon` already document for this file's two call sites).
+            showViewerCount={showViewerCount}
             // rb-rn-player-direct-close-button — raw forward, same reasoning as showSubscribe
             // above: the upcoming header's trailing button is the SAME single button as the main
             // branch, so it must reflect the same resolved icon.
@@ -1117,12 +1181,14 @@ export function PlayerShellView(props: PlayerShellViewProps): ReactElement {
             // 未注入（非容器 / snapshot）→ 退回既有 handleRailTap(Share) rail 路由。
             onShare={onShare ?? (() => handleRailTap(LBSideRailKind.Share))}
             // 真 like（rail 意圖 → 容器 seam 預設 defaultRailTap → core simulateLikeTap，
-            // rb-rn-like-tap-wire）+ 即時飄心 burst（rb-rn-live-bottom-heart-burst）。兩者是**獨立**
-            // 的兩條線：burst 由本地 liveHeartTick 驅動，修法前只有它是活的。
+            // rb-rn-like-tap-wire）+ 隨機 1–4 顆飄心 burst + liked 亮色（design R37，
+            // rb-rn-live-like-burst-restyle，見 `triggerLikeBurst`）。兩者是**獨立**的兩條線：burst
+            // 由本地 liveHeartTick 驅動。
             onLike={() => {
               handleRailTap(LBSideRailKind.Like);
-              setLiveHeartTick((t) => t + 1);
+              triggerLikeBurst();
             }}
+            liked={liveLiked}
           />
         </View>
 
@@ -1285,6 +1351,13 @@ export function PlayerShellView(props: PlayerShellViewProps): ReactElement {
             // 唯一在乾淨模式下仍保留的 LIVE chrome（design R23）——`cleanMode` 不影響此 prop。
             pinnedProducts={visiblePinnedProducts(model.livePinnedProducts, dismissedLivePinnedIds)}
             showGestureHints={showGestureHints && !cleanMode}
+            // rb-rn-live-overlay-gesture-hint-autofade: gesture hints auto-fade 3.5s after they
+            // appear (0.6s ease-out) only over real playback content — `live` (NOT `model.isLive`,
+            // a different orthogonal flag; this whole `<LiveOverlayChrome>` call already only
+            // renders on the `model.isLive === true` branch, see design.md D2), parity Android
+            // `PlayerShellView.kt`'s `autoFadeGestureHints = live` / Flutter `player_shell_view
+            // .dart`'s `autoFadeGestureHints: widget.live`.
+            autoFadeGestureHints={live}
             // live-pinned-card-image-radius: load the real product photo only over a live
             // video surface (false / demo → placeholder, snapshot byte-stable).
             live={live}
@@ -1349,6 +1422,10 @@ export function PlayerShellView(props: PlayerShellViewProps): ReactElement {
           onMinimize={onMinimize}
           onToggleSubscribe={onToggleSubscribe}
           showSubscribe={showSubscribe}
+          // rb-rn-viewer-count-visibility-toggle — raw forward (leaf owns the `true` default,
+          // OPPOSITE polarity from showSubscribe's `false`). The sibling `isUpcoming` branch above
+          // forwards the same value; both call sites must stay wired.
+          showViewerCount={showViewerCount}
           // rb-rn-player-direct-close-button — raw forward (leaf owns the `false` default);
           // resolved by the container from `LivebuyPlayerConfig.enableDirectCloseButton`.
           showCloseIcon={showCloseIcon}
@@ -1453,12 +1530,14 @@ export function PlayerShellView(props: PlayerShellViewProps): ReactElement {
             // 未注入（非容器 / snapshot）→ 退回既有 handleRailTap(Share) rail 路由。
             onShare={onShare ?? (() => handleRailTap(LBSideRailKind.Share))}
             // 真 like（rail 意圖 → 容器 seam 預設 defaultRailTap → core simulateLikeTap，
-            // rb-rn-like-tap-wire）+ 即時飄心 burst（rb-rn-live-bottom-heart-burst，問題 5）。兩者是
-            // **獨立**的兩條線：burst 由本地 liveHeartTick 驅動，修法前只有它是活的。
+            // rb-rn-like-tap-wire）+ 隨機 1–4 顆飄心 burst + liked 亮色（design R37，
+            // rb-rn-live-like-burst-restyle，見 `triggerLikeBurst`）。兩者是**獨立**的兩條線：burst
+            // 由本地 liveHeartTick 驅動。
             onLike={() => {
               handleRailTap(LBSideRailKind.Like);
-              setLiveHeartTick((t) => t + 1);
+              triggerLikeBurst();
             }}
+            liked={liveLiked}
             onToggleCC={() => handleRailTap(LBSideRailKind.Subtitle)}
           />
         </View>

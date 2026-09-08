@@ -93,6 +93,7 @@ import type { FeedItem, PinnedMessage } from 'livebuy-react-native-ui';
 import type { ReferenceUITheme } from '../theme';
 import { LBTestIDs, chatLine } from '../testing/LBTestIDs';
 import { BagGlyph } from '../playershell/BagGlyph';
+import { ArrowDownGlyph } from './ArrowDownGlyph';
 
 // MARK: - Decorative design tokens (literal hex / rgba from moments.jsx)
 //
@@ -336,7 +337,7 @@ function StaticChatFeed(props: ChatFeedProps): ReactElement {
  * Scroll-up-for-history variant (runtime). Bounded to {@link SCROLLABLE_HEIGHT_FRACTION}
  * of the screen height (anchored bottom; content bottom-pinned via `justifyContent:
  * 'flex-end'`), sticks to the newest row unless the user scrolled up, with a
- * "↓ 最新訊息" pill to return. The container feeds the deeper `feedHistory` here.
+ * 「最新訊息」pill (ArrowDownGlyph + text) to return. The container feeds the deeper `feedHistory` here.
  * Parity with iOS `scrollableBody` + `rb-ios-chat-feed-scroll-bounded-height`.
  */
 function ScrollableChatFeed(props: ChatFeedProps): ReactElement {
@@ -355,7 +356,7 @@ function ScrollableChatFeed(props: ChatFeedProps): ReactElement {
   }, [rows.length]);
 
   // Feed cleared (VIDEO_SWITCH empties the merged feed → rows non-empty → empty): reset
-  // auto-stick so the NEXT video starts pinned to newest and the "↓ 最新訊息" pill hides — the
+  // auto-stick so the NEXT video starts pinned to newest and the「最新訊息」pill hides — the
   // ScrollView / showPill state is NOT recreated across switches. Parity iOS rb-ios-chat-feed-
   // pill-reset-on-switch. Guarded on empty so normal playback is undisturbed.
   useEffect(() => {
@@ -416,9 +417,14 @@ function ScrollableChatFeed(props: ChatFeedProps): ReactElement {
             paddingVertical: 6,
           }}
         >
-          <Text style={{ color: ON_GLASS, fontSize: 11.5 * theme.fontScale, fontWeight: '600' }}>
-            ↓ 最新訊息
-          </Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            <ArrowDownGlyph color={ON_GLASS} size={10} />
+            <Text
+              style={{ marginLeft: 4, color: ON_GLASS, fontSize: 11.5 * theme.fontScale, fontWeight: '600' }}
+            >
+              最新訊息
+            </Text>
+          </View>
         </Pressable>
       ) : null}
     </View>

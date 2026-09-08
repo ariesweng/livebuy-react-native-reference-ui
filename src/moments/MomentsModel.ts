@@ -120,6 +120,22 @@ export class MomentsModel {
     return state?.phase ?? StartScreenPhase.Loading;
   }
 
+  /**
+   * General (NOT upcoming-scoped) loading-phase cover URL (`template.loadingCover` — the
+   * template's TOP-LEVEL field; there is no `upcomingState.loadingCover`). Channel-derived
+   * (`channel.cover`), fed via `LivebuyPlayer.tsx`'s `onChannelChange` → `applyLoadingCover`
+   * (`player-loading-cover-background-reference-ui-rn`). Read by `StartScreen`'s `.loading`
+   * branch to draw the real cover photo + dark mask behind the brand loading-mark animation,
+   * parity iOS/Android. This is unrelated to family-1 `PlayerShellModel.upcomingCover`
+   * (`upcomingState.cover`, upcoming-countdown-only) — different data source, different surface,
+   * neither reads or affects the other. For demo instances returns `''` (the at-attach default;
+   * the `.loading` structural snapshot omits `coverUrl` entirely and stays on the solid brand
+   * backdrop).
+   */
+  get loadingCover(): string {
+    return this.template?.loadingCover ?? '';
+  }
+
   // -- Surface 2: EndScreen ← auto-next countdown + next + hot -----------------
 
   /**

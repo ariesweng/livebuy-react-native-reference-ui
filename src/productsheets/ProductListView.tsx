@@ -65,7 +65,9 @@ import { View, Pressable, TextInput } from 'react-native';
 import { Text } from '../TightText';
 
 import { ShareGlyph } from '../playershell/ShareGlyph';
+import { DetailGlyph } from '../playershell/DetailGlyph';
 import { CartGlyph } from './CartGlyph';
+import { BellGlyph } from './BellGlyph';
 import { EqualizerGlyph } from './EqualizerGlyph';
 import { CartFillGlyph } from './CartFillGlyph';
 import { HotGlyph } from './HotGlyph';
@@ -73,6 +75,7 @@ import {
   productRowOverlay,
   productRowNumberBadge,
   ProductBagNarratingBadge,
+  isReplayNeverIntroduced,
   type ProductRowMode,
 } from './ProductRowOverlay';
 import { ProductStatusBadge } from './ProductStatusBadge';
@@ -222,10 +225,10 @@ export interface ProductListProps {
    */
   readonly onOpenProduct?: (product: LBProduct) => void;
   /**
-   * Host-wired QUICK-ADD tap (the row 加購鈕 🛒) → opens the COMPACT add-to-cart sheet
-   * (`presentation='addToCart'`, rb-rn-add-to-cart-route — parity iOS). Same core
+   * Host-wired QUICK-ADD tap (the row 加購鈕, `CartGlyph`) → opens the COMPACT add-to-cart
+   * sheet (`presentation='addToCart'`, rb-rn-add-to-cart-route — parity iOS). Same core
    * product-tap exit as {@link onOpenProduct}; the container records the addToCart mode
-   * BEFORE forwarding. A SOLD-OUT row's 補貨 bell (🔔) routes to {@link onOpenProduct}
+   * BEFORE forwarding. A SOLD-OUT row's 補貨 bell (`BellGlyph`) routes to {@link onOpenProduct}
    * instead (the container opens the restock sheet by `soldOut === 1`). Default no-op.
    */
   readonly onQuickAdd?: (product: LBProduct) => void;
@@ -326,7 +329,20 @@ export function ProductList(props: ProductListProps): ReactElement {
   // `onSeekToIntro` 這一個具名參數——`onOpenProduct` / `onQuickAdd` / `onNotifyRestock` /
   // `onShareProduct` 各自是獨立參數，未被觸碰，MUST NOT 連動關閉。`onClose` 本來就是 optional
   // no-op，未接線時安全（demo / 未接線 fixture）。
+  //
+  // EXCEPTION（rb-rn-replay-never-introduced-tap-noop，parity iOS
+  // rb-ios-replay-never-introduced-tap-noop）：`'replay'` 模式下，若該商品的
+  // `[beginTime, endTime]` 為 `[0, 0]`「從未介紹過」sentinel
+  // （`ProductRowOverlay.isReplayNeverIntroduced`，rb-rn-replay-never-introduced-no-ui 既有），
+  // 代表沒有真實的介紹時間可跳轉——完全 no-op：不轉發 `onSeekToIntro`、不觸發 `onClose`，避免誤導
+  // 使用者「跳到影片開頭」。此例外僅限 `'replay'`；`'vod'` 模式即使商品剛好
+  // `beginTime === 0 && endTime === 0` 也不受影響（那是合法真實資料，sentinel 語意僅在回放情境
+  // 成立）。`effectiveMode` 公式與下方逐列渲染迴圈內的既有公式同構。
   const handleSeekAndDismiss = (product: LBProduct): void => {
+    const effectiveMode: ProductRowMode = mode ?? (live ? 'live' : 'vod');
+    if (effectiveMode === 'replay' && isReplayNeverIntroduced(product.beginTime, product.endTime)) {
+      return;
+    }
     onClose?.();
     onSeekToIntro?.(product);
   };
@@ -669,9 +685,9 @@ export interface ProductRowViewProps {
   showPlay?: boolean;
   isIntroducing?: boolean;
   // `row`-only: 縮圖左上角編號徽章（rb-rn-product-row-number-badge, design R35）：由純函式
-  // productRowNumberBadge 算出（`null` → VOD 或找不到該 id，不畫）。`isIntroducing && !soldOut`
-  // 時內容換成 HotGlyph + "HOT"，否則顯示這個數字。Ignored by `grid`（跨影片推薦卡沒有「介紹中 /
-  // 播放模式」的概念）。
+  // productRowNumberBadge 算出（`null` → VOD 或找不到該 id，不畫）。`isIntroducing` 為真時內容換成
+  // HotGlyph + "HOT"（與 `soldOut` 互不影響，rb-rn-product-row-soldout-introducing-visible），
+  // 否則顯示這個數字。Ignored by `grid`（跨影片推薦卡沒有「介紹中 / 播放模式」的概念）。
   numberBadge?: number | null;
   // `row`-only: 列分享 icon 是否顯示（rb-rn-live-hide-product-share, design R12）：由
   // `productRowOverlay(...)` 的 `showShare`（`= mode !== 'live'`）算出。預設 `true`（既有內部呼叫
@@ -720,9 +736,9 @@ export function ProductRowView(props: ProductRowViewProps): ReactElement {
 //
 // `row`-only (see `RowLayoutBody`'s `mode === 'vod'` branch above where these are used).
 // Parity iOS `ProductRowView.vodPlayOverlay`/`vodIntroducingMask`, Android `VodPlayOverlay`/
-// `VodIntroducingMask`. Neither reads `soldOut` itself — the CALLER already gates
-// `VodIntroducingMask` behind `isIntroducing && !soldOut` (`introducingForBadge`, same
-// priority rule as the existing LIVE/REPLAY banner).
+// `VodIntroducingMask`. Neither reads `soldOut` itself — the CALLER gates `VodIntroducingMask`
+// behind `isIntroducing` (`introducingForBadge`), unaffected by `soldOut`
+// (rb-rn-product-row-soldout-introducing-visible, same rule source as the LIVE/REPLAY banner).
 
 /** VOD `upcoming` phase: a centered black circular play button (`rgba(0,0,0,0.5)`, 32px),
  *  replacing the bottom「看講解」pill for `mode === 'vod'` rows only. Design
@@ -832,11 +848,12 @@ function RowLayoutBody(props: {
   const soldOut = ProductStatusBadge.resolve(product) === ProductStatusBadge.SoldOut;
   // out_soon / hot 小徽章只認**明確** label（label 空不臆測 → demo / 舊後端中性）。
   const explicitBadge = ProductStatusBadge.fromLabel(product.label);
-  // 縮圖左上角編號徽章的 HOT 內容切換（rb-rn-product-row-number-badge, design R35）：沿用既有底部
-  // 「介紹中」橫幅的 `isIntroducing && !soldOut` 優先序（goods-status-label-render③，sold_out >
-  // narrating）——售完商品即使正在介紹中，也只顯示純數字，不換 HOT，避免同一張縮圖對「是否介紹中」
-  // 給出矛盾的視覺答案。
-  const introducingForBadge = isIntroducing && !soldOut;
+  // 縮圖左上角編號徽章的 HOT 內容切換（rb-rn-product-row-number-badge, design R35）：是否顯示介紹中
+  // 效果單純由 `isIntroducing` 決定，與 `soldOut` 互不影響（rb-rn-product-row-soldout-introducing
+  // -visible，2026-09-07 使用者拍板 D6 撤回舊有 `isIntroducing && !soldOut` sold_out > narrating
+  // 優先序——交付設計稿 `sdk-components.jsx` 的 `introBadge`/`numberBadge` 從未有 `!p.sold` 排除，
+  // 售完商品同樣正確顯示介紹中效果）。
+  const introducingForBadge = isIntroducing;
   // 名 / 明細鈕 → open the FULL browse detail sheet.
   const open = (): void => onOpenProduct?.(product);
   // 加購鈕 → open the COMPACT add-to-cart sheet (in-stock). A SOLD-OUT row's 補貨 bell
@@ -952,8 +969,8 @@ function RowLayoutBody(props: {
           <RemoteImage live={live} uri={photoUri} borderRadius={12} />
           {/* 縮圖左上角編號徽章（rb-rn-product-row-number-badge, design R35）：黑底半透明白字，
               外側兩角圓角（對應設計 0.25rem 0 0.25rem 0）。`numberBadge == null`（VOD / 找不到該
-              id）→ 不畫。介紹中（且未售完）時內容換成 HotGlyph + "HOT"，否則顯示純數字——售完商品
-              仍顯示數字（不因售完而整個隱藏，design 的售完灰霧遮罩繪製順序在徽章之下）。 */}
+              id）→ 不畫。介紹中時內容換成 HotGlyph + "HOT"，不論是否售完（sold_out 與 narrating
+              互不影響，rb-rn-product-row-soldout-introducing-visible），否則顯示純數字。 */}
           {numberBadge != null ? (
             <View
               pointerEvents="none"
@@ -993,9 +1010,10 @@ function RowLayoutBody(props: {
           ) : null}
           {/* 「介紹中」橫幅 — 貼齊縮圖底部、左右填滿（accent 底滿版 + 白色等化器 + 白字）。
               clipped to the thumbnail's rounded-12 by the Pressable's `overflow: 'hidden'`.
-              優先序 sold_out > narrating：售罄時壓過「介紹中」橫幅（goods-status-label-render ③）。
-              `mode === 'vod'`：本橫幅由上方的 `VodIntroducingMask`（無文字滿版遮罩）取代，此處
-              MUST NOT 重複渲染（rb-rn-product-row-vod-intro-mask）。 */}
+              與 sold_out 互不影響：售完商品同樣顯示此橫幅（rb-rn-product-row-soldout-introducing
+              -visible，撤回舊有 sold_out > narrating 優先序）。`mode === 'vod'`：本橫幅由上方的
+              `VodIntroducingMask`（無文字滿版遮罩）取代，此處 MUST NOT 重複渲染
+              （rb-rn-product-row-vod-intro-mask）。 */}
           {mode !== 'vod' && introducingForBadge ? (
             <View
               pointerEvents="none"
@@ -1093,11 +1111,14 @@ function RowLayoutBody(props: {
         </Pressable>
         <View style={{ width: 8 }} />
 
-        {/* Trailing action group (detail · share · cart/bell). The detail icon (≣)
-            funnels the FULL browse detail exit; the cart button (🛒) funnels the
-            COMPACT add-to-cart exit (in-stock) or the 補貨 restock exit (sold-out 🔔);
+        {/* Trailing action group (detail · share · cart/bell). The detail icon (`DetailGlyph`,
+            design Icons.detail, rb-rn-icon-parity-product-detail-button — parity iOS/Android/Flutter)
+            funnels the FULL browse detail exit; the cart button (`CartGlyph`) funnels the
+            COMPACT add-to-cart exit (in-stock) or the 補貨 restock exit (sold-out `BellGlyph`);
             the share icon (↑) forwards `share` (→ host → system share with ?t=beginTime, issue 6). */}
-        <RowOutlineIcon theme={theme} glyph="≣" onTap={open} />
+        <RowOutlineIcon theme={theme} onTap={open}>
+          <DetailGlyph color={theme.accent} size={16} />
+        </RowOutlineIcon>
         <View style={{ width: 8 }} />
         {/* 列分享 改設計稿自繪三節點 ShareGlyph（rb-rn-share-icon-design-align，問題 8）。 進行中直播
             （`showShare === false`）時連同其後 spacer 一併不畫（rb-rn-live-hide-product-share，design
@@ -1362,9 +1383,7 @@ function RowCartButton(props: {
       }}
     >
       {soldOut ? (
-        <Text style={{ color: '#FFFFFF', fontSize: 13 * theme.fontScale, fontWeight: '600' }}>
-          {'🔔'}
-        </Text>
+        <BellGlyph color="#FFFFFF" size={13} />
       ) : (
         <CartGlyph color="#FFFFFF" size={13} />
       )}

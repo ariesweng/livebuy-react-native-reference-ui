@@ -558,6 +558,52 @@ export function LivebuyPlayer(props: LivebuyPlayerProps): ReactElement {
           attachmentRef.current?.template.handleRailEnablement({
             serviceLinkAvailable: deriveServiceLinkAvailable(info.serviceLink),
           });
+          // rn-intro-overlay-wiring-reference-ui — forward the channel's
+          // upcoming/intro-relevant fields to `handleUpcoming`, the ONLY entry point
+          // (RN has no separate `handleStartUrl`) that feeds `DefaultStartScreenState`'s
+          // `_hasStart` — which drives the StartScreen 略過介紹 skip button's `splash`
+          // phase — AND `DefaultUpcomingState` (直播預告 `active`/`introPlaying`/
+          // `scheduledStartAt`/`cover` view-model). Previously never called: this
+          // `onChannelChange` handler only called `handleHeaderChrome`/
+          // `handleRailEnablement` above, so `_hasStart` stayed permanently `false` and
+          // the skip button never appeared — same-shaped gap as the one
+          // `flutter-intro-overlay-wiring-reference-ui` fixed on Flutter first
+          // (parity-debt-ledger #19). Pure field pass-through (no derivation) —
+          // `handleUpcoming` itself derives `hasStart`/`introPlaying` internally.
+          attachmentRef.current?.template.handleUpcoming({
+            publishAt: info.publishAt,
+            cover: info.cover,
+            start: info.start,
+            liveStatus: info.liveStatus,
+            type: info.type,
+          });
+          // video-info-wiring-reference-ui-rn — forward the channel's info-tab fields to
+          // `handleInfo`, the ONLY entry point that feeds `DefaultInfoTab`'s
+          // `title`/`publishAt`/`shopName`/`shopIntro`/`shopLogo` — which in turn drives
+          // `VideoInfoPanel`'s「直播資訊」info tab (the panel hosting the shop-intro text
+          // plus the contact-shop button). Previously never called: this `onChannelChange`
+          // handler only called `handleHeaderChrome`/`handleRailEnablement`/`handleUpcoming`
+          // above, so `handleInfo`'s five fields stayed permanently at their empty-string
+          // constructor default — same-shaped gap as `handleUpcoming` above
+          // (rn-intro-overlay-wiring-reference-ui, parity-debt-ledger #19) and as the one
+          // `video-info-wiring-reference-ui-flutter` fixed on Flutter first
+          // (parity-debt-ledger #13). Pure field pass-through (no derivation) — `handleInfo`
+          // itself diff-then-notifies internally. `description` is deliberately excluded —
+          // `LBPlayerChannelInfo` has no such field.
+          attachmentRef.current?.template.handleInfo({
+            title: info.title,
+            publishAt: info.publishAt,
+            shopName: info.shopName,
+            shopIntro: info.shopIntro,
+            shopLogo: info.shopLogo,
+          });
+          // player-loading-cover-background-reference-ui-rn — the reference-ui wiring half of
+          // parity-debt-ledger item #8: `player-loading-cover-background-template-rn` (archived)
+          // already added `template.loadingCover`/`applyLoadingCover(cover)` to `react-native-ui`
+          // but left it deliberately unwired (headless-safe dead code). Pure pass-through — no
+          // derivation, same shape as the calls above — so the general (not upcoming-scoped)
+          // loading-phase cover background reaches `StartScreenView`'s `.loading` branch.
+          attachmentRef.current?.template.applyLoadingCover(info.cover);
           // VOD CC 字幕（rb-react-native-subtitle-vtt-caption-display）：抓取 + 解析
           // `channel.subtitle_url`（換片防呆 + staleness 邏輯見 `subtitlePipeline.ts`），同時餵
           // `handleRailEnablement({ subtitleAvailable })` 讓側欄 CC 鈕的可見性正確反映這支影片是否

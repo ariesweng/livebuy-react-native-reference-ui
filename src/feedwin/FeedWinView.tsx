@@ -310,7 +310,8 @@ export interface FeedWinViewProps {
   readonly onDismissClaim?: () => void;
   /**
    * Host-wired 折扣碼「複製」(`done` / discount) —— 本層保留版面 + 本地「已複製」回饋，實際
-   * 寫入剪貼簿委派 host（與 `onShareProduct` 的既有委派慣例一致）。Default no-op.
+   * 寫入剪貼簿委派 host（RN 核心的 `Clipboard` 已 deprecated，外部剪貼簿套件違反本層零外部
+   * 依賴原則）。Default no-op.
    */
   readonly onCopyClaimCode?: (code: string) => void;
   /** Scrollable chat variant (runtime): binds the deeper `feedHistory` so the user can

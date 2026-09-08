@@ -154,6 +154,11 @@ export function LivebuyPlayerOverlays(props: LivebuyPlayerOverlaysProps): ReactE
       // `operationPanel.simulateSubtitleToggleTap()` → native `subtitleTrack.toggle()` → 派發
       // `SUBTITLE_TOGGLE` 統一事件（容器另一條線監聽並回寫 template，見 `LivebuyPlayer.tsx`）。
       simulateSubtitleToggleTap: () => playerRef.current?.operationPanel.simulateSubtitleToggleTap(),
+      // 頻道級分享 fallback 出口（rb-rn-product-list-share-tap-noop）：sheet seam 的 onShareProduct
+      // 預設在 channelShareUrl 為空時呼叫，facade → core `operationPanel.simulateShareTap()` →
+      // native operationPanelView.simulateShareTap() → 既有頻道級分享事件（由有接 listener 的 host
+      // 自行呈現）。與 onShare 走的 shareSystem 是不同出口，見 seams.ts `defaultShareProduct` 說明。
+      simulateShareTap: () => playerRef.current?.operationPanel.simulateShareTap(),
       // checkName-驗證的設名出口（rb-rn-nickname-taken-inline-error）：`buildGapHandlers` 的 turnkey
       // `onSubmitName` 呼叫它取代舊的 fire-and-forget `setGuestNickname`。
       //
@@ -310,7 +315,8 @@ export function LivebuyPlayerOverlays(props: LivebuyPlayerOverlaysProps): ReactE
           onNickname={shell.onNickname}
           // VOD now-introducing 卡片 body tap → 開該商品明細（core simulateProductTap），重用
           // 既有 sheet product-tap 出口（rb-rn-now-introducing-real-image-carousel，問題 9/10）。
-          // 真實圖 `live` 沿用此 container 的預設（同 ProductSheetsView 未接 live → placeholder）。
+          // 真實圖 `live` 沿用此 container 對 <ProductSheetsView> 的傳遞（見下方 Surface 3 呼叫，
+          // rb-rn-product-sheets-live-images-wiring 起已接上 live → 真圖，不再是 placeholder）。
           onTapNowIntroducingProduct={sheet.onOpenProduct}
           // Mirror info-panel open state so the chat feed hides while it's up.
           onInfoPanelOpenChange={setInfoPanelOpen}
@@ -325,6 +331,9 @@ export function LivebuyPlayerOverlays(props: LivebuyPlayerOverlaysProps): ReactE
           // 訂閱徽章可見性（rb-rn-subscribe-favorite-visibility-toggle）：raw 轉發，leaf 元件
           // （PlayerHeaderBarView）owns 唯一的預設值 false（隱藏）。
           showSubscribe={config.showSubscribe}
+          // 觀看人數徽章可見性（rb-rn-viewer-count-visibility-toggle）：raw 轉發，leaf 元件
+          // （PlayerHeaderBarView）owns 唯一的預設值 true（顯示）——與 showSubscribe 極性相反。
+          showViewerCount={config.showViewerCount}
           // 右上角按鈕圖示（rb-rn-player-direct-close-button）：容器已用 resolveDirectCloseButtonEnabled
           // 解析過 config.enableDirectCloseButton ?? LivebuySDK.isDirectCloseButtonEnabled()，這裡轉發
           // 的是「已解析值」，非 raw config 欄位。
@@ -389,6 +398,10 @@ export function LivebuyPlayerOverlays(props: LivebuyPlayerOverlaysProps): ReactE
         <ProductSheetsView
           template={template}
           theme={theme}
+          // Turnkey container composes over a real video surface → load the real product photos
+          // in the sheet list / detail /「更多商品」推薦格 / restock notice / zoom lightbox
+          // (rb-rn-product-sheets-live-images-wiring; parity with PlayerShellView's `live` above).
+          live
           presented={productListPresented}
           onDismissList={(): void => setProductListPresented(false)}
           onOpenProduct={sheet.onOpenProduct}

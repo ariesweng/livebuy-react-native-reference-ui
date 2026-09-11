@@ -34,9 +34,12 @@
 //   LiveOverlayChrome({
 //       theme,                 // 1. resolved theme (first)
 //       announceText,          // 2. bound snapshot value(s)
-//       pinnedProducts,        //    (by value, from PlayerShellModel.livePinnedProducts)
+//       pinnedProducts,        //    (by value, from PlayerShellModel.livePinnedProducts —
+//                               //    真直播 — or .vodActiveProducts — 回放, see `isLive` below)
 //       hostCaption,           //    host-supplied static copy (GAP NOTE)
 //       showGestureHints,      //    static presentation toggle
+//       isLive,                //    真直播 vs 已結束直播回放 (default true, rb-rn-replay-live-
+//                               //    chrome-parity)
 //       autoFadeGestureHints,  //    3.5s-delay 0.6s-ease-out auto-fade toggle (default false,
 //                               //    rb-rn-live-overlay-gesture-hint-autofade — parity iOS/
 //                               //    Android/Flutter)
@@ -67,12 +70,23 @@ import { Animated, Easing, View, Pressable, PanResponder } from 'react-native';
 import { Text } from '../TightText';
 
 import { PageDots, clampIndex } from './NowIntroducingCarouselView';
+import { MegaphoneGlyph } from './MegaphoneGlyph';
 import { RemoteImage } from '../productsheets/RemoteImage';
 import { EqualizerGlyph } from '../productsheets/EqualizerGlyph';
 import { ProductStatusBadge } from '../productsheets/ProductStatusBadge';
 import type { ReferenceUITheme } from '../theme';
 import type { LBProduct } from 'livebuy-react-native';
 import { LBTestIDs } from '../testing/LBTestIDs';
+import { LIVE_BOTTOM_BAR_HEIGHT } from './LiveBottomBarView';
+
+/** Safety clearance (px) kept above `LiveBottomBarView`'s real height when positioning the bottom
+ *  row (announce banner + pinned-card carousel) — and, since `PlayerShellView.tsx` imports this
+ *  SAME constant for its VOD/replay caption overlay, the second consumer of this exact clearance
+ *  semantic (rb-rn-caption-overlay-bottom-bar-clearance-fix). Parity value to iOS
+ *  `bottomBarClearanceGap` / Flutter `captionOverlayBottomBarClearanceGap`. `export`ed so
+ *  `PlayerShellView.tsx` reuses this ONE constant rather than declaring a second, potentially
+ *  drifting copy. */
+export const LIVE_BOTTOM_BAR_CLEARANCE_GAP = 12;
 
 const NO_OP = (): void => {};
 /** No-op for the id-carrying dismiss callback (default → the close chip is inert;
@@ -124,7 +138,9 @@ const SOLD_OUT_TEXT_COLOR = '#9A96A3';
 // Static localized copy (matching iOS `LiveOverlayChromeView` + `LBPGestureHint`).
 /** Host caption label ("主持人"). */
 const HOST_CAPTION_LABEL = '主持人';
-/** Narrate-tag copy shown on the pinned card ("介紹中"). */
+/** Narrate-tag copy shown on the pinned card. Fixed literal — always「介紹中」，不受任何搶購場
+ *  旗標影響（撤回 rb-rn-flash-sale-live-signal-wiring 的「開標中」二選一變體，
+ *  rb-rn-narrating-banner-revert-flash-sale-text，2026-09-09 使用者拍板）。 */
 const NARRATE_TAG_TEXT = '介紹中';
 /** Sold-out price-line label ("已售完", rb-rn-live-pinned-card-soldout-label). */
 const SOLD_OUT_LABEL = '已售完';
@@ -135,16 +151,21 @@ const SOLD_OUT_LABEL = '已售完';
 // renders while genuinely live, see the file header's HOLD-HINT note below, but the copy itself
 // is written mode-agnostic to match the Requirement's wording).
 const HINT_TAP = '點擊畫面 = 切換乾淨模式';
-// HOLD-HINT REMOVED (rb-rn-gesture-clean-mode-v2): the R23 long-press-toggles-cleanMode copy this
-// constant used to hold is retired — R29's long-press instead starts a 2x-speed seek ONLY while
-// `isSeekable` (VOD / finished-live replay). This component is composed ONLY on the
-// `model.isLive === true` branch of `PlayerShellView` (see that file's render body — a finished-
-// live replay renders the VOD-side `NowIntroducingCarousel` chrome instead, an existing RN/iOS
-// architecture divergence, see this change's design.md Context), so `isSeekable` is UNCONDITIONALLY
-// `false` in every context this component ever renders in. Showing ANY long-press hint here would
-// therefore always describe a gesture that structurally cannot fire — so the hint pill (and its
-// backing string constant) is removed entirely rather than gated on a prop that would always
-// evaluate to "don't show" (see design.md Decision D7).
+// HOLD-HINT (rb-rn-gesture-clean-mode-v2 introduced the R29 long-press semantics; RESTORED by
+// rb-rn-replay-live-chrome-parity): the R23 long-press-toggles-cleanMode copy this line used to
+// hold under R23 is retired — R29's long-press instead starts a 2x-speed seek ONLY while
+// `isSeekable` (VOD / finished-live replay). Until `rb-rn-replay-live-chrome-parity`, this
+// component was composed ONLY on the `model.isLive === true` branch of `PlayerShellView` (a
+// finished-live replay rendered the VOD-side `NowIntroducingCarousel` chrome instead), so
+// `isSeekable` was UNCONDITIONALLY `false` in every context this component ever rendered in and
+// the hint pill was removed entirely (see that change's design.md Decision D7) rather than gated
+// on a prop that would always evaluate to "don't show". `rb-rn-replay-live-chrome-parity` unified
+// `PlayerShellView`'s Surface 4 branch to `usesLiveChrome` (真直播 OR 已結束直播回放), so this
+// component now ALSO renders for a finished-live replay — where `isSeekable` genuinely is `true`
+// and long-press really does start a 2x-speed seek (`handleVideoLongPress`, gated on
+// `isSeekable(...)` in `PlayerShellView.tsx`). `HINT_HOLD` restores this line, gated on the new
+// `isLive` prop below (`isLive === false` — see `gestureHints`).
+const HINT_HOLD = '長按畫面 = 2倍速快轉';
 const HINT_SWIPE = '上下滑動 = 切換影片';
 
 /** Props for the family-1 LIVE overlay chrome surface (SUB-VIEW INPUT PATTERN). */
@@ -177,16 +198,32 @@ export interface LiveOverlayChromeProps {
    */
   readonly showGestureHints?: boolean;
   /**
+   * LIVE vs 已結束直播回放 flag (`rb-rn-replay-live-chrome-parity`, parity iOS
+   * `LiveOverlayChromeView.isLive`). This component renders on `PlayerShellView`'s
+   * `usesLiveChrome` branch (`model.isLive || model.isFinishedLiveReplay`) — `isLive` narrows
+   * WHICH of those two sub-states is active, driving two behaviors: (1) the long-press
+   * 2倍速快轉 gesture hint (`HINT_HOLD`) shows ONLY when `isLive === false` (已結束直播回放, where
+   * long-press genuinely starts a 2x-speed seek — see `HINT_HOLD`'s own doc comment); (2)
+   * {@link isNarrating} treats every pinned product as narrating when `isLive === false` (its
+   * source, `PlayerShellModel.vodActiveProducts`, is already time-window-filtered — see that
+   * function's doc). Default **`true`** — every existing call site (which predates this prop,
+   * and only ever rendered while genuinely live) keeps its exact prior behavior:
+   * structural-snapshot byte-identical, no hold-hint line, `narrateStatus === 2` still gates
+   * the 介紹中 ribbon.
+   */
+  readonly isLive?: boolean;
+  /**
    * Auto-fade the gesture-hint pills to fully transparent 3.5s after they appear (0.6s ease-out),
    * parity iOS `LiveOverlayChromeView.swift:124,189,216-224` / Android `LiveOverlayChrome.kt`
    * (`rb-android-live-overlay-gesture-hint-autofade`) / Flutter `live_overlay_chrome_view.dart`
    * (`rb-flutter-live-overlay-gesture-hint-autofade`). Defaults to `false` (existing behaviour:
    * the hints stay fully opaque forever, no timer/animation side effect — reference-ui baseline
    * byte-identical). `true` mirrors `live` (demo/snapshot placeholder vs real content) — NOT
-   * `model.isLive` (a different, orthogonal flag; this component only ever renders on the
-   * `model.isLive === true` branch of `PlayerShellView`, so using `isLive` here would make this
-   * prop always evaluate `true`, defeating its demo/snapshot exclusion — rb-rn-live-overlay-
-   * gesture-hint-autofade design.md D2).
+   * {@link isLive} (a different, orthogonal flag that answers "genuinely live vs a finished
+   * replay", not "demo data vs real runtime data" — a real, running finished-live replay has
+   * `isLive === false` yet is by no means a snapshot/demo instance, so feeding `isLive` here
+   * would wrongly suppress the auto-fade for that real-runtime case — rb-rn-live-overlay-
+   * gesture-hint-autofade design.md D2, reaffirmed by `rb-rn-replay-live-chrome-parity`).
    */
   readonly autoFadeGestureHints?: boolean;
   /**
@@ -218,6 +255,19 @@ export interface LiveOverlayChromeProps {
    * (snapshot-safe). live-announce-tap-open-info-panel.
    */
   readonly onTapAnnounce?: () => void;
+  /**
+   * Extra bottom lift (px) applied to the bottom row (announce banner + pinned-card carousel)
+   * during the playback-progress bar's post-release hold window, so it clears the still-expanded
+   * transport bar (rb-rn-scrub-expanded-chrome-lift, parity iOS `LiveOverlayChromeView.bottomInset`
+   * / Android `LiveOverlayChrome.bottomInset`). `PlayerShellView` feeds its own `scrubChromeLift`
+   * here. Default `0` (existing behaviour: the bottom row stays anchored at `bottom:
+   * LIVE_BOTTOM_BAR_HEIGHT + LIVE_BOTTOM_BAR_CLEARANCE_GAP` — `72` — baseline byte-identical).
+   * That base `bottom` value is itself derived from `LiveBottomBarView.LIVE_BOTTOM_BAR_HEIGHT`
+   * (the bar's real rendered height, single source of truth) plus `LIVE_BOTTOM_BAR_CLEARANCE_GAP`
+   * (this file's own safety gap constant) — it is NO LONGER the hard-coded literal `64` that was
+   * zero-coupled to `LiveBottomBarView`'s actual layout (rb-rn-caption-overlay-bottom-bar-clearance-fix).
+   */
+  readonly bottomInset?: number;
 }
 
 /**
@@ -235,11 +285,13 @@ export function LiveOverlayChrome(props: LiveOverlayChromeProps): ReactElement {
     pinnedProducts,
     hostCaption = '',
     showGestureHints = true,
+    isLive = true,
     autoFadeGestureHints = false,
     live = false,
     onTapPinnedProduct = NO_OP,
     onDismissPinnedProduct = NO_OP_ID,
     onTapAnnounce = NO_OP,
+    bottomInset = 0,
   } = props;
 
   // Full-bleed overlay. Affordances are positioned with absolute placement so the
@@ -279,7 +331,7 @@ export function LiveOverlayChrome(props: LiveOverlayChromeProps): ReactElement {
             justifyContent: 'center',
           }}
         >
-          <FadingGestureHints autoFade={autoFadeGestureHints}>{gestureHints(theme)}</FadingGestureHints>
+          <FadingGestureHints autoFade={autoFadeGestureHints}>{gestureHints(theme, isLive)}</FadingGestureHints>
         </View>
       ) : null}
 
@@ -297,7 +349,14 @@ export function LiveOverlayChrome(props: LiveOverlayChromeProps): ReactElement {
           position: 'absolute',
           left: 8,
           right: 10,
-          bottom: 64,
+          // Base clearance is `LIVE_BOTTOM_BAR_HEIGHT + LIVE_BOTTOM_BAR_CLEARANCE_GAP` (= 72) —
+          // the bar's real rendered height (single source of truth) plus an explicit safety gap,
+          // NOT a hard-coded literal `64` zero-coupled to LiveBottomBarView's actual layout
+          // (rb-rn-caption-overlay-bottom-bar-clearance-fix). `bottomInset` (default 0, additive)
+          // lifts this row further clear of the still-expanded playback-progress transport bar
+          // during its post-release hold window (rb-rn-scrub-expanded-chrome-lift, parity
+          // iOS/Android `bottomInset`).
+          bottom: LIVE_BOTTOM_BAR_HEIGHT + LIVE_BOTTOM_BAR_CLEARANCE_GAP + bottomInset,
           flexDirection: 'row',
           alignItems: 'flex-end',
         }}
@@ -308,6 +367,7 @@ export function LiveOverlayChrome(props: LiveOverlayChromeProps): ReactElement {
           theme={theme}
           products={pinnedProducts}
           live={live}
+          isLive={isLive}
           onTap={onTapPinnedProduct}
           onDismiss={onDismissPinnedProduct}
         />
@@ -336,10 +396,11 @@ function PinnedCardCarousel(props: {
   theme: ReferenceUITheme;
   products: readonly LBProduct[];
   live: boolean;
+  isLive: boolean;
   onTap: () => void;
   onDismiss: (id: string) => void;
 }): ReactElement | null {
-  const { theme, products, live, onTap, onDismiss } = props;
+  const { theme, products, live, isLive, onTap, onDismiss } = props;
   const [index, setIndex] = useState(0);
 
   // Refs so the once-created PanResponder reads the current index / length without stale
@@ -370,7 +431,7 @@ function PinnedCardCarousel(props: {
   // prior single-`pinnedProduct` render). Index state / PanResponder above are created
   // unconditionally (rules of hooks) but unused here.
   if (products.length === 1) {
-    return pinnedCard(theme, product, live, onTap, onDismiss);
+    return pinnedCard(theme, product, live, isLive, onTap, onDismiss);
   }
 
   // > 1 → 分頁點 (above, trailing-aligned over the 132-wide card) + current card + horizontal swipe.
@@ -384,7 +445,7 @@ function PinnedCardCarousel(props: {
         testIDPrefix="live-pinned-dot"
       />
       <View style={{ height: 6 }} />
-      {pinnedCard(theme, product, live, onTap, onDismiss)}
+      {pinnedCard(theme, product, live, isLive, onTap, onDismiss)}
     </View>
   );
 }
@@ -418,7 +479,9 @@ function announceBanner(theme: ReferenceUITheme, text: string, onTap: () => void
         alignItems: 'center',
       }}
     >
-      {/* Red icon badge (`#F03246`, 22×22, radius 5) — megaphone glyph. */}
+      {/* Red icon badge (`#F03246`, 22×22, radius 5) — self-drawn bullhorn vector glyph
+          (`MegaphoneGlyph`, `design/shared/icons.jsx` `Icons.megaphone`, rb-rn-live-announce-
+          bullhorn-icon), replacing the prior emoji placeholder (`'\u{1F4E2}'` 📢). */}
       <View
         style={{
           width: 22,
@@ -429,11 +492,12 @@ function announceBanner(theme: ReferenceUITheme, text: string, onTap: () => void
           justifyContent: 'center',
         }}
       >
-        <Text style={{ fontSize: 12, color: '#FFFFFF' }}>{'\u{1F4E2}'}</Text>
+        <MegaphoneGlyph color="#FFFFFF" size={13} />
       </View>
-      {/* Announce copy (single-line truncated — `LBPMarqueeText` static frame). */}
+      {/* Announce copy (up to 2 lines, ellipsis-truncated beyond — `LBPMarqueeText` static
+          frame; rb-rn-live-announce-two-line-clearance-fix, parity design/iOS/Android/Flutter). */}
       <Text
-        numberOfLines={1}
+        numberOfLines={2}
         ellipsizeMode="tail"
         style={{
           marginLeft: 8,
@@ -463,6 +527,7 @@ function pinnedCard(
   theme: ReferenceUITheme,
   product: LBProduct,
   live: boolean,
+  isLive: boolean,
   onTap: () => void,
   onDismiss: (id: string) => void,
 ): ReactElement {
@@ -499,7 +564,7 @@ function pinnedCard(
             的小字列改為疊在縮圖底部的滿版色塊——固定珊瑚紅底、白字，對齊 `LBPProductRow` 的
             「介紹中」橫幅視覺語彙（同一色值 `NARRATE_BANNER_COLOR`）。取代原本畫在下方 padding
             區塊內、`theme.accent` 圖示+文字的小字列。 */}
-        {isNarrating(product) ? (
+        {isNarrating(product, isLive) ? (
           <View
             pointerEvents="none"
             style={{
@@ -681,15 +746,25 @@ function FadingGestureHints(props: {
 }
 
 /**
- * Two centered dark hint pills (`LBPGestureHint`): tap-to-toggle-clean-mode, swipe-to-switch
- * (rb-rn-gesture-clean-mode-v2 — the long-press hint pill is removed entirely, see `HINT_TAP`'s
- * doc comment). Pure static localized copy. Wrapped by {@link FadingGestureHints} at the call site
- * for the optional `autoFadeGestureHints` auto-fade (rb-rn-live-overlay-gesture-hint-autofade).
+ * Centered dark hint pills (`LBPGestureHint`): tap-to-toggle-clean-mode, (已結束直播回放限定)
+ * long-press-2x-speed-seek, swipe-to-switch. The hold-hint pill (`HINT_HOLD`) is included ONLY
+ * when `isLive === false` — restored by `rb-rn-replay-live-chrome-parity` (see `HINT_HOLD`'s own
+ * doc comment for why it was previously removed entirely and why that's no longer correct now
+ * that this component also renders for a finished-live replay). `isLive === true` (真直播,
+ * default) keeps the prior two-line, byte-identical shape. Pure static localized copy. Wrapped by
+ * {@link FadingGestureHints} at the call site for the optional `autoFadeGestureHints` auto-fade
+ * (rb-rn-live-overlay-gesture-hint-autofade).
  */
-function gestureHints(theme: ReferenceUITheme): ReactElement {
+function gestureHints(theme: ReferenceUITheme, isLive: boolean): ReactElement {
   return (
     <View style={{ alignItems: 'center' }}>
       {gestureHintPill(theme, '\u{1F446}', HINT_TAP)}
+      {!isLive ? (
+        <>
+          <View style={{ height: 8 }} />
+          {gestureHintPill(theme, '✋', HINT_HOLD)}
+        </>
+      ) : null}
       <View style={{ height: 8 }} />
       {gestureHintPill(theme, '↕', HINT_SWIPE)}
     </View>
@@ -745,11 +820,16 @@ export function visiblePinnedProducts(
 }
 
 /**
- * The pinned product is "narrating" when `narrateStatus === 2` (core
- * convention). Pure.
+ * The pinned product is "narrating" when `narrateStatus === 2` (core convention) — but ONLY
+ * when the pinned card comes from a genuinely-live source (`isLive === true`, `pinnedProducts`
+ * fed from `PlayerShellModel.livePinnedProducts`). `rb-rn-replay-live-chrome-parity`:
+ * `isLive === false`（已結束直播回放，`pinnedProducts` 改餵 `PlayerShellModel.vodActiveProducts`）
+ * 一律回傳 `true` — `narrate_status` 是主播直播中手動驅動的狀態機，直播結束後即凍結在最後一個值，
+ * 對這個來源沒有可用語意；`vodActiveProducts` 本身已經是時間窗 `[beginTime, endTime)` 篩選過的清單，
+ * 篩進來的每一件本來就該視為「介紹中」。Parity iOS/Android/Flutter 同名函式。Pure.
  */
-function isNarrating(product: LBProduct): boolean {
-  return product.narrateStatus === 2;
+function isNarrating(product: LBProduct, isLive: boolean): boolean {
+  return isLive ? product.narrateStatus === 2 : true;
 }
 
 /**

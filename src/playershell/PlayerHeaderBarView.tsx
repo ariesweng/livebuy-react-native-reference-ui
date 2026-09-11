@@ -60,6 +60,7 @@ import { RemoteImage } from '../productsheets/RemoteImage';
 import { LBTestIDs } from '../testing/LBTestIDs';
 import { MarqueeTitle } from './MarqueeTitleView';
 import { PeopleGlyph } from './PeopleGlyph';
+import { PipGlyph } from './PipGlyph';
 import { SpeakerSlashGlyph, SpeakerWaveGlyph } from './SpeakerGlyphs';
 
 // MARK: - Decorative design tokens (literal hex from live-chrome.jsx)
@@ -96,15 +97,26 @@ export interface PlayerHeaderBarProps {
   readonly viewerCount: number;
   /** Subscribe affordance state (`playerHeaderState.isSubscribed`). */
   readonly isSubscribed: boolean;
-  /** LIVE vs VOD flag (`playerHeaderState.isLive`, channel `liveStatus == 1`). Per design
-   *  `LBPHostBadge`: the viewer count shows ⟺ `isLive`; the LIVE pill shows ⟺
-   *  `isLive && !isReplay`. VOD (`isLive === false`) shows neither. */
+  /** LIVE-chrome-family vs VOD flag. Per design `LBPHostBadge`: the viewer count shows ⟺
+   *  `isLive`; the LIVE pill shows ⟺ `isLive && !isReplay`. VOD (`isLive === false`) shows
+   *  neither. `PlayerShellView`'s call site feeds this the region variable `usesLiveChrome`
+   *  (`model.isLive || model.isFinishedLiveReplay`, `rb-rn-playerheaderbar-viewer-count-
+   *  replay-parity`, parity iOS/Flutter's identically-fed prop) — NOT the raw narrower
+   *  `playerHeaderState.isLive` — so a finished-live replay (which wears LIVE chrome) still
+   *  shows the viewer count; see {@link isReplay}'s doc comment for how the LIVE pill stays
+   *  correctly hidden in that case despite `isLive` being `true` here. */
   readonly isLive: boolean;
-  /** Replay (回放) flag — a LIVE stream scrubbed behind the live edge
-   *  (`DefaultPlaybackProgressState.isReplay`; `liveStatus == 1` so `isLive` STAYS true,
-   *  `isReplay === true`). A by-value presentation flag fed from `PlayerShellModel.isReplay`
-   *  (NOT a new view-model). Design `hideLivePill = isReplay`: replay HIDES the LIVE pill
-   *  but KEEPS the viewer count. */
+  /** Replay flag driving `hideLivePill = isReplay` (LIVE pill shows ⟺ `isLive && !isReplay`,
+   *  viewer count is UNAFFECTED by this flag). Covers TWO mutually-exclusive by-value
+   *  presentation states the call site ORs together (`rb-rn-playerheaderbar-viewer-count-
+   *  replay-parity`, parity iOS `PlayerShellView.swift:1504` / Flutter
+   *  `player_shell_view.dart:1345`): (1) 回放 scrubbed behind the live edge WHILE still
+   *  actually live (`DefaultPlaybackProgressState.isReplay`; `liveStatus == 1` so `isLive`
+   *  stays `true`); (2) 已結束直播的回放 (`PlayerShellModel.isFinishedLiveReplay`,
+   *  `liveStatus == 3`, no longer live in the narrow sense but still `isLive` here per
+   *  {@link isLive}'s doc comment). Both states hide the LIVE pill (correct — neither is a
+   *  currently-live broadcast) while `isLive` alone keeps the viewer count visible. Fed from
+   *  `PlayerShellModel` (NOT a new view-model). */
   readonly isReplay: boolean;
   /** Live-runtime image gate (parity with iOS/Android `live`). `true` → the avatar
    *  loads the real `shopLogo` via `RemoteImage`; `false` (demo / snapshot — DEFAULT)
@@ -168,8 +180,8 @@ export interface PlayerHeaderBarProps {
    */
   readonly muted?: boolean;
   /**
-   * Whether the trailing top-right button shows a close (✕) icon instead of the minimize (`◳`)
-   * icon (rb-rn-player-direct-close-button). Default `false` — draws the existing minimize icon,
+   * Whether the trailing top-right button shows a close (✕) icon instead of the minimize
+   * (`PipGlyph`) icon (rb-rn-player-direct-close-button). Default `false` — draws the existing minimize icon,
    * byte-identical to before this prop existed. `true` → draws the close glyph (the SAME character
    * `FloatingWidgetView` / `MinimizedWidgetView` already use for their own close buttons) and
    * switches the accessibility label to「關閉」(see {@link minimizeButtonAccessibilityLabel}).
@@ -624,12 +636,13 @@ function renderMinimizeButton(
   onMinimize?: () => void,
   showCloseIcon = false,
 ): ReactElement {
-  // ◳ = a small frame in the lower-right quadrant — the bottom-right floating
-  // preview the minimize collapses into (parity to iOS SF Symbol `pip.enter`).
+  // PipGlyph = self-drawn frame + inset rect + directional arrow — the bottom-right floating
+  // preview the minimize collapses into (parity iOS/Android `PipGlyph`, rb-rn-icon-parity-
+  // player-minimize-pip; replaces the prior bare Unicode `'◳'` text-glyph placeholder).
   // showCloseIcon === true → ✕ instead (rb-rn-player-direct-close-button): the caller resolved
   // `LivebuyPlayerConfig.enableDirectCloseButton` and decided the tap now closes directly — this
   // component only draws the glyph the caller asked for, it does not decide which one to use.
-  const glyph = showCloseIcon ? CLOSE_GLYPH : '◳';
+  const glyph = showCloseIcon ? CLOSE_GLYPH : <PipGlyph color={ON_GLASS} size={20 * theme.fontScale} />;
   return renderGlassIconButton(
     theme,
     'minimize',
@@ -673,14 +686,17 @@ function renderMuteButton(
 }
 
 /** A 36×36 round glass icon button (live-chrome.jsx iconBtn). Always rendered so
- *  the chrome is visually complete; inert when its callback is omitted. The glyph
- *  is a deterministic Text glyph (no vector-icons dep). The `minimize` role carries the
- *  registry `playerMinimize` testID; any other role has no registry id, so it is drawn
- *  WITHOUT a testID (the prior ad-hoc `player-header-icon-${role}` literal is removed). */
+ *  the chrome is visually complete; inert when its callback is omitted. `glyph` is either a
+ *  deterministic Text glyph (a bare character, e.g. `CLOSE_GLYPH`, no vector-icons dep) OR a
+ *  pre-built vector glyph element (e.g. `PipGlyph`, rb-rn-icon-parity-player-minimize-pip) — a
+ *  `string` renders through the existing `<Text>` path byte-identically, anything else is
+ *  returned as-is. The `minimize` role carries the registry `playerMinimize` testID; any other
+ *  role has no registry id, so it is drawn WITHOUT a testID (the prior ad-hoc
+ *  `player-header-icon-${role}` literal is removed). */
 function renderGlassIconButton(
   theme: ReferenceUITheme,
   role: string,
-  glyph: string,
+  glyph: string | ReactElement,
   onPress?: () => void,
   accessibilityLabel?: string,
 ): ReactElement {
@@ -700,7 +716,11 @@ function renderGlassIconButton(
           justifyContent: 'center',
         }}
       >
-        <Text style={{ color: ON_GLASS, fontSize: 20 * theme.fontScale }}>{glyph}</Text>
+        {typeof glyph === 'string' ? (
+          <Text style={{ color: ON_GLASS, fontSize: 20 * theme.fontScale }}>{glyph}</Text>
+        ) : (
+          glyph
+        )}
       </View>
     </Pressable>
   );

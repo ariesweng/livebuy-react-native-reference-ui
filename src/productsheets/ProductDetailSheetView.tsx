@@ -183,6 +183,8 @@ import { CartGlyph } from './CartGlyph';
 import { CartSpinnerView } from './CartSpinnerView';
 import { RemoteImage } from './RemoteImage';
 import { ShareGlyph } from '../playershell/ShareGlyph';
+import { HeartFillGlyph } from '../playershell/HeartFillGlyph';
+import { HeartGlyph } from '../playershell/HeartGlyph';
 import { SheetHeaderCloseButton } from './SheetHeaderCloseButton';
 import { WarningGlyph } from './WarningGlyph';
 import { SheetScaffold } from './SheetScaffold';
@@ -221,8 +223,11 @@ const STROKE_STRONG = '#D8D5DE';
 const BG_SUNKEN = '#F4F4F6';
 /** `theme.soldOut` (sold-out copy color — design `#9A96A3`). */
 const SOLD_OUT_COLOR = '#9A96A3';
-/** Product-photo placeholder gradient stop (the design's warm media chip). */
-const PHOTO_FILL = '#E27D5A';
+/** Product-photo placeholder fill — neutral gray (rb-rn-product-image-loading-polish; was the
+ *  design's warm media-chip color `'#E27D5A'`). Distinct from the scale-down-letterbox
+ *  whitespace fill (`'#FFFFFF'`, below) — that is "image loaded, native size narrower than the
+ *  container", this is "no image to draw yet"; MUST NOT be conflated. */
+const PHOTO_FILL = '#8E8E93';
 /** Gallery non-current thumbnail overlay (rb-rn-product-detail-image-gallery, design R34
  *  `rgba(0,0,0,0.5)` — marks every thumbnail OTHER than the currently-selected one). */
 const GALLERY_THUMB_OVERLAY = 'rgba(0,0,0,0.5)';
@@ -324,9 +329,6 @@ const RECOMMENDATIONS_MAX = 12;
 /** Stepper minus / plus glyphs. */
 const GLYPH_MINUS = '−';
 const GLYPH_PLUS = '+';
-/** 收藏鈕 heart glyphs — 實心 (faved) / 空心 (not faved). */
-const GLYPH_HEART_FILLED = '♥'; // ♥
-const GLYPH_HEART_OUTLINE = '♡'; // ♡
 
 /** Up-to-2-char monogram from the product name (deterministic, pure). Mirrors iOS
  *  `monogram` / Android `monogram` / Flutter `_monogram`. */
@@ -1166,9 +1168,11 @@ export function ProductDetail(props: ProductDetailProps): ReactElement {
           justifyContent: 'center',
         }}
       >
-        <Text style={{ fontSize: 18, color: faved ? theme.accent : theme.text }}>
-          {faved ? GLYPH_HEART_FILLED : GLYPH_HEART_OUTLINE}
-        </Text>
+        {faved ? (
+          <HeartFillGlyph color={theme.accent} size={18} />
+        ) : (
+          <HeartGlyph color={theme.text} size={18} />
+        )}
         <Text
           style={{
             marginLeft: 6,
@@ -1810,6 +1814,12 @@ export function ProductDetail(props: ProductDetailProps): ReactElement {
         footer={footer}
         fillToCap={isAddToCart}
         capPct={heightPct}
+        // Reset the scrollable body to the top whenever the OPEN PRODUCT changes — a「更多商品」
+        // recommendation-card tap swaps `detail` in place on this SAME mounted instance (see the
+        // photo-gallery reset `useEffect` above, keyed on the same `detail.productId` for the
+        // same reason), so without this the previous product's scroll offset would otherwise
+        // survive the swap (rb-rn-recommendation-switch-scroll-reset).
+        scrollResetKey={detail.productId}
       />
 
       {/* 「請選規格」prompt 已 hoist 到容器 `ProductSheetsView` 的 player overlay root（TOPMOST）

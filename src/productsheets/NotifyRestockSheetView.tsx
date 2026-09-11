@@ -57,6 +57,8 @@ import { ZoomBadge } from './ZoomBadge';
 import { RemoteImage } from './RemoteImage';
 import { SheetHeaderCloseButton } from './SheetHeaderCloseButton';
 import { SheetScaffold } from './SheetScaffold';
+import { BellGlyph } from './BellGlyph';
+import { BellFillGlyph } from './BellFillGlyph';
 import { LBTestIDs } from '../testing/LBTestIDs';
 import type { ReferenceUITheme } from '../theme';
 import type { LBProductDetailState } from 'livebuy-react-native-ui';
@@ -97,8 +99,10 @@ const GLYPH_PHOTO = '\u{1F5BC}'; // 🖼 framed picture
 /** Disabled qty stepper minus / plus glyphs (`Icons.remove` / `Icons.add`). */
 const GLYPH_MINUS = '−'; // − minus sign
 const GLYPH_PLUS = '+'; // + plus sign
-/** Restock CTA bell glyph (state conveyed by outline vs filled CTA + label). */
-const GLYPH_BELL = '\u{1F514}'; // 🔔 bell
+// Restock CTA bell — a self-drawn `react-native-svg` glyph (rb-rn-icon-parity-restock-bell-fill),
+// NOT a Text glyph: `BellGlyph` (outline, not subscribed) / `BellFillGlyph` (filled, subscribed),
+// switched by `restockSubscribed` at the CTA render site below. Parity iOS (`bell`/`bell.fill`)
+// and Android (`BellGlyph`/`BellFillGlyph`).
 
 /** Props for the family-3 SOLD-OUT restock-notify sheet (surface 4). */
 export interface NotifyRestockSheetProps {
@@ -373,9 +377,11 @@ export function NotifyRestockSheet(props: NotifyRestockSheetProps): ReactElement
             backgroundColor: restockSubscribed ? theme.accent : 'transparent',
           }}
         >
-          <Text style={{ fontSize: 18, color: restockSubscribed ? ON_ACCENT_TEXT : theme.accent }}>
-            {GLYPH_BELL}
-          </Text>
+          {restockSubscribed ? (
+            <BellFillGlyph color={ON_ACCENT_TEXT} size={18} />
+          ) : (
+            <BellGlyph color={theme.accent} size={18} />
+          )}
           <Text
             style={{
               marginLeft: 8,

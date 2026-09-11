@@ -94,6 +94,8 @@ import type { ReferenceUITheme } from '../theme';
 import { LBTestIDs, chatLine } from '../testing/LBTestIDs';
 import { BagGlyph } from '../playershell/BagGlyph';
 import { ArrowDownGlyph } from './ArrowDownGlyph';
+import { CrownGlyph } from './CrownGlyph';
+import { SparklesGlyph } from './SparklesGlyph';
 
 // MARK: - Decorative design tokens (literal hex / rgba from moments.jsx)
 //
@@ -108,6 +110,14 @@ const ON_GLASS = '#FFFFFF';
 const ON_GLASS_JOIN_TEXT = 'rgba(255,255,255,0.9)';
 /** On-glass dim `rgba(255,255,255,0.72)` (已參加 chip text). */
 const ON_GLASS_DIM = 'rgba(255,255,255,0.72)';
+/** General-audience `ChatLineRow` nickname-prefix pink `#FBB0B7` (rb-rn-chat-audience-bubble-
+ *  pink-nickname-full-lines — supersedes the prior `ON_GLASS_DIM` on this call site). Same
+ *  literal as `HOST_ROW_NON_HOST_NAME_COLOR` (declared near `HostChatRow` below) — kept as a
+ *  DISTINCT named constant rather than a shared/reused one: that constant's name and doc comment
+ *  are scoped to HostChatRow's non-host role branch, and reusing it here for the unrelated plain-
+ *  audience row would read confusingly at each call site. Change either independently if the two
+ *  rows' pink ever diverges. */
+const AUDIENCE_NICKNAME_PINK = '#FBB0B7';
 /** Chat avatar glyph — dark `#3a2e25` (reads on the pastel demo avatars; updated
  *  `LBChatLine` ACT_SLOT — was white). */
 const AVATAR_GLYPH_COLOR = '#3a2e25';
@@ -404,28 +414,31 @@ function ScrollableChatFeed(props: ChatFeedProps): ReactElement {
         ))}
       </ScrollView>
       {showPill ? (
-        <Pressable
-          onPress={returnToLatest}
-          testID={LBTestIDs.chatScrollToBottom}
-          style={{
-            position: 'absolute',
-            right: 0,
-            bottom: 6,
-            backgroundColor: theme.accent,
-            borderRadius: 999,
-            paddingHorizontal: 12,
-            paddingVertical: 6,
-          }}
-        >
-          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-            <ArrowDownGlyph color={ON_GLASS} size={10} />
-            <Text
-              style={{ marginLeft: 4, color: ON_GLASS, fontSize: 11.5 * theme.fontScale, fontWeight: '600' }}
-            >
-              最新訊息
-            </Text>
-          </View>
-        </Pressable>
+        // rb-rn-chat-pill-color-align: horizontally centered via an outer full-width absolute
+        // wrapper (left:0, right:0, alignItems:'center') around a content-width Pressable — same
+        // idiom as MinimizedWidgetView.tsx's dragHandleSlot / ActivitySheetView.tsx's badge
+        // wrapper. The Pressable itself no longer carries position/right/bottom.
+        <View style={{ position: 'absolute', left: 0, right: 0, bottom: 6, alignItems: 'center' }}>
+          <Pressable
+            onPress={returnToLatest}
+            testID={LBTestIDs.chatScrollToBottom}
+            style={{
+              backgroundColor: '#FFFFFF',
+              borderRadius: 999,
+              paddingHorizontal: 12,
+              paddingVertical: 6,
+            }}
+          >
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <ArrowDownGlyph color={theme.accent} size={10} />
+              <Text
+                style={{ marginLeft: 4, color: theme.accent, fontSize: 11.5 * theme.fontScale, fontWeight: '600' }}
+              >
+                最新訊息
+              </Text>
+            </View>
+          </Pressable>
+        </View>
       ) : null}
     </View>
   );
@@ -460,13 +473,19 @@ function renderRow(
           replyText={item.replyText}
         />
       );
-    case 'eventJoin':
+    case 'eventJoin': {
+      // rb-rn-event-join-streamer-name: prefer the per-message author name carried by THIS push
+      // (`EventJoinFeedItem.userName`, see its doc comment) over the shared channel-level
+      // `hostName`; fall back to `hostName` when absent/blank. Same idiom as `ChatLineRow` /
+      // `HostChatRow`'s `hasName` check elsewhere in this file — do not just check `!== undefined`.
+      const hasEventUserName = typeof item.userName === 'string' && item.userName.length > 0;
+      const eventHostName = hasEventUserName ? item.userName! : hostName;
       return (
         <EventJoinLineRow
           theme={theme}
           text={item.text}
           joined={item.joined}
-          hostName={hostName}
+          hostName={eventHostName}
           // 後端「ek isset 才顯示 CTA」契約：keyword 非空 → 畫加入活動 CTA；空（活動結束 / 純公告）→
           // 只留 header + 文案（event-join-cta gating，對齊 iOS/Android hasCTA）。
           hasCTA={item.keyword.length > 0}
@@ -475,6 +494,7 @@ function renderRow(
           onTap={() => onJoin?.(item.eid, item.keyword)}
         />
       );
+    }
     case 'productSale':
       // onsale（商品開賣）已改走 host 主播聊天氣泡（DefaultTemplate `appendChat(isHost:true)`），
       // `productSale` feed item 零 production 產生，商品開賣卡（`ProductSaleCardRow`）為死碼、已移除。
@@ -554,11 +574,25 @@ function ChatLineRow(props: {
         </>
       ) : null}
       {/* Translucent dark bubble carrying the FULL backend-prebuilt text (NOT split). When a
-          nickname is present it leads with a dimmed INLINE prefix INSIDE the bubble (design
+          nickname is present it leads with an INLINE prefix INSIDE the bubble (design
           `LBChatLine` viewer path, rb-rn-chat-message-colon-separator:
           `<span opacity .66 weight 600>{user}：</span><span>{text}</span>` — nickname + a
-          full-width colon separator, same line, one bubble). No nickname → just the message
-          (byte-identical legacy bubble). ACT_BUBBLE: radius 12, black 0.42, padding h11/v5. */}
+          full-width colon separator, same line, one bubble). No nickname → just the message.
+          ACT_BUBBLE: radius 12, black 0.42, padding h11/v5. rb-rn-chat-audience-bubble-pink-
+          nickname-full-lines: the nickname prefix now renders in the fixed design pink
+          `AUDIENCE_NICKNAME_PINK` (`#FBB0B7`, supersedes the prior dimmed `ON_GLASS_DIM`), and
+          this message `Text` no longer caps at `numberOfLines={2}` — omitting the prop is RN's
+          own "unlimited lines" behavior, so a long message wraps in full instead of being
+          ellipsis-truncated. This applies to BOTH the with-nickname and no-nickname branches
+          below (the prop lived on the shared outer `Text`, not the nickname fragment), so the
+          "byte-identical legacy bubble" claim for the no-nickname branch now covers structure/
+          content only, not the removed line cap. rb-rn-chat-audience-nickname-colon-color-fix:
+          the nickname and its trailing colon are now two INDEPENDENT nested `<Text>` nodes (not
+          one node carrying a combined `` `${userName}：` `` string) — the prior single-node
+          version incorrectly painted the colon the same pink as the nickname. Design source
+          `moments.jsx` `LBChatLine` (lines ~429-452) and this file's own `HostChatRow` header
+          both treat the nickname and the colon as separate nodes with the colon fixed white;
+          this bubble now matches that pattern. */}
       <View
         style={{
           flexShrink: 1,
@@ -569,7 +603,6 @@ function ChatLineRow(props: {
         }}
       >
         <Text
-          numberOfLines={2}
           style={{
             color: ON_GLASS,
             fontSize: 11.5 * theme.fontScale,
@@ -578,15 +611,26 @@ function ChatLineRow(props: {
           }}
         >
           {hasName ? (
-            // Dimmed inline nickname prefix + a full-width colon separator (rb-rn-chat-message-
-            // colon-separator, design `LBChatLine` viewer path: `{m.user}{!isHost && '：'}`,
-            // marginRight now 0 — the colon itself is the visual separator, no trailing-space
-            // gap), then the message body (backend-prebuilt text, NOT name-embedded). No
-            // nickname → the bare `text` string is the SOLE child, so the pre-nickname bubble
-            // stays byte-identical. Role rows (HostChatRow) are a separate function and are NOT
-            // affected by this separator.
+            // Pink inline nickname (fixed design `AUDIENCE_NICKNAME_PINK` #FBB0B7,
+            // rb-rn-chat-audience-bubble-pink-nickname-full-lines — supersedes the prior dimmed
+            // `ON_GLASS_DIM`) + a full-width colon separator (rb-rn-chat-message-colon-separator,
+            // design `LBChatLine` viewer path: `{m.user}{!isHost && '：'}`), then the message body
+            // (backend-prebuilt text, NOT name-embedded). No nickname → the bare `text` string is
+            // the SOLE child, so the pre-nickname bubble stays byte-identical on this
+            // nickname-prefix shape. rb-rn-chat-audience-nickname-colon-color-fix: the nickname and
+            // the colon are TWO INDEPENDENT nested `<Text>` nodes — the colon is fixed `ON_GLASS`
+            // white, MUST NOT share the nickname's pink (a prior version wrongly combined them into
+            // one `` `${userName}：` `` string on a single pink `<Text>`, painting the colon pink
+            // too). Both nodes omit an explicit `fontSize` and inherit it from the enclosing
+            // message `Text` above (nested-`Text` style inheritance), same as before the split.
+            // Role rows (HostChatRow) are a separate function and are NOT affected by this
+            // separator or this pink constant (HostChatRow keeps its own
+            // `HOST_ROW_NON_HOST_NAME_COLOR` constant — same literal, different scope — and already
+            // renders its own nickname/colon as two independent `<Text>` nodes, unaffected by the
+            // bug this change fixes).
             <>
-              <Text style={{ color: ON_GLASS_DIM, fontWeight: '600' }}>{`${userName!}：`}</Text>
+              <Text style={{ color: AUDIENCE_NICKNAME_PINK, fontWeight: '600' }}>{userName!}</Text>
+              <Text style={{ color: ON_GLASS, fontWeight: '600' }}>：</Text>
               {text}
             </>
           ) : (
@@ -601,9 +645,17 @@ function ChatLineRow(props: {
 // MARK: - HostChatRow — 角色版型聊天列 (chat-message-taxonomy ⑤c)
 //
 // 群組① 真正的聊天：主播留言 / 主播回覆 / AI 回覆，以**版型**而非顏色區分（parity iOS
-// `LBChatLineRow` hasRole 分支）。24px accent 圖示軌（host = 👑 crown、AI = ✨ sparkles）+
-// 中性深色氣泡（header 名牌 + 回覆引用框 + 訊息本文）。RN 沿用本檔 emoji-glyph 慣例（同 activity
-// 軌 🛍/📣/🏆、event ✨）。引用框只顯引用文字（後端無引用者名稱）。
+// `LBChatLineRow` hasRole 分支）。24px accent 圖示軌（host = crown、AI = sparkles）+ 中性深色
+// 氣泡（header 名牌 + 回覆引用框 + 訊息本文）。引用框只顯引用文字（後端無引用者名稱）。
+//
+// rb-rn-icon-parity-chatfeed-ai-host-badge: this rail's crown/sparkles glyph is a self-drawn
+// `react-native-svg` vector (`CrownGlyph` / `SparklesGlyph`, below), NOT an emoji — most emoji
+// ignore an explicit `Text` `color` (system emoji font), so the old `'👑'`/`'✨'` `<Text>` glyphs
+// could never take an arbitrary fill color (parity gap vs. Android `IconGlyphs.kt`'s colorable
+// `CrownGlyph`/`SparklesGlyph`, iOS's colorable SF Symbol `crown.fill`/`sparkles`, and Flutter's
+// colorable Material `Icons.workspace_premium`/`Icons.auto_awesome`). This is UNRELATED to the
+// separate activity-tier icon slot (`renderIconSlot`, tier glyphs 🛍/📣/🏆/✨ for
+// Join/Browse/Purchase/Intro/Win) below in this same file, which is untouched and remains emoji.
 //
 // rb-rn-chat-message-line-restyle (design R30, `design/contract/claude-design-sync.md`,
 // 2026-09-03) restyled the header: the bubble no longer染整片 `theme.accent`（改用與觀眾留言
@@ -615,8 +667,21 @@ function ChatLineRow(props: {
 // `hasName` 即渲染——R30 把冒號從「只有觀眾留言有」擴大成「所有訊息都有」，parity `ChatLineRow`
 // 觀眾路徑既有的冒號慣例，但走獨立的 `<Text>` 節點而非同一個字串內聯拼接）。
 
+/** Which 24px accent-rail vector glyph a host-role chat row shows: AI replies (`isAI`) get the
+ *  sparkles glyph, everything else host-role (plain host chat / host replies) gets the crown
+ *  glyph — mirrors Android `ChatFeed.kt`'s `isAI -> SparklesGlyph / isHost -> CrownGlyph` switch.
+ *  Extracted as its own pure, exported function (rb-rn-icon-parity-chatfeed-ai-host-badge) so the
+ *  isAI/isHost switch is unit-testable independent of `HostChatRow`'s render-assembly gate
+ *  (`SHOW_FEED_ICON_SLOT`, currently `false` — see this file's MARK header above). Also reused by
+ *  `EventJoinLineRow`'s crown slot below (host-only, never AI). */
+export function hostRailGlyph(isAI: boolean, color: string): ReactElement {
+  return isAI ? <SparklesGlyph color={color} size={13} /> : <CrownGlyph color={color} size={12} />;
+}
+
 /** 非主播角色列（`hasRole===true && isHost===false`）暱稱顏色 — R30 固定粉色，取代原 `ON_GLASS`
- *  （中性深色氣泡上仍可辨識）。 */
+ *  （中性深色氣泡上仍可辨識）。同色值也被一般觀眾留言的 `AUDIENCE_NICKNAME_PINK`（`ChatLineRow`）
+ *  沿用（rb-rn-chat-audience-bubble-pink-nickname-full-lines）；兩者 scope 不同故各自維持獨立常
+ *  數，不合併，見該常數自己的 doc comment。 */
 const HOST_ROW_NON_HOST_NAME_COLOR = '#FBB0B7';
 /** 回覆引用框底 `rgba(0,0,0,0.30)` + 左側 accent 直條。 */
 const QUOTE_FILL = 'rgba(0,0,0,0.30)';
@@ -632,11 +697,10 @@ function HostChatRow(props: {
   const { theme, text, userName, isHost, isAI, replyText } = props;
   const hasName = typeof userName === 'string' && userName.length > 0;
   const hasReply = typeof replyText === 'string' && replyText.length > 0;
-  // AI glyph 優先（AI 回覆疊在主播回覆版型上）；否則 host crown。
-  const railGlyph = isAI ? '✨' : '👑';
   return (
     <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
-      {/* 24px accent 圖示軌（主播 crown / AI sparkles），取代觀眾的名字色頭像。
+      {/* 24px accent 圖示軌（主播 crown / AI sparkles，self-drawn `react-native-svg` vector —
+          rb-rn-icon-parity-chatfeed-ai-host-badge, see MARK header above），取代觀眾的名字色頭像。
           rb-rn-feed-avatar-icon-hide: gated by SHOW_FEED_ICON_SLOT — render logic kept
           intact for reversibility, just not assembled while hidden. */}
       {SHOW_FEED_ICON_SLOT ? (
@@ -651,7 +715,7 @@ function HostChatRow(props: {
               justifyContent: 'center',
             }}
           >
-            <Text style={{ color: ON_GLASS, fontSize: 12 }}>{railGlyph}</Text>
+            {hostRailGlyph(isAI, ON_GLASS)}
           </View>
           <View style={{ width: ROW_INNER_GAP }} />
         </>
@@ -835,6 +899,9 @@ function EventJoinLineRow(props: {
       {/* 24×24 round accent slot — OUTSIDE the bubble, crown icon (same as HostChatRow's host
           rail glyph — the design's own slot SVG path is byte-identical to the host crown path,
           confirming this is the host avatar-circle language, not a standalone sparkle icon).
+          rb-rn-icon-parity-chatfeed-ai-host-badge: self-drawn `CrownGlyph` vector, same fix as
+          HostChatRow's rail (this row is host-only, never AI, so it always uses the crown glyph
+          — no `hostRailGlyph` switch needed here).
           rb-rn-feed-avatar-icon-hide: gated by SHOW_FEED_ICON_SLOT — render logic kept intact
           for reversibility, just not assembled while hidden. */}
       {SHOW_FEED_ICON_SLOT ? (
@@ -849,7 +916,7 @@ function EventJoinLineRow(props: {
               justifyContent: 'center',
             }}
           >
-            <Text style={{ color: ON_GLASS, fontSize: 12 }}>👑</Text>
+            <CrownGlyph color={ON_GLASS} size={12} />
           </View>
           <View style={{ width: ROW_INNER_GAP }} />
         </>

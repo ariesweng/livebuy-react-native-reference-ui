@@ -18,11 +18,16 @@
 //   • an accent like (heart) button.
 //
 // Comment entry ALWAYS available (prerecorded-live-bottom-bar-comment, RN parity to iOS): this
-// bar renders ONLY for a live broadcast (`isLive == true`, i.e. `liveStatus == 1`) — true 回放/VOD
-// uses the side rail. A live broadcast's chat is open regardless of playback position, so the
-// "留言..." pill and nickname button are NEVER collapsed on `isReplay`. The prior "replay variant"
-// (disabled "聊天室已關閉" + CC swap) is removed: `isReplay` was a playback-position heuristic that
-// mis-flags a 預錄直播 (finite-length HLS routed to IVS) and wrongly closed chat.
+// bar renders for a live broadcast (`isLive == true`, i.e. `liveStatus == 1`) and, since
+// `rb-rn-replay-live-chrome-parity`, ALSO for an already-finished live replay
+// (`isFinishedLiveReplay == true` — see `chatClosed` below); pure VOD still uses the side rail.
+// A live broadcast's chat is open regardless of playback position, so the "留言..." pill and
+// nickname button are NEVER collapsed on `isReplay` (a DIFFERENT, narrower playback-position
+// heuristic than `isFinishedLiveReplay` — see that prop's own doc). The prior "replay variant"
+// (disabled "聊天室已關閉" + CC swap) driven by `isReplay` is removed: `isReplay` was a
+// playback-position heuristic that mis-flags a 預錄直播 (finite-length HLS routed to IVS) and
+// wrongly closed chat. `chatClosed` (below) is the CORRECT, unrelated flag that now drives that
+// same visual variant for a genuinely-finished replay.
 //
 // SUB-VIEW INPUT PATTERN (D-1/D-4): theme FIRST → snapshot values BY VALUE →
 // trailing optional callbacks (default no-op). Reads ONLY its passed-in values;
@@ -41,27 +46,43 @@
 // The user-facing string ("留言...") is design-literal (the minimal design mockup is the
 // source of truth); localization is a cross-layer follow-up.
 //
-// `chatClosed` / `ccOn` / `onMore` (design R32, rb-rn-live-replay-more-menu-and-video-info-live-copy)
-// — COMPONENT-LEVEL ONLY, current call site MUST NOT feed `chatClosed: true`:
+// `chatClosed` / `ccOn` / `onMore` (element itself added by design R32,
+// rb-rn-live-replay-more-menu-and-video-info-live-copy; call site wired by
+// rb-rn-replay-live-chrome-parity):
 //
 // `chatClosed` mirrors iOS/Android's existing `chatClosed` prop (source: `PlayerShellModel
 // .isFinishedLiveReplay`, "已結束直播回放") and drives the design's replay-mode bottom-bar
 // variant: the comment area becomes a disabled "聊天室已關閉" (non-`Pressable`), the nickname
 // button disappears, a "更多" (more, `⋯`) button takes the nickname's old slot, and a CC toggle
-// takes the share button's old slot (share itself is folded into the new `LiveMoreMenuView`
-// sheet, NOT rendered by this bar directly).
+// takes the share button's old slot (share itself is folded into the `LiveMoreMenuView` sheet,
+// NOT rendered by this bar directly).
 //
-// ⚠️ UNLIKE iOS/Android, THIS PROP IS NOT WIRED AT THE CALL SITE. `PlayerShellView.tsx`'s
-// existing render gate for this component is `model.isLive || model.introPlaying` — it does
-// NOT include `model.isFinishedLiveReplay` (see this Requirement's "留言入口恆可用" paragraph
-// above in the spec: a genuinely finished replay routes to the VOD side rail `OperationRail`
-// instead, a documented RN-only divergence from iOS/Android's `usesLiveChrome = isLive ||
-// isFinishedLiveReplay`). So in real playback, `chatClosed` is NEVER fed `true` today — this
-// component can render the variant correctly (and is unit-tested doing so), but nothing in the
-// current call graph ever exercises that path. See `design.md` D1 (change
-// `rb-rn-live-replay-more-menu-and-video-info-live-copy`) for the full analysis and the three
-// alternatives considered. This is the SAME category of gap as the pre-existing `isReplay` /
-// `onToggleCC` props below — "retained for source compat, not (yet) driving real playback."
+// WIRED AT THE CALL SITE (since `rb-rn-replay-live-chrome-parity`, parity iOS/Android):
+// `PlayerShellView.tsx`'s render gate for this component is now `((usesLiveChrome && !cleanMode)
+// || model.introPlaying) && !composerPresented && !isScrubbing` (`usesLiveChrome = model.isLive
+// || model.isFinishedLiveReplay`), and its `<LiveBottomBarView>` call site feeds
+// `chatClosed={model.isFinishedLiveReplay}` directly — a finished-live replay now reaches this
+// component (routing away from the VOD side rail `OperationRail`, which is PURE-VOD-ONLY as of
+// the same change). `ccOn={model.subtitleEnabled}` (the same single source of truth the VOD
+// caption overlay / side-rail `Subtitle` pill read) and `onMore={() =>
+// setMoreMenuOpen(true)}` (bypassing the rail's `handleRailTap` dispatch chain entirely — a new,
+// independent trigger) are wired at the same call site. This resolved a pre-existing, real
+// user-facing bug: a finished-live replay had no chat, no LIVE pinned-card overlay, and no
+// bottom-bar affordances at all, because every one of these gates independently used the
+// narrower `model.isLive`. `isReplay` below remains a SEPARATE, unrelated concern (retained for
+// source compat, see its own doc and `LiveBottomBarView`'s function-body comment for how
+// `onToggleCC` fits in).
+//
+// `subtitleAvailable` (design R42, rb-rn-cc-icon-availability-redesign): the `chatClosed`
+// variant's CC toggle is the SECOND of the two CC entry points R42 scopes its "unavailable"
+// state + tooltip to (the first is the VOD side rail's `Subtitle` pill, `OperationRailView.tsx`'s
+// `CcRailPill`). `PlayerShellView.tsx`'s call site feeds `subtitleAvailable={subtitleAvailableFrom
+// (model.railItems)}` — the SAME `LBSideRailItem[]` snapshot the VOD side rail reads, so both
+// entry points agree on availability even though only one of them is ever mounted at a time
+// (this bar's `chatClosed` CC slot vs the side rail's `Subtitle` pill are mutually exclusive by
+// construction — `usesLiveChrome` vs `!usesLiveChrome`). See `LiveCcButton` below for the
+// three-state glyph + tap-intercept-to-tooltip logic (shared implementation shape with
+// `CcRailPill`, via the same `useCcUnavailableTooltip` hook).
 
 import type { ReactElement } from 'react';
 import { View, Pressable } from 'react-native';
@@ -72,8 +93,10 @@ import { ShareGlyph } from './ShareGlyph';
 import { PersonEditGlyph } from './PersonEditGlyph';
 import { BagGlyph } from './BagGlyph';
 import { CcGlyph } from './CcGlyph';
+import { CcTooltip } from './CcTooltip';
+import { useCcUnavailableTooltip } from './useCcUnavailableTooltip';
 import { HeartFillGlyph } from './HeartFillGlyph';
-import { railGlyphFor } from './OperationRailView';
+import { railGlyphFor, CC_UNAVAILABLE_TOOLTIP_TEXT } from './OperationRailView';
 import { LBTestIDs } from '../testing/LBTestIDs';
 import { LBSideRailKind } from 'livebuy-react-native-ui';
 
@@ -96,6 +119,14 @@ const BAR_TOP_PADDING = 8;
  *  symmetric `BAR_V_PADDING`) so top/bottom can differ. */
 const BAR_BOTTOM_PADDING = 16;
 const ICON_SIZE = 36; // 36×36 round iconBtn
+/** This bar's real rendered height (rb-rn-caption-overlay-bottom-bar-clearance-fix) — the SINGLE
+ *  SOURCE OF TRUTH for other family-1 surfaces that need to position themselves relative to this
+ *  bar (e.g. `LiveOverlayChromeView`'s bottom row, `PlayerShellView`'s VOD/replay caption
+ *  overlay), taking the place of independently-guessed / hard-coded literals that could silently
+ *  drift out of sync with this bar's actual three padding/size constants above. Parity iOS
+ *  `LiveBottomBarView.barHeight` / Flutter `LiveBottomBarView.barHeight`. `export`ed for direct
+ *  unit testing and cross-file import. */
+export const LIVE_BOTTOM_BAR_HEIGHT = BAR_TOP_PADDING + ICON_SIZE + BAR_BOTTOM_PADDING; // 60
 const ICON_GLYPH_SIZE = 18; // glyph size 18 (nickname / share; NOT the bag — see BAG_ICON_GLYPH_SIZE)
 /** Bag-only glyph size (rb-rn-live-bottom-bar-bag-icon-enlarge): the design deliberately draws
  *  the bag glyph LARGER than the other iconBtn glyphs — `Icons.bag size={25}` vs the shared
@@ -124,11 +155,11 @@ const CHAT_CLOSED_PLACEHOLDER = '聊天室已關閉';
  *  (`'⋯'`) rather than a second literal, so the two surfaces can never drift on this glyph. */
 const MORE_GLYPH = railGlyphFor(LBSideRailKind.More);
 // `CC_GLYPH` (`railGlyphFor(LBSideRailKind.Subtitle)`'s `'CC'` literal) is REMOVED
-// (rb-rn-live-bottom-bar-cc-icon-align): the `chatClosed` CC toggle below now draws the
-// hand-drawn `CcGlyph` (same as `OperationRailView`'s `Subtitle` pill,
-// rb-rn-cc-icon-design-align), so this file no longer has any use for the literal. The
+// (rb-rn-live-bottom-bar-cc-icon-align): the `chatClosed` CC toggle below draws the self-drawn
+// `CcGlyph` instead (three states as of R42, rb-rn-cc-icon-availability-redesign — see
+// `LiveCcButton`), so this file no longer has any use for the literal. The
 // `railGlyphFor(LBSideRailKind.Subtitle) === 'CC'` kind→glyph parity test
-// (`OperationRailView.test.tsx`) reads `railGlyphFor` directly and does not import this
+// (`OperationRail.test.tsx`) reads `railGlyphFor` directly and does not import this
 // constant, so removing it is not a source-compat break for that test.
 
 /** Props for the {@link LiveBottomBarView} surface. */
@@ -165,22 +196,34 @@ export interface LiveBottomBarProps {
    * neither {@link bagOnly} nor {@link isUpcoming} (both still win over it — see
    * {@link commentAreaKind}'s precedence). Default `false`.
    *
-   * ⚠️ COMPONENT-LEVEL ONLY: the current `PlayerShellView.tsx` call site NEVER feeds this
-   * `true` (its render gate for this whole component is `model.isLive || model.introPlaying`,
-   * which excludes `model.isFinishedLiveReplay` — see the file-header comment above and
-   * `design.md` D1 of change `rb-rn-live-replay-more-menu-and-video-info-live-copy`). This prop
-   * exists so the component itself is correct and unit-testable; whether/how to wire it is an
-   * open architectural question, not decided by this prop's existence.
+   * WIRED AT THE CALL SITE (`rb-rn-replay-live-chrome-parity`): `PlayerShellView.tsx`'s
+   * `<LiveBottomBarView>` call site feeds `chatClosed={model.isFinishedLiveReplay}`, and this
+   * component's own render gate now includes `model.isFinishedLiveReplay` (via the caller-
+   * computed `usesLiveChrome = model.isLive || model.isFinishedLiveReplay` — see the file-header
+   * comment above). A finished-live replay therefore reaches this component and this variant in
+   * real playback, not just in direct unit construction.
    */
   readonly chatClosed?: boolean;
   /**
    * CC (subtitle) toggle visual state — mirrors design `LBLiveBottomBar`'s `ccOn` prop. Only
-   * consulted when {@link chatClosed} is `true` (the CC button only renders in that variant).
-   * `true` → the button inverts to a white fill + accent glyph (matches an "active" pill
-   * elsewhere in this package); `false` (default) → the shared translucent-dark `iconBtn` fill
-   * + white glyph.
+   * consulted when {@link chatClosed} is `true` (the CC button only renders in that variant) AND
+   * captions are AVAILABLE (see {@link subtitleAvailable}) — `true` → the button inverts to a
+   * white fill + accent glyph (matches an "active" pill elsewhere in this package); `false`
+   * (default) → the shared translucent-dark `iconBtn` fill + white glyph.
    */
   readonly ccOn?: boolean;
+  /**
+   * Whether captions are available for this video (design R42, rb-rn-cc-icon-availability-
+   * redesign — same source + semantics as `OperationRailView`'s `subtitleAvailableFrom(items)`,
+   * the SECOND of R42's two CC entry points; only meaningful when {@link chatClosed} is `true`).
+   * `false` → the CC button draws {@link CcGlyph}'s `'unavailable'` state (fixed grey,
+   * non-square) regardless of {@link ccOn}, stays in the base inactive fill, and a tap does NOT
+   * forward {@link onToggleCC} — it shows a local "未提供字幕" tooltip instead
+   * (`useCcUnavailableTooltip`), auto-dismissing after ~1.8s. **Default `true`** (available) —
+   * every existing call site that never passes this prop keeps the pre-R42 on/off behavior,
+   * byte-identical.
+   */
+  readonly subtitleAvailable?: boolean;
   readonly onBag?: () => void;
   readonly onComment?: () => void;
   readonly onNickname?: () => void;
@@ -189,8 +232,9 @@ export interface LiveBottomBarProps {
   readonly onToggleCC?: () => void;
   /**
    * "更多" (more) button tap intent — only rendered when {@link chatClosed} is `true`. Host-wired
-   * to open the `LiveMoreMenuView` sheet (分享 / 客服). Defaults to a no-op. See the file-header
-   * comment for why this is currently unreachable from real playback.
+   * to open the `LiveMoreMenuView` sheet (分享 / 客服) — `PlayerShellView.tsx` feeds
+   * `onMore={() => setMoreMenuOpen(true)}` directly (bypassing the side rail's `handleRailTap`
+   * dispatch chain, see the file-header comment). Defaults to a no-op.
    */
   readonly onMore?: () => void;
   /**
@@ -236,12 +280,11 @@ export function showsNickname(bagOnly: boolean, isUpcoming: boolean, chatClosed:
  * Renders correctly with the default no-op callbacks (snapshot / preview safe).
  */
 export function LiveBottomBarView(props: LiveBottomBarProps): ReactElement {
-  // `isReplay` / `onToggleCC` are RETAINED on the props (source compat) but NO LONGER consumed
-  // by the comment / nickname decision (which now reads `chatClosed` instead — see the
-  // file-header comment for why `chatClosed` itself is currently unwired at the call site): the
+  // `isReplay` is RETAINED on the props (source compat) but NOT consumed by the comment /
+  // nickname decision (which reads `chatClosed` instead — see the file-header comment): the
   // LIVE bottom bar's comment / nickname affordances stay available for a live broadcast
   // (prerecorded-live-bottom-bar-comment). `onToggleCC` IS consumed by the `chatClosed` variant's
-  // CC button below.
+  // CC button below (wired at the real call site since `rb-rn-replay-live-chrome-parity`).
   const {
     theme,
     bagCount,
@@ -249,6 +292,7 @@ export function LiveBottomBarView(props: LiveBottomBarProps): ReactElement {
     bagOnly = false,
     chatClosed = false,
     ccOn = false,
+    subtitleAvailable = true,
     liked = false,
     onBag,
     onComment,
@@ -337,14 +381,12 @@ export function LiveBottomBarView(props: LiveBottomBarProps): ReactElement {
               NOT rendered here). Otherwise (`upcomingSpacer` OR `comment`) → 分享 改設計稿自繪
               三節點 ShareGlyph (rb-rn-share-icon-design-align，問題 8)。 */}
           {kind === 'chatClosed' ? (
-            <IconButton
-              testID={LBTestIDs.liveCC}
-              tint={ccOn ? theme.accent : '#FFFFFF'}
-              active={ccOn}
-              onTap={onToggleCC}
-            >
-              <CcGlyph color={ccOn ? theme.accent : '#FFFFFF'} size={ICON_GLYPH_SIZE} />
-            </IconButton>
+            <LiveCcButton
+              theme={theme}
+              ccOn={ccOn}
+              subtitleAvailable={subtitleAvailable}
+              onToggleCC={onToggleCC}
+            />
           ) : (
             <IconButton testID={LBTestIDs.liveShare} tint="#FFFFFF" onTap={onShare}>
               <ShareGlyph color="#FFFFFF" size={ICON_GLYPH_SIZE} />
@@ -496,5 +538,58 @@ function IconButton(props: {
         <Text style={{ fontSize: ICON_GLYPH_SIZE, color: tint, fontWeight: '600' }}>{glyph}</Text>
       )}
     </Pressable>
+  );
+}
+
+// MARK: - CC (chatClosed) button — R42 three-state redesign (rb-rn-cc-icon-availability-redesign)
+
+/**
+ * The `chatClosed` variant's CC toggle — wraps {@link IconButton} with `subtitleAvailable`-aware
+ * glyph/tap logic (design R42), mirroring `OperationRailView.tsx`'s `CcRailPill` (SAME shared
+ * `useCcUnavailableTooltip` hook + `CcTooltip` component, the other of R42's two CC entry
+ * points — `placement="top"` here vs that pill's `placement="left"`):
+ *
+ *   - `subtitleAvailable === false` → `CcGlyph` `'unavailable'` state (fixed grey, non-square
+ *     18×16), stays in the base inactive `IconButton` fill, and a tap does NOT forward
+ *     `onToggleCC` — it shows the tooltip instead, auto-dismissing after ~1.8s.
+ *   - `subtitleAvailable === true` → `CcGlyph` `'on'` (white fill + `theme.accent`) or `'off'`
+ *     (translucent-dark fill + white glyph) per `ccOn`, and a tap forwards `onToggleCC` as before.
+ */
+function LiveCcButton(props: {
+  theme: ReferenceUITheme;
+  ccOn: boolean;
+  subtitleAvailable: boolean;
+  onToggleCC?: () => void;
+}): ReactElement {
+  const { theme, ccOn, subtitleAvailable, onToggleCC } = props;
+  const tooltip = useCcUnavailableTooltip();
+  const active = subtitleAvailable && ccOn;
+
+  const handlePress = (): void => {
+    if (!subtitleAvailable) {
+      tooltip.show();
+      return;
+    }
+    onToggleCC?.();
+  };
+
+  return (
+    <View style={{ position: 'relative' }}>
+      <IconButton testID={LBTestIDs.liveCC} tint={active ? theme.accent : '#FFFFFF'} active={active} onTap={handlePress}>
+        <CcGlyph
+          state={!subtitleAvailable ? 'unavailable' : ccOn ? 'on' : 'off'}
+          color={active ? theme.accent : '#FFFFFF'}
+          size={ICON_GLYPH_SIZE}
+          width={!subtitleAvailable ? 18 : undefined}
+          height={!subtitleAvailable ? 16 : undefined}
+        />
+      </IconButton>
+      <CcTooltip
+        testID={LBTestIDs.liveCcTooltip}
+        visible={tooltip.visible}
+        text={CC_UNAVAILABLE_TOOLTIP_TEXT}
+        placement="top"
+      />
+    </View>
   );
 }

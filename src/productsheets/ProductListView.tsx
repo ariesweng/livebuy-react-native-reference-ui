@@ -38,6 +38,8 @@
 //        (rb-rn-product-bag-seek-dismiss, parity iOS/Android) triggers `onClose` — the
 //        SAME existing drawer-close path the header close button / scrim tap already use.
 //        Scoped to the thumbnail entry point ONLY; the row's other actions are untouched.
+//        EXCEPTION (rb-rn-product-sheet-keep-open-on-live-seek): `effectiveMode === 'live'`
+//        skips the `onClose` step — only the seek forwards, the drawer stays open.
 //
 // One-way data flow (D-1): this surface reads ONLY its passed-in values; it never
 // reaches back into `ProductSheetsModel` / `DefaultPlayerTemplate`, and it does NOT
@@ -66,6 +68,7 @@ import { Text } from '../TightText';
 
 import { ShareGlyph } from '../playershell/ShareGlyph';
 import { DetailGlyph } from '../playershell/DetailGlyph';
+import { PlayGlyph } from './PlayGlyph';
 import { CartGlyph } from './CartGlyph';
 import { BellGlyph } from './BellGlyph';
 import { EqualizerGlyph } from './EqualizerGlyph';
@@ -79,6 +82,7 @@ import {
   type ProductRowMode,
 } from './ProductRowOverlay';
 import { ProductStatusBadge } from './ProductStatusBadge';
+import { ProductRowNameTag, type ProductRowNameTagValue } from './ProductRowNameTag';
 import { RemoteImage } from './RemoteImage';
 import { SheetHeaderCloseButton } from './SheetHeaderCloseButton';
 import { SheetScaffold } from './SheetScaffold';
@@ -116,8 +120,14 @@ const BG_SUNKEN = '#F4F4F6';
 const SALE_COLOR = '#E0334B';
 /** `theme.soldOut` (sold-out grey label — `design/brands/livebuy/tokens.jsx`). */
 const SOLD_OUT_COLOR = '#9A96A3';
-/** out_soon「即將售完」徽章色（暖橘；最終配色 DECISION-PENDING 待設計稿）。 */
-const OUT_SOON_COLOR = '#F5A623';
+/** out_soon「即將售完」名稱前標籤底色（`design/templates/minimal/sdk-components.jsx:1183`，
+ *  rb-rn-product-row-name-tag-system 訂正自舊「價格列之後」徽章色 `#F5A623`）。 */
+const OUT_SOON_COLOR = '#FACC15';
+/** hot「熱賣中」名稱前標籤底色 — 固定 coral（`sdk-components.jsx:1185`，rb-rn-product-row-
+ *  name-tag-system，design R39：不再是 `theme.accent`，不隨商家主題色變動；與
+ *  {@link NARRATE_BANNER_COLOR} 同一色值，獨立命名以保持語意獨立，比照 iOS/Android
+ *  `hotNameTagColor`）。 */
+const HOT_NAME_TAG_COLOR = 'rgba(240,50,70,0.7)';
 /** `row` 態縮圖底部「看講解」文字膠囊背景（design R21，近似 `rgba(255,255,255,0.75)` +
  *  `backdropFilter: blur(4px)` 的視覺意圖；RN 無原生 backdrop-blur 對應，取半透明白底本身，
  *  rb-rn-product-row-play-hint-pill）。 */
@@ -146,11 +156,32 @@ const CART_LABEL = '查看購物車';
 const SOLD_OUT_LABEL = '已售完';
 /** Empty-state line (no products). */
 const EMPTY_LABEL = '目前沒有商品';
-/** Now-introducing banner label (LIVE narrate_status==2 row). */
+/** Now-introducing banner label (LIVE narrate_status==2 row). Fixed literal — always「介紹中」
+ *  regardless of `isFlashSale` (撤回 rb-rn-flash-sale-live-signal-wiring 的二選一文案，
+ *  rb-rn-narrating-banner-revert-flash-sale-text，2026-09-09 使用者拍板：narrating 橫幅恆顯示
+ *  「介紹中」，不再依 `isFlashSale` 換成「開標中」)。`isFlashSale` prop 本身保留——仍餵給下方的
+ *  {@link ProductRowNameTag.resolve}（商品名稱前標籤「直播價」/「搶購中」二選一），與此橫幅正交、
+ *  不受本次撤回影響。 */
 const INTRODUCING_LABEL = '介紹中';
-/** out_soon / hot 小徽章文案（goods-status-label-render ③，僅明確 label 觸發）。 */
-const OUT_SOON_LABEL = '即將售完';
+/** out_soon / hot 名稱前標籤文案（goods-status-label-render ③，僅明確 label 觸發）。
+ *  `OUT_SOON_LABEL` 含 🔥 emoji 前綴，對齊設計來源 `sdk-components.jsx:1183` 的
+ *  `'🔥 即將售完'`（rb-rn-product-row-name-tag-system 訂正；已查證此常數在訂正前唯一的生產
+ *  呼叫點就是本次移除/取代的舊「價格列之後」徽章分支，不需拆分成兩個常數）。`HOT_LABEL` 不含
+ *  emoji（設計來源該變體本就無 emoji），不動。 */
+const OUT_SOON_LABEL = '🔥 即將售完';
 const HOT_LABEL = '熱賣中';
+/** 「直播價」名稱前標籤文案（`effectiveMode === 'live'` 且未售罄、`isFlashSale === false`，
+ *  rb-rn-product-row-name-tag-system，design R39）——固定字面值，reference-ui 層文案一律寫死，
+ *  不走 i18n（比照本檔案其他標籤常數的既定慣例）。`isFlashSale === true` 時改顯示
+ *  {@link RUSH_LABEL}（rb-rn-flash-sale-live-signal-wiring，「pipe-first, no water yet」的階段性
+ *  限制已解除）。 */
+const LIVE_PRICE_LABEL = '直播價';
+/** 「搶購中」名稱前標籤文案（`effectiveMode === 'live'` 且未售罄、`isFlashSale === true`，
+ *  rb-rn-flash-sale-live-signal-wiring，design R39 `liveMode === 'rush'` 分支）——固定字面值，
+ *  reference-ui 層文案一律寫死，不走 i18n。對齊設計來源 `sdk-components.jsx` 的
+ *  `{ text: '搶購中', bg: accent, fg: '#fff', border: accent }`（實心 accent 底、白字，區別於
+ *  {@link LIVE_PRICE_LABEL} 的外框透明底樣式）。 */
+const RUSH_LABEL = '搶購中';
 /** Search field placeholder / cancel (rb-rn-product-list-search，問題 2). */
 const SEARCH_PLACEHOLDER = '搜尋商品名稱';
 const SEARCH_CANCEL = '取消';
@@ -214,6 +245,16 @@ export interface ProductListProps {
    */
   readonly playbackPosition?: number;
   /**
+   * 限時搶購（flash sale）旗標（`= channel.isFlashSale`，`rb-rn-flash-sale-live-signal-wiring`）——
+   * host-fed passthrough of `PlayerHeaderState.isFlashSale` via `ProductSheetsModel.isFlashSale`.
+   * `mode === 'live'` 且未售罄時，`true` 讓每列的商品名稱前標籤由「直播價」改顯示「搶購中」
+   * （`ProductRowNameTag.resolve` 的第 4 個參數）。**不影響** LIVE 介紹中橫幅文案——該橫幅恆顯示
+   * 「介紹中」，`rb-rn-narrating-banner-revert-flash-sale-text`（2026-09-09）已撤回「開標中」變體，
+   * 見 {@link INTRODUCING_LABEL} 的 doc comment。預設 `false`（既有呼叫端 / snapshot
+   * byte-identical）。與 `mode` 正交（`vod` / `replay` 分支不受影響）。
+   */
+  readonly isFlashSale?: boolean;
+  /**
    * Product-row tap → opens the FULL browse detail sheet (`presentation='detail'`).
    * Funneled by the 縮圖 / 名 / 明細鈕 (≣). This view only FORWARDS; the turnkey
    * container's `config.onOpenProduct` seam owns the behaviour — its built-in default
@@ -237,9 +278,12 @@ export interface ProductListProps {
    * `LBPProductRow` 縮圖 `onSeek`（issue 5）。容器轉發到 host-wired `onSeekToProductIntro`，
    * 預設呼 core `seek(beginTime)`。Default no-op for demo / snapshot instances.
    *
-   * rb-rn-product-bag-seek-dismiss (parity iOS/Android): the seek forward is ALWAYS accompanied
+   * rb-rn-product-bag-seek-dismiss (parity iOS/Android): the seek forward is accompanied
    * by triggering the existing drawer-close path {@link ProductListProps.onClose} (this component
-   * wraps the forwarder fed to the row) — a thumbnail tap both seeks AND dismisses the drawer.
+   * wraps the forwarder fed to the row) — a thumbnail tap both seeks AND dismisses the drawer —
+   * **except** `effectiveMode === 'live'` (rb-rn-product-sheet-keep-open-on-live-seek, parity
+   * iOS/Android): a live thumbnail tap only seeks, `onClose` is SKIPPED so the drawer stays open
+   * (no presenter narration to follow along with, so closing the drawer buys the user nothing).
    * Scoped to THIS ONE entry point; the row's other actions (明細鈕 / 加購鈕 / 補貨鈴鐺 / 分享鈕)
    * are untouched and MUST NOT gain this side effect.
    */
@@ -309,6 +353,7 @@ export function ProductList(props: ProductListProps): ReactElement {
     productsBackendOrder = NO_BACKEND_ORDER,
     mode = null,
     playbackPosition = 0,
+    isFlashSale = false,
     onOpenProduct,
     onQuickAdd,
     onSeekToIntro,
@@ -338,9 +383,21 @@ export function ProductList(props: ProductListProps): ReactElement {
   // 使用者「跳到影片開頭」。此例外僅限 `'replay'`；`'vod'` 模式即使商品剛好
   // `beginTime === 0 && endTime === 0` 也不受影響（那是合法真實資料，sentinel 語意僅在回放情境
   // 成立）。`effectiveMode` 公式與下方逐列渲染迴圈內的既有公式同構。
+  //
+  // EXCEPTION（rb-rn-product-sheet-keep-open-on-live-seek，parity iOS
+  // rb-ios-product-sheet-keep-open-on-live-seek / Android
+  // rb-android-product-sheet-keep-open-on-live-seek）：`effectiveMode === 'live'`（進行中直播）
+  // 只轉發 `onSeekToIntro`，MUST NOT 呼叫 `onClose` — 抽屜維持開啟。進行中直播沒有主播講解導覽時，
+  // 使用者常一邊瀏覽商品列表一邊等主播介紹；core 的 seek 對進行中直播本就無實際效果（僅 `'replay'`
+  // 會真的跳轉播放位置），關閉抽屜對使用者沒有「看見影片跳到哪」的效益，反而強迫使用者重新打開
+  // sheet。此例外僅限 `'live'`；`'vod'` / `'replay'`（含上方 never-introduced 例外）不受影響。
   const handleSeekAndDismiss = (product: LBProduct): void => {
     const effectiveMode: ProductRowMode = mode ?? (live ? 'live' : 'vod');
     if (effectiveMode === 'replay' && isReplayNeverIntroduced(product.beginTime, product.endTime)) {
+      return;
+    }
+    if (effectiveMode === 'live') {
+      onSeekToIntro?.(product);
       return;
     }
     onClose?.();
@@ -442,6 +499,7 @@ export function ProductList(props: ProductListProps): ReactElement {
               product={product}
               live={live}
               mode={effectiveMode}
+              isFlashSale={isFlashSale}
               showPlay={overlay.showPlay}
               isIntroducing={overlay.showIntroducing}
               showShare={overlay.showShare}
@@ -641,6 +699,92 @@ function StatusPill(props: {
   );
 }
 
+// MARK: - Name tag pill (商品名稱前標籤 — rb-rn-product-row-name-tag-system, design R39)
+//
+// Small-rounded (`borderRadius: 3`, NOT the fully-round `StatusPill` above) shared shape for the
+// THREE name-prefix tags — out_soon / hot (solid fill) and 直播價 (outline) — so their corner
+// radius / padding / font size stay identical by construction rather than three independently
+// hand-tuned copies that could drift apart (parity iOS `nameTagPill` / Android `NameTagPill`).
+// `StatusPill` above is intentionally NOT reused here (its shape is the wrong one for this design)
+// and is left untouched — no other call site depends on it, but it stays available in case a
+// genuinely fully-round pill is needed elsewhere in the future.
+
+function NameTagPill(props: {
+  theme: ReferenceUITheme;
+  text: string;
+  textColor: string;
+  fillColor: string;
+  borderColor?: string;
+}): ReactElement {
+  const { theme, text, textColor, fillColor, borderColor } = props;
+  return (
+    <View
+      style={{
+        borderRadius: 3,
+        paddingHorizontal: 4,
+        paddingVertical: 1,
+        backgroundColor: fillColor,
+        borderWidth: borderColor != null ? 1 : 0,
+        borderColor: borderColor ?? 'transparent',
+      }}
+    >
+      <Text style={{ color: textColor, fontSize: 11 * theme.fontScale, fontWeight: '500' }}>
+        {text}
+      </Text>
+    </View>
+  );
+}
+
+/**
+ * Dispatches a resolved {@link ProductRowNameTagValue} to its `NameTagPill` variant. `None` →
+ * `null` (no pill rendered, caller keeps the byte-identical bare `Text` name). Colors / labels
+ * per design `sdk-components.jsx:1176-1194`'s `nameTag`: `out_soon` fg `#15131a` (near-black,
+ * `theme.text`) on `#FACC15`; `hot` fg `#fff` on fixed coral `HOT_NAME_TAG_COLOR` — the two
+ * variants intentionally do NOT share a text color. `LivePrice` is an outline pill (transparent
+ * fill, `theme.accent` border + text). `Rush` (rb-rn-flash-sale-live-signal-wiring, design
+ * `liveMode === 'rush'`: `{ bg: accent, fg: '#fff', border: accent }`) is a SOLID pill — filled
+ * `theme.accent`, white text — the opposite fill direction from `LivePrice`'s outline.
+ */
+function ProductRowNameTagPill(props: {
+  theme: ReferenceUITheme;
+  nameTag: ProductRowNameTagValue;
+}): ReactElement | null {
+  const { theme, nameTag } = props;
+  switch (nameTag) {
+    case ProductRowNameTag.LivePrice:
+      return (
+        <NameTagPill
+          theme={theme}
+          text={LIVE_PRICE_LABEL}
+          textColor={theme.accent}
+          fillColor="transparent"
+          borderColor={theme.accent}
+        />
+      );
+    case ProductRowNameTag.Rush:
+      return (
+        <NameTagPill
+          theme={theme}
+          text={RUSH_LABEL}
+          textColor="#FFFFFF"
+          fillColor={theme.accent}
+          borderColor={theme.accent}
+        />
+      );
+    case ProductRowNameTag.OutSoon:
+      return (
+        <NameTagPill theme={theme} text={OUT_SOON_LABEL} textColor={theme.text} fillColor={OUT_SOON_COLOR} />
+      );
+    case ProductRowNameTag.Hot:
+      return (
+        <NameTagPill theme={theme} text={HOT_LABEL} textColor="#FFFFFF" fillColor={HOT_NAME_TAG_COLOR} />
+      );
+    case ProductRowNameTag.None:
+    default:
+      return null;
+  }
+}
+
 // MARK: - Product card (`LBPProductRow` — row / grid two states)
 //
 // Spec: `reference-ui-rendering/spec.md` §"react-native-reference-ui 商品卡元件（row / grid
@@ -678,6 +822,12 @@ export interface ProductRowViewProps {
   // predate this prop, e.g. this file's own structural tests) → the EXISTING bottom「看講解」
   // pill / 「介紹中」coral banner, byte-identical. Ignored by `grid` (no live-narrating concept).
   mode?: ProductRowMode | null;
+  // `row`-only (rb-rn-flash-sale-live-signal-wiring): 限時搶購旗標（`= channel.isFlashSale`），
+  // `ProductListView`'s `isFlashSale` prop 原樣轉發。只在 `mode === 'live'` 時影響名稱前標籤
+  // （「直播價」→「搶購中」）。**不影響**介紹中橫幅文案——該橫幅恆顯示「介紹中」
+  // （rb-rn-narrating-banner-revert-flash-sale-text，2026-09-09 撤回「開標中」變體）。預設 `false`
+  // （既有直接呼叫 `ProductRowView` 的呼叫端 byte-identical）。Ignored by `grid`.
+  isFlashSale?: boolean;
   // `row`-only: 縮圖疊層的播放 affordance（product-row-status-overlay）：由純函式
   // productRowOverlay 算出，與「介紹中」(`isIntroducing`) 互斥。VOD → true；active-live →
   // false；replay → 不在介紹窗時 true。Ignored by `grid` (cross-video recommendation cards have
@@ -742,11 +892,12 @@ export function ProductRowView(props: ProductRowViewProps): ReactElement {
 
 /** VOD `upcoming` phase: a centered black circular play button (`rgba(0,0,0,0.5)`, 32px),
  *  replacing the bottom「看講解」pill for `mode === 'vod'` rows only. Design
- *  `sdk-components.jsx:LBPProductRow`'s `playOverlay` (`vodPhase === 'upcoming'`). The `▶`
- *  glyph is a plain `Text` char scaled by `theme.fontScale` — same convention this file
- *  already uses for every other Text-rendered play glyph (`GridPlayButton`, the retired
- *  「看講解」pill's own `▶`), unlike the custom-drawn `EqualizerGlyph`/`HotGlyph` below which
- *  stay a literal unscaled `size`. */
+ *  `sdk-components.jsx:LBPProductRow`'s `playOverlay` (`vodPhase === 'upcoming'`). The play
+ *  glyph is the self-drawn `PlayGlyph` (`rb-rn-icon-parity-productlist-play-glyph`, replacing
+ *  the former bare `▶` `Text` character — same icon-parity fix applied to `GridPlayButton` and
+ *  the「看講解」pill below), `size` scaled by `theme.fontScale` — same scaling convention this
+ *  file already uses for every play-glyph call site, unlike the custom-drawn
+ *  `EqualizerGlyph`/`HotGlyph` below which stay a literal unscaled `size`. */
 function VodPlayOverlay(props: { theme: ReferenceUITheme }): ReactElement {
   const { theme } = props;
   return (
@@ -772,9 +923,7 @@ function VodPlayOverlay(props: { theme: ReferenceUITheme }): ReactElement {
           justifyContent: 'center',
         }}
       >
-        <Text style={{ color: '#FFFFFF', fontSize: 15 * theme.fontScale, fontWeight: 'bold' }}>
-          ▶
-        </Text>
+        <PlayGlyph color="#FFFFFF" size={15 * theme.fontScale} />
       </View>
     </View>
   );
@@ -814,6 +963,7 @@ function RowLayoutBody(props: {
   hideSub: boolean;
   live?: boolean;
   mode?: ProductRowMode | null;
+  isFlashSale?: boolean;
   showPlay?: boolean;
   isIntroducing?: boolean;
   numberBadge?: number | null;
@@ -832,6 +982,7 @@ function RowLayoutBody(props: {
     hideSub,
     live = false,
     mode = null,
+    isFlashSale = false,
     showPlay = false,
     isIntroducing = false,
     numberBadge = null,
@@ -846,8 +997,14 @@ function RowLayoutBody(props: {
   // 狀態標籤改吃後端結論欄 `label`（goods-status-label-render ③，單一優先序）；label 空
   // （舊後端 / demo）經 raw fallback 仍正確 → baseline 不變。
   const soldOut = ProductStatusBadge.resolve(product) === ProductStatusBadge.SoldOut;
-  // out_soon / hot 小徽章只認**明確** label（label 空不臆測 → demo / 舊後端中性）。
-  const explicitBadge = ProductStatusBadge.fromLabel(product.label);
+  // 商品名稱前標籤（rb-rn-product-row-name-tag-system, design R39；rb-rn-flash-sale-live-signal-
+  // wiring 補上第 4 個參數 `isFlashSale`）：由純函式 ProductRowNameTag.resolve 決定「直播價」/
+  // 「搶購中」(effectiveMode 'live'，未售罄，依 `isFlashSale` 二選一) / 「即將售完」/「熱賣中」
+  // (effectiveMode 'vod'/'replay'，僅明確 label 觸發) / 無標籤 (含已售完的全域最高優先序，`resolve`
+  // 在依 mode 分流之前短路)。`mode` 省略時（既有 ProductRowView 直接呼叫端，早於本 prop）比照本檔案
+  // 既有的 `live ? 'live' : 'vod'` 回退公式（與 `ProductList` 迴圈本身、`handleSeekAndDismiss` 同構）。
+  const nameTagMode: ProductRowMode = mode ?? (live ? 'live' : 'vod');
+  const nameTag = ProductRowNameTag.resolve(nameTagMode, product.label, soldOut, isFlashSale);
   // 縮圖左上角編號徽章的 HOT 內容切換（rb-rn-product-row-number-badge, design R35）：是否顯示介紹中
   // 效果單純由 `isIntroducing` 決定，與 `soldOut` 互不影響（rb-rn-product-row-soldout-introducing
   // -visible，2026-09-07 使用者拍板 D6 撤回舊有 `isIntroducing && !soldOut` sold_out > narrating
@@ -942,15 +1099,7 @@ function RowLayoutBody(props: {
                       paddingVertical: 3,
                     }}
                   >
-                    <Text
-                      style={{
-                        color: PLAY_HINT_TEXT,
-                        fontSize: 9 * theme.fontScale,
-                        fontWeight: 'bold',
-                      }}
-                    >
-                      ▶
-                    </Text>
+                    <PlayGlyph color={PLAY_HINT_TEXT} size={9 * theme.fontScale} />
                     <View style={{ width: 3 }} />
                     <Text
                       style={{
@@ -1053,16 +1202,37 @@ function RowLayoutBody(props: {
           onPress={open}
           style={{ flex: 1 }}
         >
-          <Text
-            numberOfLines={2}
-            style={{
-              color: theme.text,
-              fontSize: 14 * theme.fontScale,
-              fontWeight: '600',
-            }}
-          >
-            {product.name}
-          </Text>
+          {/* 商品名稱前標籤（rb-rn-product-row-name-tag-system, design R39）：`nameTag === 'None'`
+              時保持原本 byte-identical 的裸 Text（既有 call site 佔絕大多數，無明確 label / 已售完
+              / effectiveMode 未觸發任何分支）；否則在同一行加一個 NameTagPill + 4px spacer。 */}
+          {nameTag === ProductRowNameTag.None ? (
+            <Text
+              numberOfLines={2}
+              style={{
+                color: theme.text,
+                fontSize: 14 * theme.fontScale,
+                fontWeight: '600',
+              }}
+            >
+              {product.name}
+            </Text>
+          ) : (
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <ProductRowNameTagPill theme={theme} nameTag={nameTag} />
+              <View style={{ width: 4 }} />
+              <Text
+                numberOfLines={2}
+                style={{
+                  flex: 1,
+                  color: theme.text,
+                  fontSize: 14 * theme.fontScale,
+                  fontWeight: '600',
+                }}
+              >
+                {product.name}
+              </Text>
+            </View>
+          )}
           {/* hideSub (design R21 task 1.3, mirrors Android's ROW contract): hides this ENTIRE
               secondary line — soldOut label OR price+strike row — when set. `ProductList`'s
               existing call site never passes `hideSub`, so this stays byte-identical. */}
@@ -1097,13 +1267,6 @@ function RowLayoutBody(props: {
                   >
                     {product.priceShow}
                   </Text>
-                  {/* out_soon / hot 小徽章（goods-status-label-render ③）——僅明確 label 觸發
-                      （label 空不臆測）。最終配色 DECISION-PENDING 待設計稿。 */}
-                  {explicitBadge === ProductStatusBadge.OutSoon ? (
-                    <StatusPill theme={theme} text={OUT_SOON_LABEL} color={OUT_SOON_COLOR} />
-                  ) : explicitBadge === ProductStatusBadge.Hot ? (
-                    <StatusPill theme={theme} text={HOT_LABEL} color={theme.accent} />
-                  ) : null}
                 </View>
               )}
             </>
@@ -1184,9 +1347,7 @@ function GridPlayButton(props: {
         justifyContent: 'center',
       }}
     >
-      <Text style={{ color: '#FFFFFF', fontSize: 10 * theme.fontScale, fontWeight: 'bold' }}>
-        ▶
-      </Text>
+      <PlayGlyph color="#FFFFFF" size={10 * theme.fontScale} />
     </Pressable>
   );
 }

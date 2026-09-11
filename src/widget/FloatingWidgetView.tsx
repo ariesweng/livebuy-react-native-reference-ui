@@ -80,6 +80,21 @@
 // consumers) are unaffected — they never pass `showTitle`, so they keep the title exactly
 // as before.
 //
+// VIEWER COUNT VISIBILITY (rb-rn-live-entry-hide-viewer-count): UNLIKE `showTitle` above (which
+// this surface hardcodes to `false` for every caller), `showViewerCount` is threaded through as
+// its OWN optional prop on `FloatingWidgetProps` and forwarded BY VALUE (not hardcoded) to the
+// reused `CarouselCardView`'s same-named prop. This surface has THREE callers —
+// `LivebuyLiveEntry.tsx` (the turnkey「現正直播」entry container), `WidgetOverlayView.tsx`'s
+// `LBWidgetContentMode.Floating` branch, and `ReferenceUIDesign.tsx`'s minimized/collapsible
+// preview card — and only `LivebuyLiveEntry` wants the viewer-count badge hidden; the other two
+// must keep showing it unchanged. Hardcoding `false` here (the `showTitle` shape) would have
+// silently removed the badge from all three, which is wrong. Omitted / `true` (the two
+// unaffected callers) forwards `true` (or omits, defaulting the same way) to `CarouselCardView`,
+// so its own existing three-factor gate (`isLive && showPvNum > 0 && watchNum > 0`) is the sole
+// decider — unchanged behavior. `false` (only `LivebuyLiveEntry`'s call) forwards `false`, which
+// `CarouselCardView` ANDs onto that gate, suppressing the badge regardless of the other three
+// factors.
+//
 // One-way data flow: this surface reads ONLY its passed-in `liveVideo` + `goods` +
 // `theme`; it never reaches back into `WidgetModel` / `DefaultWidgetTemplate`, holds NO
 // second copy of state, calls NO core `simulate*` / `requestLoadMore`, and NEVER opens
@@ -100,11 +115,11 @@
 
 import type { ReactElement } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
-import { Text } from '../TightText';
 
 import type { ReferenceUITheme } from '../theme';
 import { LBTestIDs } from '../testing/LBTestIDs';
 import { CarouselCardView, DEFAULT_CARD_WIDTH } from './CarouselCardView';
+import { CloseGlyph } from './CloseGlyph';
 import type { WidgetGoods } from './WidgetModel';
 
 import type { LBVideoItem } from 'livebuy-react-native';
@@ -136,6 +151,17 @@ export interface FloatingWidgetProps {
    */
   readonly live?: boolean;
   /**
+   * Whether the reused card's VIEWER BADGE (watch-count pill) is allowed to render, forwarded
+   * BY VALUE to {@link CarouselCardView}'s same-named prop (rb-rn-live-entry-hide-viewer-count).
+   * **Defaults to `true`** — omitted (the `WidgetOverlayView` FLOATING content mode and
+   * `ReferenceUIDesign` minimized-preview callers) leaves `CarouselCardView`'s own existing gate
+   * (`isLive && showPvNum > 0 && watchNum > 0`) as the sole decider, unchanged from before this
+   * prop existed. `false` (the `LivebuyLiveEntry` entry-container caller only) suppresses the
+   * badge even when that gate would otherwise pass. UNLIKE `showTitle` below, this value is
+   * forwarded per-caller, not hardcoded — see VIEWER COUNT VISIBILITY in the file header.
+   */
+  readonly showViewerCount?: boolean;
+  /**
    * Whole-window tap → host-wired `onTap(liveVideo)` → host → core open player for the
    * live `liveVideo.id` (canonical `videoTap`). Omitted for demo / golden instances —
    * the window is inert. This layer NEVER opens the player itself.
@@ -159,7 +185,7 @@ export interface FloatingWidgetProps {
  * / closes itself.
  */
 export function FloatingWidget(props: FloatingWidgetProps): ReactElement | null {
-  const { theme, liveVideo, goods = null, live = false, onTap, onClose } = props;
+  const { theme, liveVideo, goods = null, live = false, showViewerCount = true, onTap, onClose } = props;
 
   // liveVideo == null → render NOTHING (see the prop doc for the design source).
   if (liveVideo == null) return null;
@@ -186,7 +212,10 @@ export function FloatingWidget(props: FloatingWidgetProps): ReactElement | null 
           NO title here, deliberately (rb-rn-floating-widget-hide-title): the design
           source's `LBPFloatingWidget` (`sdk-components.jsx` 590-712) has no title element
           — `showTitle={false}` aligns this surface with that fact. Same decision as iOS
-          `FloatingWidgetView.swift` and Android `FloatingWidgetView.kt`. */}
+          `FloatingWidgetView.swift` and Android `FloatingWidgetView.kt`.
+          `showViewerCount` forwarded BY VALUE, not hardcoded (rb-rn-live-entry-hide-viewer-count)
+          — see VIEWER COUNT VISIBILITY in the file header: only the `LivebuyLiveEntry` caller
+          passes `false`; the other two callers omit the prop and keep showing the badge. */}
       <CarouselCardView
         theme={theme}
         video={video}
@@ -194,6 +223,7 @@ export function FloatingWidget(props: FloatingWidgetProps): ReactElement | null 
         width={DEFAULT_CARD_WIDTH}
         live={live}
         showTitle={false}
+        showViewerCount={showViewerCount}
         onTap={onTap == null ? undefined : () => onTap(video)}
       />
 
@@ -207,26 +237,26 @@ export function FloatingWidget(props: FloatingWidgetProps): ReactElement | null 
         onPress={() => onClose?.()}
         style={styles.closeButton}
       >
-        <Text style={styles.closeGlyph}>{CLOSE_GLYPH}</Text>
+        <CloseGlyph color={WHITE} size={14} />
       </Pressable>
     </View>
   );
 }
 
-// Fixed presentation glyph (white ✕ on the translucent-black close button).
-//
-// GLYPH MECHANISM: a `Text` character (U+2715), NOT an SVG — `react-native-svg` is
-// banned in this layer. The design draws `<Icons.close size={14}>` (rb-rn-live-replay-more-
-// menu-and-video-info-live-copy, design R32 — enlarged from the prior `size={11}`), whose
-// `size` is the SVG *viewBox* edge (`design/shared/icons.jsx` renders `viewBox="0 0 24 24"`
-// with the path `M5 5l14 14M19 5L5 19`). A viewBox edge is NOT a font size, so that number
-// MUST NOT be transcribed into `fontSize` on the strength of the design alone. The value below
-// is taken from the sibling implementation of the SAME design element's close button in this
-// package (`MinimizedWidgetView.closeGlyph`), which is the only reference value with a
-// rendered result behind it; U+2715's ink runs ~0.55-0.62 em, so 14 lands on the design's ink
-// span as well (same ratio that justified 11 for the prior size={11}). `FloatingCloseButton
-// Layout.test.tsx` asserts the two stay identical.
-const CLOSE_GLYPH = '✕';
+// GLYPH MECHANISM (rb-rn-icon-parity-widget-close-glyph): the close button draws a
+// self-drawn `CloseGlyph` (`react-native-svg`'s `<Svg><Path/></Svg>`, `d="M5 5l14 14M19
+// 5L5 19"`, copied verbatim from Android `IconGlyphs.kt`'s `D_CLOSE` ↔ iOS
+// `Image(systemName: "xmark")`), NOT a bare `Text` character. `react-native-svg` is NOT
+// banned in this layer — it is a declared `peerDependency` (`package.json`) and already
+// used by several existing `widget/` glyphs (`PinGlyph.tsx`, `LockGlyph.tsx`,
+// `ShareFillGlyph.tsx`, `CartFillGlyph.tsx`, `CcGlyph.tsx`, `DetailGlyph.tsx`) — an
+// earlier version of this comment claimed otherwise; that claim was wrong and this
+// close button's bare-character rendering was leftover history, not a deliberate
+// layer limitation. `size={14}` is unchanged from the prior fixed
+// `styles.closeGlyph.fontSize: 14` (design R32's enlarged close button, `Icons.close
+// size={14}`); `FloatingCloseButtonLayout.test.tsx` asserts the sibling
+// `MinimizedWidgetView` close button stays identical (`color`/`size` props + the
+// underlying `Path`'s `d`).
 
 // Decorative design tokens (literal sdk-components.jsx values — FIXED, NOT theme-derived;
 // the close button is the same regardless of the host theme, parity with the family-2/3/4
@@ -291,10 +321,5 @@ const styles = StyleSheet.create({
     backgroundColor: CLOSE_GLASS,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  closeGlyph: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: WHITE,
   },
 });

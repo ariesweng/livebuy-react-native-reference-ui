@@ -87,8 +87,10 @@ import {
 import type { AwardClaimResultState } from 'livebuy-react-native-ui';
 import type { LBWinner } from 'livebuy-react-native';
 import { LBTestIDs } from '../testing/LBTestIDs';
-import { WarningGlyph } from '../productsheets/WarningGlyph';
+import { AlertCircleGlyph } from './AlertCircleGlyph';
 import { GIFT_OUTER_D, GIFT_INNER_D, GLYPH_INNER_COLOR } from './GiftGlyphPaths';
+import { MailGlyph } from './MailGlyph';
+import { GiftOutlineGlyph } from './GiftOutlineGlyph';
 
 // MARK: - Stage 機（型別 + 純函式推導）
 
@@ -274,13 +276,6 @@ const FAIL_SUBLINE = '領獎過程發生錯誤，你的中獎資格仍保留，�
  */
 const FAIL_NOTICE = '若持續發生，請聯繫客服';
 const RETRY_LABEL = '重新領獎';
-
-// MARK: - Deterministic glyphs (Text glyphs — parity to iOS SF Symbols / Flutter Icons)
-
-/** 禮物徽章 glyph（**恆為 gift**，MUST NOT 依 classification 路由）。 */
-const GLYPH_GIFT = '\u{1F381}'; // 🎁 gift
-/** email 輸入列的信封 glyph。 */
-const GLYPH_MAIL = '✉';
 
 // MARK: - Pure color / confetti helpers
 
@@ -691,7 +686,7 @@ function ClaimCardBody(props: {
           backgroundColor: BG_SUNKEN,
         }}
       >
-        <Text style={{ color: TEXT_DIM, fontSize: 16 }}>{GLYPH_MAIL}</Text>
+        <MailGlyph color={TEXT_DIM} size={16} />
         <TextInput
           testID={LBTestIDs.winClaimEmailField}
           value={email}
@@ -1090,7 +1085,7 @@ function DoneCardBody(props: {
               justifyContent: 'center',
             }}
           >
-            <Text style={{ color: theme.accent, fontSize: 18 }}>{GLYPH_GIFT}</Text>
+            <GiftOutlineGlyph color={theme.accent} size={18} />
           </View>
           <View style={{ flex: 1, marginLeft: 12 }}>
             <Text
@@ -1182,7 +1177,7 @@ function FailCardBody(props: {
           borderColor: DANGER + '4D',
         }}
       >
-        <WarningGlyph color={DANGER} size={16} />
+        <AlertCircleGlyph color={DANGER} size={16} />
         <Text
           style={{
             flex: 1,
@@ -1293,7 +1288,7 @@ function FailBadge(props: { theme: ReferenceUITheme }): ReactElement {
         justifyContent: 'center',
       }}
     >
-      <WarningGlyph color="#FFFFFF" size={30} />
+      <AlertCircleGlyph color="#FFFFFF" size={30} />
     </View>
   );
 }

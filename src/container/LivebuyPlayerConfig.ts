@@ -119,7 +119,7 @@ export interface LivebuyPlayerConfig {
    * `resolveDirectCloseButtonEnabled` (`collapsibleLogic.ts`), so they never
    * diverge:
    * - `LivebuyPlayerOverlays` resolves it into `PlayerHeaderBar`'s `showCloseIcon`
-   *   (minimize icon `◳` ↔ close icon `✕`) — this runs for EVERY use of
+   *   (minimize icon `PipGlyph` ↔ close icon `✕`) — this runs for EVERY use of
    *   `LivebuyPlayer`, whether or not it is wrapped by `CollapsibleLivebuyPlayer`.
    * - `CollapsibleLivebuyPlayer` (the turnkey "full-screen + minimize → bottom-right
    *   floating preview" presenter) resolves it to pick `onMinimize`'s actual
@@ -178,19 +178,45 @@ export interface LivebuyPlayerConfig {
    */
   onServiceLink?: () => void;
 
-  // -- live-now-pill (rb-rn-live-now-pill) -------------------------------------
+  // -- live-now-pill (rb-rn-live-now-pill, rn-live-now-pill-auto-shopid-turnkey-reference-ui) ---
 
   /**
-   * Shop ID whose ongoing live is polled for the「現正直播」`LiveNowPillView` right-edge half-pill
-   * (VOD 播放中 / 直播回放時偵測到「目前有其他直播正在進行」的紅色提示鈕). Default `undefined` →
-   * the poll is a PERMANENT no-op (zero extra `fetchLatestLive` calls, the pill never appears) —
-   * parity iOS `LivebuyPlayerConfig.shopId: String?` (nullable, internal no-op). RN's poll lives
-   * in a React hook (`LivebuyPlayer.tsx`'s file-local `useLiveNowPoll`), which by the Rules of
-   * Hooks MUST be called UNCONDITIONALLY on every render — unlike Android's Composable, which can
-   * conditionally `remember` a controller only when `shopId != null`, RN cannot conditionally
-   * call a hook keyed on this field. So RN mirrors iOS's nullable-input-internal-no-op shape
-   * rather than Android's caller-decides-whether-to-construct shape (see that change's design.md
-   * for the full comparison).
+   * Whether the「現正直播」`LiveNowPillView` right-edge half-pill feature is enabled at all
+   * (rn-live-now-pill-auto-shopid-turnkey-reference-ui). **Omitted ⇒ treated as `true`** by the
+   * consuming container (`LivebuyPlayer.tsx`'s `config.showsLiveNowPill ?? true`) — TypeScript
+   * optional fields carry no default-value syntax of their own, unlike a Swift stored property
+   * (`= true`) or a Dart constructor parameter default, so the substitution happens at the ONE
+   * consuming call site, not here. Set `false` to disable the feature UNCONDITIONALLY — the
+   * effective shop id fed to `useLiveNowPoll` resolves to `undefined` regardless of what
+   * {@link LivebuyPlayerConfig.shopId} is set to, which trips that hook's own pre-existing
+   * `shopId == null` → permanent no-op branch (zero extra `fetchLatestLive` calls, the pill never
+   * appears). Parity iOS `showsLiveNowPill: Bool = true` / Flutter `showsLiveNowPill: bool`
+   * (default `true`) — this is the RN spelling of the same "唯一開關" concept those two platforms
+   * already ship.
+   */
+  showsLiveNowPill?: boolean;
+
+  /**
+   * Explicit shop ID override for the「現正直播」`LiveNowPillView` right-edge half-pill (VOD
+   * 播放中 / 直播回放時偵測到「目前有其他直播正在進行」的紅色提示鈕). **This is no longer the
+   * sole switch that turns the feature on** ({@link LivebuyPlayerConfig.showsLiveNowPill}, default
+   * `true`, is) — as of rn-live-now-pill-auto-shopid-turnkey-reference-ui, when
+   * `showsLiveNowPill` resolves to `true` (the default) and this field is `undefined`, the
+   * effective shop id fed to `useLiveNowPoll` automatically falls back to
+   * `LivebuySDK.currentShopId()` (the shopId last passed to `LivebuySDK.configure(...)`) instead
+   * of always being `undefined`. Set this field only when you want the pill to watch a
+   * **different** shop than the one `configure()` was called with — a host using the same shop
+   * throughout needs no wiring here at all. See {@link resolvedLiveNowShopId} for the exact
+   * resolution logic and {@link LivebuyPlayerConfig.showsLiveNowPill} for the off-switch.
+   *
+   * RN's poll lives in a React hook (`LivebuyPlayer.tsx`'s file-local `useLiveNowPoll`), which by
+   * the Rules of Hooks MUST be called UNCONDITIONALLY on every render — unlike Android's
+   * Composable, which can conditionally `remember` a controller only when the resolved shop id is
+   * non-null, RN cannot conditionally call a hook keyed on this field. So RN resolves the
+   * effective shop id BEFORE calling the hook (via {@link resolvedLiveNowShopId}) and mirrors
+   * iOS's nullable-input-internal-no-op shape rather than Android's/Flutter's
+   * caller-decides-whether-to-construct shape (see that change's design.md for the full
+   * comparison).
    *
    * Independent of `LivebuyLiveEntry`'s OWN required `shopId` prop — the two drop-in surfaces
    * never share a poll instance (design decision carried over from iOS/Android): a host wanting
@@ -449,11 +475,23 @@ export interface LivebuyPlayerConfig {
   onPickHot?: (hot: HotRow) => void;
   /** 略過片頭. Default: `playerRef.skipStart()`. */
   onSkip?: () => void;
-  /** 取消 (stop the auto-next countdown — NOT a dismiss). Default: `playerRef.cancelAutoNext()`. */
+  /**
+   * 取消（rb-rn-endscreen-live-empty-state, design R41: EndScreen is now LIVE-only, so there is
+   * no more 熱門變體 to retreat to — 取消 therefore also closes the whole EndScreen overlay, not
+   * just the auto-next countdown). Default: `playerRef.cancelAutoNext()` THEN the same
+   * default-close resolution `onDismiss` below falls back to (`playerRef.unload()` when
+   * `onDismiss` is unset).
+   */
   onCancel?: () => void;
   /** 重試. Default: `playerRef.load(currentVideoId)` (reload what is showing). */
   onRetry?: () => void;
-  /** Moment 返回 / 關閉. Default: host presentation no-op (the container can't dismiss itself). */
+  /**
+   * Error-screen「返回」/「前往更新」. Default: host presentation no-op (the container can't
+   * dismiss itself). Also consulted (rb-rn-endscreen-live-empty-state) as the close-target for
+   * `onCancel` above and for the internal VOD-結束無-next auto-close gate — set this to make
+   * BOTH close the player your own way; leaving it unset makes both fall back to
+   * `playerRef.unload()`.
+   */
   onDismiss?: () => void;
 
   // -- gap-surfaces -----------------------------------------------------------
@@ -496,8 +534,75 @@ export interface LivebuyPlayerConfig {
    */
   onVideoSwitchedItem?: (item: LBVideoItem) => void;
 
+  // -- collapsible floating card (only meaningful under CollapsibleLivebuyPlayer) ---------------
+
+  /**
+   * Raw `floating_setting.position` for the MINIMIZED floating preview card
+   * ({@link CollapsibleLivebuyPlayer}'s collapsed state) — `rb-rn-collapsible-player-floating-
+   * position-inset`, parity with the sibling {@link LivebuyLiveEntryConfig.position}. Accepted
+   * values `'left_bottom'` / `'right_bottom'`; ANYTHING else (omitted, `''`, `' left_bottom '`,
+   * `'LEFT_BOTTOM'`, an unknown string) falls back to `'right_bottom'` — the corner
+   * `CollapsibleLivebuyPlayer` used before this field existed. Normalization happens in the one
+   * pure `normalizeFloatingPosition` (`liveEntryLogic.ts`) with STRICT equality: no trimming, no
+   * case folding — the SAME entry point `LivebuyLiveEntryConfig.position` already uses, so both
+   * floating surfaces in this package share one fallback boundary.
+   *
+   * This is a **raw wire value** — the host reads it out of
+   * `sdkConfig.extensions.floating_setting.position` and passes it straight through; the SDK does
+   * not interpret backend semantics (`extensions` is an opaque raw bag, `sdk-config` capability).
+   *
+   * **No-op on a bare `LivebuyPlayer`** used directly (not wrapped in `CollapsibleLivebuyPlayer`) —
+   * that container has no floating-preview concept, same carve-out as
+   * {@link LivebuyPlayerConfig.enableDirectCloseButton}'s collapsible-only half.
+   */
+  position?: string;
+  /**
+   * Resting-corner inset for the MINIMIZED floating preview card ({@link CollapsibleLivebuyPlayer}'s
+   * collapsed state) — `rb-rn-collapsible-player-floating-position-inset`, parity with the sibling
+   * {@link LivebuyLiveEntryConfig.inset}. `x` = the distance from the OWNED horizontal edge (`right`
+   * when {@link position} resolves to `'right_bottom'`, `left` when it resolves to `'left_bottom'`),
+   * `y` = bottom. Default `{ x: 12, y: 24 }` (constant `LIVE_ENTRY_DEFAULT_INSET`, re-exported from
+   * `liveEntryLogic.ts` — the SAME value `CollapsibleLivebuyPlayer` hardcoded before this field
+   * existed, so an omitting host is unaffected). A host with bottom chrome (e.g. a tab bar) sets
+   * `{ x: 12, y: 70 }` to clear it. Drives BOTH the resting style AND the drag-clamp bound, so the
+   * two never drift — same single-source contract as `LivebuyLiveEntryConfig.inset`.
+   *
+   * **No-op on a bare `LivebuyPlayer`** used directly (not wrapped in `CollapsibleLivebuyPlayer`).
+   */
+  inset?: { x: number; y: number };
+
   // -- container styling ------------------------------------------------------
 
   /** Optional style for the container's outer `View`. */
   style?: ViewStyle;
+}
+
+/**
+ * Resolves the EFFECTIVE shop id fed to `LivebuyPlayer.tsx`'s file-local `useLiveNowPoll` hook
+ * (rn-live-now-pill-auto-shopid-turnkey-reference-ui) from the three inputs that jointly decide
+ * it: whether the feature is on at all ({@link LivebuyPlayerConfig.showsLiveNowPill}), an explicit
+ * per-instance override ({@link LivebuyPlayerConfig.shopId}), and the shop id
+ * `LivebuySDK.configure(...)` was last called with (`LivebuySDK.currentShopId()`).
+ *
+ * Deliberately a PURE function with zero `LivebuySDK` / RN-runtime reference (parity iOS/Flutter's
+ * own equivalent resolver design decision) — the ONE call site in `LivebuyPlayer.tsx` reads
+ * `LivebuySDK.currentShopId()` and passes the result in as `configuredShopId`. Kept in this file
+ * (rather than `LivebuyPlayer.tsx`) because this module is PURE TypeScript with no RN/core value
+ * imports (see the file header comment above), so this function's own unit tests stay runnable in
+ * a plain node/jest environment with zero mock setup.
+ *
+ * `showsLiveNowPill === false` → `undefined` UNCONDITIONALLY, regardless of either shop id
+ * input — `useLiveNowPoll`'s own pre-existing `shopId == null` guard then makes the whole feature
+ * a permanent no-op (reused as-is, not duplicated here). `showsLiveNowPill === true` (the
+ * container's own `config.showsLiveNowPill ?? true` default) → the explicit `explicitShopId`
+ * WINS when set (host intent expressed explicitly beats an inferred default); otherwise falls
+ * back to `configuredShopId`.
+ */
+export function resolvedLiveNowShopId(params: {
+  showsLiveNowPill: boolean;
+  explicitShopId: string | undefined;
+  configuredShopId: string | undefined;
+}): string | undefined {
+  if (!params.showsLiveNowPill) return undefined;
+  return params.explicitShopId ?? params.configuredShopId;
 }

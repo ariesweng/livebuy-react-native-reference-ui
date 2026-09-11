@@ -51,8 +51,9 @@ import type { ReferenceUITheme } from '../theme';
 import type { LBProductDetailState } from 'livebuy-react-native-ui';
 import type { LBSpec } from 'livebuy-react-native';
 
-/** Product-photo placeholder fill (mirrors ProductDetailSheetView `PHOTO_FILL`). */
-const PHOTO_FILL = '#E27D5A';
+/** Product-photo placeholder fill — neutral gray (mirrors ProductDetailSheetView
+ *  `PHOTO_FILL`; rb-rn-product-image-loading-polish, was warm `'#E27D5A'`). */
+const PHOTO_FILL = '#8E8E93';
 /** The design's toggled zoom factor (`ZOOMED = 2.4`). */
 const ZOOMED = 2.4;
 const HINT_IDLE = '點圖片放大';

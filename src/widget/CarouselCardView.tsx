@@ -56,6 +56,18 @@
 // &&` truthiness gate). Both `pin` / `watchNum` / `showPvNum` are plain `LBVideoItem` fields —
 // unlike `goods`, RN core already carries them, so this is NOT a new parity delta.
 //
+// VIEWER COUNT VISIBILITY FLAG (`showViewerCount`, rb-rn-live-entry-hide-viewer-count, parity iOS
+// / Android `CarouselCardView.showViewerCount`). An ADDITIONAL AND-condition on top of the gate
+// above — `showViewerCount` (optional, DEFAULTS to `true`) lets a caller opt OUT of the viewer
+// badge without touching the existing `isLive` / `showPvNum` / `watchNum` gate. `true` / omitted
+// (every pre-existing consumer — `CarouselView` / `VideoShopGridView`, and the two `FloatingWidget`
+// consumers that don't opt out — `WidgetOverlayView`'s FLOATING content mode and
+// `ReferenceUIDesign`'s minimized preview) keeps the existing gate's own three factors as the sole
+// decider. `false` (only `LivebuyLiveEntry`'s floating entry card, via `FloatingWidget`'s own
+// forwarded `showViewerCount` prop — see `FloatingWidgetView.tsx`) removes the badge node
+// entirely, even when `isLive && showPvNum > 0 && watchNum > 0` all hold. This is a presentation
+// axis fully independent of `showTitle` — the two may be combined in any combination.
+//
 // PRODUCT-CARD MODES (rb-rn-widget-product-card-modes, design R14; white-card colors updated
 // by rb-rn-carousel-card-pin-viewers-duration-removal / design R33 —
 // `design/templates/minimal/widgets.jsx` `normalizeProductCardMode` / `LBPCardProductRow`
@@ -341,6 +353,17 @@ export interface CarouselCardViewProps {
    */
   readonly showTitle?: boolean;
   /**
+   * Whether the VIEWER BADGE (see VIEWER BADGE / VIEWER COUNT VISIBILITY FLAG in the file
+   * header) is allowed to render, ANDed onto its existing three-factor gate (`isLive &&
+   * showPvNum > 0 && watchNum > 0`). **Defaults to `true`** — omitted (every pre-existing
+   * consumer, plus the two `FloatingWidget` consumers that don't opt out) keeps the existing
+   * gate's own factors as the sole decider. `false` (the `LivebuyLiveEntry` floating entry card
+   * only, via `FloatingWidget`'s forwarded prop) suppresses the badge entirely — NOT a blank
+   * placeholder; the badge node is not built, even when the other three gate factors all hold.
+   * Independent of {@link CarouselCardViewProps.showTitle}.
+   */
+  readonly showViewerCount?: boolean;
+  /**
    * Card width (logical px). Defaults to the design's {@link DEFAULT_CARD_WIDTH}
    * (132). The thumbnail height is derived 9:16. The minimized surface passes a
    * smaller width (e.g. 96).
@@ -369,6 +392,7 @@ export function CarouselCardView(props: CarouselCardViewProps): ReactElement {
     width = DEFAULT_CARD_WIDTH,
     live = false,
     showTitle = true,
+    showViewerCount = true,
     onTap,
   } = props;
   // The ONE call of `normalizeProductCardMode` in this card — every branch below reads the
@@ -385,8 +409,9 @@ export function CarouselCardView(props: CarouselCardViewProps): ReactElement {
   const thumbHeight = (width * 16) / 9;
   // VIEWER BADGE gate (rb-rn-carousel-card-pin-viewers-duration-removal, design R33):
   // LIVE-only, AND the backend's own "should this be shown" flag, AND a non-zero count —
-  // see VIEWER BADGE in the file header.
-  const showViewerBadge = isLive && video.showPvNum > 0 && video.watchNum > 0;
+  // see VIEWER BADGE in the file header. `showViewerCount` (rb-rn-live-entry-hide-viewer-count)
+  // is an additional caller-controlled AND-condition — see VIEWER COUNT VISIBILITY FLAG.
+  const showViewerBadge = isLive && showViewerCount && video.showPvNum > 0 && video.watchNum > 0;
 
   return (
     <Pressable onPress={() => onTap?.()} style={[styles.card, { width }]}>
@@ -584,7 +609,7 @@ const PRICE_PREFIX = 'NT$ ';
 // Decorative design tokens (literal widgets.jsx colors — FIXED, NOT theme-derived).
 const LIVE_RED = '#F03246'; // LBPCarouselCard brand-red LIVE tag surface.
 const COVER_FILL = '#26262E'; // dark 9:16 cover placeholder fill.
-const GOODS_THUMB = '#E8A87C'; // product thumb chip placeholder fill.
+const GOODS_THUMB = '#8E8E93'; // product thumb chip placeholder fill (rb-rn-product-image-loading-polish: neutral gray, was warm '#E8A87C').
 const WHITE = '#FFFFFF';
 // VIEWER BADGE background (design R33): `rgba(0,0,0,0.4)` — this package has no native blur
 // dependency, so the design's `backdropFilter: blur(6px)` glass look is approximated as a

@@ -212,6 +212,17 @@ export class ProductSheetsModel {
   }
 
   /**
+   * 限時搶購（flash sale）旗標（`playerHeaderState.isFlashSale` — `= channel.isFlashSale`，
+   * host-fed via `handleHeaderChrome`；`rb-rn-flash-sale-live-signal-wiring`）。只在 `rowMode ===
+   * 'live'` 時影響 `ProductListView` 的名稱前標籤（「直播價」→「搶購中」）與介紹中橫幅文案
+   * （「介紹中」→「開標中」）。與 `isLive` / `isReplay` 正交（可與任一種 `rowMode` 共存，`vod` /
+   * `replay` 分支不受此旗標影響）。Demo → false.
+   */
+  get isFlashSale(): boolean {
+    return this.template?.playerHeaderState.isFlashSale ?? false;
+  }
+
+  /**
    * Derived playback mode for the product-row overlay (replay takes precedence over
    * live). `null` for a demo / snapshot model (no bound template) → the view falls
    * back to its real-frame `live` flag so baselines stay byte-identical. Parity iOS /

@@ -416,11 +416,17 @@ export function LivebuyLiveEntry({ shopId, config = {} }: LivebuyLiveEntryProps)
   // external-platform live → open platform URL (externalLiveAwareTap, highest precedence); non-external
   // → host `onTapVideo` if wired, else the DEFAULT full-screen in-app player (Modal). onClose forwards
   // then marks dismissed.
+  //
+  // showViewerCount={false} (rb-rn-live-entry-hide-viewer-count): hides the VIEWER BADGE
+  // (watch-count pill) on THIS entry card only. `FloatingWidget`'s other two callers —
+  // `WidgetOverlayView`'s FLOATING content mode and `ReferenceUIDesign`'s minimized preview —
+  // omit this prop and keep showing the viewer count; unaffected by this call.
   const card = (
     <FloatingWidget
       theme={theme}
       liveVideo={live}
       live
+      showViewerCount={false}
       onTap={externalLiveAwareTap(lbWidgetEffectiveTap(config.onTapVideo, (item) => setPresented(item)))}
       onClose={() => {
         config.onClose?.();

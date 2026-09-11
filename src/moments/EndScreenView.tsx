@@ -1,134 +1,140 @@
 // EndScreenView — family-4 moments surface 2 (full-screen END moment).
 //
-// Spec: `reference-ui-rendering/spec.md` (family-4 moments, full-screen END moment).
-// Phase-4 RN sibling of the DONE iOS `EndScreenView.swift` (rb-ios-moments §2,
-// golden `end-screen-countdown-variant`), Android `EndScreenView.kt`
-// (rb-android-moments), and Flutter `end_screen.dart` (rb-flutter-moments — the
-// authoritative blueprint translated here 1:1).
+// Spec: `component-contracts/spec.md` § EndScreen 元件契約 (rb-rn-endscreen-live-empty-state).
+// Phase-4 RN sibling of iOS `EndScreenView.swift` (rb-ios-endscreen-live-empty-state, design R41),
+// with the Android / Flutter siblings tracked as separate, independent follow-up changes (see this
+// change's `## Platform Scope`).
 //   Design source: `design/templates/minimal/moments.jsx` `LBPEndScreen`
-//     (lines 266-364) + `LBPHotCard` (226-264).
+//     (lines 158-257, commit `c480363ad` — design R41 / D7, `design/contract/claude-design-sync.md`).
 //
-// The full-screen END moment shown when the video finishes. It is the second of the
-// three family-4 moment surfaces composed by `MomentsView`, and it implements the
-// agreed SUB-VIEW INPUT PATTERN documented verbatim in `MomentsView.tsx`:
+// The full-screen END moment shown when the video finishes. It is the second of the three
+// family-4 moment surfaces composed by `MomentsView`, and it implements the agreed SUB-VIEW
+// INPUT PATTERN documented verbatim in `MomentsView.tsx`:
 //
 //   1. `theme` (ReferenceUITheme)                      — FIRST argument, always.
 //   2. bound SNAPSHOT VALUES (read-only, BY VALUE from `MomentsModel` — never the
 //      model, never the template):
 //        • `countdown: EndScreenCountdown | null` — non-null ⇔ 倒數變體; `{ remain,
-//          total }` drives the ring progress (`remain / total`). null ⇔ 熱門變體.
+//          total }` drives the ring progress (`remain / total`). null (or an empty
+//          `next`) ⇔ 空狀態.
 //        • `next: readonly EndScreenNavRow[]`     — watch-next targets; `next[0]` is
 //          the 倒數變體 preview card source (`cover` placeholder / `title`). Empty
-//          `next` also forces the 熱門變體.
-//        • `hot: readonly HotRow[]`               — 熱門變體 set; rendered as
-//          `LBPHotCard`s in a PLAIN `Row` FIXED SMALL set (first N). `duration` is a
-//          number in SECONDS (reference-ui-local {@link HotRow} augmentation) —
-//          formatted here to `mm:ss` (e.g. `28` → `"00:28"`), defaulting to `"00:00"`
-//          when absent (the RN template `EndScreenHotRow` carries no `duration`).
+//          `next` also forces the 空狀態.
 //   3. action callbacks (LAST, each defaulting to a no-op):
 //        • `onWatchNext` — 倒數變體「立即觀看」CTA → host-wired → host → core
 //          load(next videoId). This layer NEVER loads / advances itself.
-//        • `onPickHot(item)` — 熱門變體 card tap → host-wired → host → core
-//          load(hot.id). This layer NEVER switches videos itself.
-//        • `onCancel` — 倒數變體「取消」exit → host-wired → host (dismiss / stay).
+//        • `onCancel` — 倒數變體「取消」exit → host-wired → host. Now CLOSES the whole
+//          EndScreen overlay outright (rb-rn-endscreen-live-empty-state — the retired 熱門變體
+//          no longer exists as a fallback to retreat to).
+//        • `onViewCart` — 空狀態「查看購物車」CTA → host-wired → host (open the product list /
+//          cart). rb-rn-endscreen-live-empty-state.
 //
-// VARIANT GATING (mirrors `LBPEndScreen`'s `showCountdown`, moments.jsx line 268):
+// R41 REDESIGN (rb-rn-endscreen-live-empty-state): EndScreen is now LIVE-ONLY. The prior 熱門變體
+// (「為你推薦」card wall, `HotVariant`/`HotCard`/`hotWindow`/`pageCount`/「換一批」) is RETIRED —
+// design R41 removed it entirely. `next` empty now shows a new 空狀態 instead: a big「直播已結束」
+// title + a「直播時長：…」line (fallback `"--:--:--"` — no reference-ui data source for a real
+// duration exists yet) + a full-width accent「查看購物車」CTA. A VOD (非直播) channel that ends
+// with no `next` has nothing to show at all (the 空狀態 fallback no longer exists for it either) —
+// `MomentsView`'s `shouldCloseInsteadOfEndScreen` gate closes the player directly instead of
+// entering this moment; that decision lives in the CONTAINER (`MomentsView.tsx`), not here — this
+// surface itself has no notion of `isLive` and never decides to render nothing.
+//
+// VARIANT GATING (mirrors `LBPEndScreen`'s `isEmpty`, moments.jsx line 164):
 //   • 倒數變體 — `countdown != null` AND `next` non-empty: a big `next[0]` preview
 //     card with a centered countdown RING (auto-advance-to-next) + 立即觀看 / 取消.
-//   • 熱門變體 — `countdown == null` OR `next` empty: 為你推薦 header + a PLAIN `Row`
-//     of `LBPHotCard`s, each tap → `onPickHot`.
+//   • 空狀態   — `countdown == null` OR `next` empty: 直播已結束 title + 直播時長 line +
+//     查看購物車 CTA.
 //
 // One-way data flow: this surface reads ONLY its passed-in values; it never reaches
 // back into `MomentsModel` / `DefaultPlayerTemplate`, holds NO second copy of
-// countdown / next / hot, and NEVER drives the auto-next countdown itself (core owns
+// countdown / next, and NEVER drives the auto-next countdown itself (core owns
 // the tick — the ring is PURE PRESENTATION of the snapshot `remain` / `total`). It
 // renders correctly with all actions omitted (so demo / snapshot tests construct it
 // action-free).
 //
-// VISUAL LANGUAGE: a full-bleed dark scrim (`rgba(8,8,12,0.8)`) with white text /
-// glyphs (the moment composites over the ended video — design §2). The literal dark
-// scrim + white-on-dark decorative colors are FIXED design colors lifted verbatim
-// from `LBPEndScreen` / `LBPHotCard` (consistent with the family-1/2/3 surfaces'
-// surface-token approach); `theme.accent` paints the「立即觀看」CTA + the ring trim.
+// VISUAL LANGUAGE: a full-bleed dark scrim (`rgba(50,50,50,0.64)`, R41 — was
+// `rgba(8,8,12,0.8)`; no blur, unchanged — RN never implemented the design's blur) with white
+// text / glyphs (the moment composites over the ended video — design §2). The literal dark scrim
+// + white-on-dark decorative colors are FIXED design colors lifted verbatim from `LBPEndScreen`
+// (consistent with the family-1/2/3 surfaces' surface-token approach); `theme.accent` paints the
+// 「立即觀看」/「查看購物車」CTAs + the ring trim.
 //
 // RENDER DISCIPLINE (inherited from iOS / Android / Flutter / family-1/2/3): plain
 // `View` / `Text` / `Pressable` only — NO ScrollView / FlatList / SectionList /
-// VirtualizedList (the golden render path does NOT materialize scrollable / lazy
-// content). The 熱門 list is a PLAIN `Row` FIXED SMALL set (first N). ★ The auto-next
-// countdown ring is a DETERMINISTIC View-based representation (a circular bordered
-// View + a 12-segment progress track + the centered `remain` number) — NOT Canvas /
-// react-native-svg / Animated. The cover is a deterministic placeholder fill; icons
-// are deterministic Text glyphs. No animation / no randomness so the structural
-// snapshot is stable.
+// VirtualizedList. ★ The auto-next countdown ring is a DETERMINISTIC View-based representation (a
+// circular bordered View + a 12-segment progress track + the centered `remain` number) — NOT
+// Canvas / react-native-svg / Animated (a DYNAMIC progress geometry, unlike a static icon, so it
+// stays a hand-drawn View composition). The preview cover is a deterministic placeholder fill.
+// ONE deliberate exception: the 空狀態「查看購物車」CTA reuses the SAME static `CartFillGlyph`
+// (`react-native-svg`-backed, no animation / no randomness — structurally deterministic) already
+// used by `ProductListView`'s cart-CTA footer elsewhere in this package, matching the design's
+// `Icons.cartFill` glyph exactly rather than approximating it with a Text character.
 
 import type { ReactElement } from 'react';
-import { useState } from 'react';
 import { View, Pressable } from 'react-native';
 import { Text } from '../TightText';
 
 import type { ReferenceUITheme } from '../theme';
-import { LBTestIDs, momentHotCard } from '../testing/LBTestIDs';
+import { LBTestIDs } from '../testing/LBTestIDs';
 import { RemoteImage } from '../productsheets/RemoteImage';
-import type { HotRow } from './MomentsModel';
+import { CartFillGlyph } from '../productsheets/CartFillGlyph';
 import type { EndScreenCountdown, EndScreenNavRow } from 'livebuy-react-native-ui';
 
 // MARK: - Decorative design tokens (literal moments.jsx rgba via RN rgba strings)
 //
 // `theme.accent` comes from the resolved theme; these are FIXED decorative colors
-// lifted verbatim from `LBPEndScreen` / `LBPHotCard` (the dark-scrim moment is
-// white-on-dark regardless of the host theme background — design §2). Kept consistent
-// with the family-1/2/3 surfaces' surface-token approach (literal hex / rgba), and
-// they mirror the iOS `EndScreenView` static colors + Android `EndScreenView` +
-// Flutter `end_screen.dart`.
+// lifted verbatim from `LBPEndScreen` (the dark-scrim moment is white-on-dark regardless of the
+// host theme background — design §2). Kept consistent with the family-1/2/3 surfaces'
+// surface-token approach (literal hex / rgba), and they mirror the iOS `EndScreenView` static
+// colors.
 
-/** Full-bleed scrim base (`rgba(8,8,12,0.8)`). */
-const SCRIM = 'rgba(8,8,12,0.8)';
+/** Full-bleed scrim base (`rgba(50,50,50,0.64)`, design R41 — was `rgba(8,8,12,0.8)`). Shared by
+ *  BOTH variants (a single top-level layer), so the 倒數變體's background changed too. */
+const SCRIM = 'rgba(50,50,50,0.64)';
 /** Faint on-dark rule line (`rgba(255,255,255,0.3)`). */
 const ON_DARK_FAINT = 'rgba(255,255,255,0.3)';
 /** Dim on-dark caption (`rgba(255,255,255,0.6)`). */
 const ON_DARK_DIM = 'rgba(255,255,255,0.6)';
-/** Fainter on-dark meta / empty text (`rgba(255,255,255,0.5)`). */
-const ON_DARK_FAINT_TEXT = 'rgba(255,255,255,0.5)';
+/** Strong on-dark subtitle (`rgba(255,255,255,0.85)`) — 空狀態's「直播時長：…」line. */
+const ON_DARK_STRONG = 'rgba(255,255,255,0.85)';
 /** Translucent on-dark fill (button / pill `rgba(255,255,255,0.12)`). */
 const ON_DARK_FILL = 'rgba(255,255,255,0.12)';
 /** Translucent on-dark outline (`rgba(255,255,255,0.28)`). */
 const ON_DARK_STROKE = 'rgba(255,255,255,0.28)';
 /** Countdown ring faint track (`rgba(255,255,255,0.28)`). */
 const RING_TRACK = 'rgba(255,255,255,0.28)';
-/** Cover placeholder body (the 9:16 preview / hot card background — `#000`). */
+/** Cover placeholder body (the 9:16 preview background — `#000`). */
 const COVER_BG = '#000000';
 /** Dark veil over the preview cover (`rgba(0,0,0,0.4)`). */
 const COVER_VEIL = 'rgba(0,0,0,0.4)';
-/** Center play affordance circle on a cover (`rgba(0,0,0,0.5)`). */
-const PLAY_CIRCLE = 'rgba(0,0,0,0.5)';
-/** Duration pill capsule on a cover (`rgba(0,0,0,0.55)`). */
-const DURATION_PILL = 'rgba(0,0,0,0.55)';
-
-/** FIXED SMALL hot set cap — a PLAIN `Row` of a bounded N (NEVER lazy / scroll). */
-const MAX_HOT_CARDS = 3;
 
 /** Number of segments in the deterministic View-based countdown ring track. */
 const RING_SEGMENTS = 12;
 
 // MARK: - Fixed localized copy (static presentation strings — parity to iOS/Android)
 
-const ENDED_LABEL = '影片結束';
-/** No-countdown LIVE-ENDED title (end-screen-no-countdown). Parity iOS / Android `liveEndedLabel`. */
+/**
+ * The rule-flanked 倒數變體 caption AND the 空狀態's big title — BOTH now say「直播已結束」
+ * (design R41 — EndScreen is LIVE-only, so the prior VOD-flavored「影片結束」countdown caption
+ * is retired). Parity iOS / Android `liveEndedLabel`.
+ */
 const LIVE_ENDED_LABEL = '直播已結束';
 const AUTO_PLAY_SUFFIX = '秒後自動播放下一支'; // "{remain} {秒後自動播放下一支}"
 const UNTITLED_NEXT = '下一支影片';
 const CANCEL_LABEL = '取消';
 const WATCH_NEXT_LABEL = '立即觀看';
-const RECOMMEND_TITLE = '為你推薦';
-const SHUFFLE_LABEL = '換一批';
-const EMPTY_HOT_LABEL = '目前沒有推薦影片';
+/** 空狀態's「直播時長：…」line prefix (design moments.jsx:241). */
+const LIVE_DURATION_PREFIX = '直播時長：';
+/** Fallback duration text when `liveDuration` is not fed (design-documented literal). */
+const LIVE_DURATION_FALLBACK = '--:--:--';
+/** 空狀態 CTA label — verbatim the SAME copy as `ProductListView`'s cart-CTA footer. */
+const VIEW_CART_LABEL = '查看購物車';
 
 /**
- * Format a number of SECONDS → `mm:ss` (for {@link HotRow.duration}, which IS seconds
- * — reference-ui formats it, e.g. `28` → `"00:28"`, `2316` → `"38:36"`). Pure /
- * deterministic. Negative / non-finite values clamp to `0` (`"00:00"`). Mirrors iOS
- * `EndScreenView.formatSeconds` / Android `formatNavDuration` / Flutter
- * `_formatSeconds`.
+ * Format a number of SECONDS → `mm:ss` (for the 倒數變體's `next[0]` meta line — `duration` IS
+ * seconds, e.g. `28` → `"00:28"`, `2316` → `"38:36"`). Pure / deterministic. Negative /
+ * non-finite values clamp to `0` (`"00:00"`). Mirrors iOS `EndScreenView.formatSeconds` /
+ * Android `formatNavDuration` / Flutter `_formatSeconds`.
  */
 export function formatSeconds(seconds: number | null | undefined): string {
   const raw = seconds == null || !Number.isFinite(seconds) ? 0 : Math.floor(seconds);
@@ -140,7 +146,7 @@ export function formatSeconds(seconds: number | null | undefined): string {
 }
 
 /**
- * 「{shopName} · {mm:ss}」preview meta (LBPEndScreen moments.jsx:321). Joins the two
+ * 「{shopName} · {mm:ss}」preview meta (LBPEndScreen moments.jsx:217). Joins the two
  * host-fed `EndScreenNavRow` fields with「 · 」, omitting an absent side. Returns ''
  * when neither is present (caller draws nothing). Pure / deterministic.
  */
@@ -149,33 +155,6 @@ export function metaLine(n0: EndScreenNavRow): string {
   if (n0.shopName != null && n0.shopName.length > 0) parts.push(n0.shopName);
   if (n0.duration != null && n0.duration > 0) parts.push(formatSeconds(n0.duration));
   return parts.join(' · ');
-}
-
-/**
- * Number of local recommendation pages for `len` hot items, `MAX_HOT_CARDS` (=3) per
- * page (ceil). `len <= 0 → 0`. Pure / deterministic — drives the「換一批」pill's local
- * window carousel (rb-rn-endscreen-reshuffle-local-window). Mirrors iOS
- * `EndScreenView.pageCount(forHotCount:)` / Android `pageCount(hotCount)`.
- */
-export function pageCount(len: number): number {
-  return len <= 0 ? 0 : Math.ceil(len / MAX_HOT_CARDS);
-}
-
-/**
- * The `page`-th local recommendation window (`size` = `MAX_HOT_CARDS` = 3 per page) of
- * `hot`. `page === 0` (or a negative / out-of-range `page`) SAFELY falls back to the
- * first page (`hot.slice(0, size)` = the pre-reshuffle behavior) so the default render
- * is byte-identical and a stale `page` can never crash. Pure / deterministic. Mirrors
- * iOS `EndScreenView.hotWindow(_:page:)` / Android `hotWindow(hot, page, size)`.
- */
-export function hotWindow(
-  hot: readonly HotRow[],
-  page: number,
-  size = MAX_HOT_CARDS,
-): readonly HotRow[] {
-  const start = page * size;
-  if (page < 0 || start >= hot.length) return hot.slice(0, size);
-  return hot.slice(start, start + size);
 }
 
 /** Props for the {@link EndScreen} surface. */
@@ -189,47 +168,40 @@ export interface EndScreenProps {
   readonly countdown: EndScreenCountdown | null;
   /**
    * Watch-next targets (`endScreenState.next`). `next[0]` is the 倒數變體 preview
-   * card source. Empty also forces the 熱門變體. Read-only.
+   * card source. Empty also forces the 空狀態. Read-only.
    */
   readonly next: readonly EndScreenNavRow[];
-  /**
-   * 熱門推薦 set (`endScreenState.hot`, widened to {@link HotRow}). Rendered as a
-   * FIXED SMALL PLAIN `Row` of `LBPHotCard`s. `duration` is a number in SECONDS —
-   * formatted to `mm:ss` (defaulting to `"00:00"` when absent). Read-only.
-   */
-  readonly hot: readonly HotRow[];
   /**
    * 倒數變體「立即觀看」CTA → host-wired → host → core load(next). Default no-op for
    * demo / snapshot instances — the CTA is inert. This layer NEVER loads / advances.
    */
   readonly onWatchNext?: () => void;
   /**
-   * 熱門變體 card tap → host-wired `onPickHot(item)` → host → core load(hot.id).
-   * Default no-op for demo / snapshot instances. NEVER switches videos itself.
-   */
-  readonly onPickHot?: (item: HotRow) => void;
-  /**
-   * 倒數變體「取消」exit → host-wired → host (dismiss / stay). Default no-op for
-   * demo / snapshot instances.
+   * 倒數變體「取消」exit → host-wired → host. Now CLOSES the whole EndScreen overlay
+   * (rb-rn-endscreen-live-empty-state — no more 熱門變體 to retreat to). Default no-op for demo /
+   * snapshot instances.
    */
   readonly onCancel?: () => void;
   /**
-   * No-countdown LIVE-ENDED state (`endScreenVisible && countdown == null`, i.e. live
-   * ended with no next). The 熱門變體 then prepends a「直播已結束」rule-flanked title
-   * (end-screen-no-countdown). Default `false` → existing 熱門變體 demo / snapshot
-   * unchanged. No ring, no auto-advance. Parity iOS / Android `liveEnded`.
+   * 空狀態「查看購物車」CTA → host-wired → host (open the product list / cart). Default no-op
+   * for demo / snapshot instances. rb-rn-endscreen-live-empty-state.
    */
-  readonly liveEnded?: boolean;
+  readonly onViewCart?: () => void;
+  /**
+   * Formatted live-duration string (e.g. `"1:24:30"`) for the 空狀態's「直播時長：…」line
+   * (rb-rn-endscreen-live-empty-state). Default `''` — no reference-ui / view-model data source
+   * for a real duration exists today, so this renders the design-documented fallback
+   * `"--:--:--"` (parity iOS `liveDuration`'s own Non-Goal — not invented by this change).
+   */
+  readonly liveDuration?: string;
   /**
    * Live-flag gate (parity `CarouselCardView.live` — rb-rn-endscreen-recommended-video-cover).
-   * `false` (snapshot / demo — the DEFAULT) → the two video cards (熱門卡 / 倒數變體大預覽卡)
-   * draw ONLY the deterministic black cover placeholder ({@link RemoteImage} renders NOTHING →
-   * no network `<Image>` in the tree → structural snapshots unchanged). `true` (host runtime, real
-   * video surface) + a non-empty card `cover` → the real cover photo loads OVER the placeholder via
+   * `false` (snapshot / demo — the DEFAULT) → the 倒數變體大預覽卡 draws ONLY the deterministic
+   * black cover placeholder ({@link RemoteImage} renders NOTHING → no network `<Image>` in the
+   * tree → structural snapshots unchanged). `true` (host runtime, real video surface) + a
+   * non-empty card `cover` → the real cover photo loads OVER the placeholder via
    * {@link RemoteImage} (self-hides to the placeholder on a load error). Threaded down from the
-   * turnkey container. NOTE: RN 僅 cover 靜圖 — the RN template rows (`EndScreenNavRow` /
-   * `EndScreenHotRow`) carry NO `preview` field, so there is NO loop-preview path (unlike iOS /
-   * Android which also loop `preview`); loop 待 template 加欄位另案.
+   * turnkey container.
    */
   readonly live?: boolean;
 }
@@ -239,17 +211,26 @@ export interface EndScreenProps {
  * `next` non-empty) it draws a big `next[0]` preview card with a centered countdown
  * RING (`remain / total`) representing the auto-advance-to-next countdown, plus 立即
  * 觀看 ({@link EndScreenProps.onWatchNext}) / 取消 ({@link EndScreenProps.onCancel}).
- * In the 熱門變體 (`countdown == null` || `next` empty) it draws a 為你推薦 header +
- * a PLAIN `Row` of `LBPHotCard`s ({@link EndScreenProps.onPickHot}). All actions are
- * host-wired forwarders; this layer never loads / advances / picks itself.
+ * In the 空狀態 (`countdown == null` || `next` empty) it draws a「直播已結束」title +
+ * a「直播時長：…」line + a「查看購物車」CTA ({@link EndScreenProps.onViewCart}). All actions
+ * are host-wired forwarders; this layer never loads / advances / closes itself.
  *
  * Renders correctly with all callbacks omitted (demo / snapshot safe).
  */
 export function EndScreen(props: EndScreenProps): ReactElement {
-  const { theme, countdown, next, hot, onWatchNext, onPickHot, onCancel, liveEnded = false, live = false } = props;
+  const {
+    theme,
+    countdown,
+    next,
+    onWatchNext,
+    onCancel,
+    onViewCart,
+    liveDuration = '',
+    live = false,
+  } = props;
 
   // 倒數變體 active — `countdown != null` AND a preview target exists (mirrors
-  // `LBPEndScreen`'s `showCountdown`, moments.jsx line 268).
+  // `LBPEndScreen`'s `isEmpty`, moments.jsx line 164).
   const showCountdown = countdown != null && next.length > 0;
 
   return (
@@ -278,7 +259,7 @@ export function EndScreen(props: EndScreenProps): ReactElement {
           onCancel={onCancel}
         />
       ) : (
-        <HotVariant theme={theme} hot={hot} liveEnded={liveEnded} live={live} onPickHot={onPickHot} />
+        <EmptyVariant theme={theme} liveDuration={liveDuration} onViewCart={onViewCart} />
       )}
     </View>
   );
@@ -286,13 +267,11 @@ export function EndScreen(props: EndScreenProps): ReactElement {
 
 // MARK: - 倒數變體 (preview card + ring + 立即觀看 / 取消)
 //
-// Mirrors `LBPEndScreen`'s `showCountdown` branch (moments.jsx 284-339):
-//   • 「— 影片結束 —」rule-flanked label.
+// Mirrors `LBPEndScreen`'s countdown branch (moments.jsx 180-235):
+//   • 「— 直播已結束 —」rule-flanked label.
 //   • a 150×(9:16) preview card of `next[0]` with a centered countdown ring.
 //   • 「{remain} 秒後自動播放下一支」+ the next title (2-line clamp) + the design's
-//     「{shopName} · {duration}」meta line (now renderable since
-//     align-endscreen-nav-meta-template added shopName / duration to EndScreenNavRow;
-//     drawn only when a field is host-fed).
+//     「{shopName} · {duration}」meta line.
 //   • 取消 (outline) / 立即觀看 (accent, play glyph) buttons.
 
 function CountdownVariant(props: {
@@ -338,9 +317,8 @@ function CountdownVariant(props: {
         >
           {title}
         </Text>
-        {/* 「{shopName} · {mm:ss}」meta line (LBPEndScreen moments.jsx:321) — renderable
-            since align-endscreen-nav-meta-template added shopName / duration to
-            EndScreenNavRow; drawn only when at least one field is host-fed. */}
+        {/* 「{shopName} · {mm:ss}」meta line (LBPEndScreen moments.jsx:217) — drawn only when at
+            least one field is host-fed. */}
         {metaLine(n0).length > 0 ? (
           <>
             <View style={{ height: 4 }} />
@@ -383,16 +361,13 @@ function CountdownVariant(props: {
 }
 
 /**
- * 「— {label} —」rule-flanked caption (LBPEndScreen 287-291). `label` defaults to
- *「影片結束」for the countdown variant; the no-countdown LIVE-ENDED hot variant passes
- * {@link LIVE_ENDED_LABEL} (end-screen-no-countdown). Same rendering → existing
- * baselines byte-identical. Parity iOS / Android `EndedRule(label)`.
+ * 「— 直播已結束 —」rule-flanked caption (LBPEndScreen moments.jsx 183-187). Design R41 —
+ * BOTH variants now say「直播已結束」(EndScreen is LIVE-only), so this no longer takes a
+ * variable `label`. Parity iOS / Android `EndedRule`.
  */
-function EndedRule(props: { theme: ReferenceUITheme; label?: string }): ReactElement {
-  const { theme, label = ENDED_LABEL } = props;
-  const rule = (
-    <View style={{ width: 18, height: 1, backgroundColor: ON_DARK_FAINT }} />
-  );
+function EndedRule(props: { theme: ReferenceUITheme }): ReactElement {
+  const { theme } = props;
+  const rule = <View style={{ width: 18, height: 1, backgroundColor: ON_DARK_FAINT }} />;
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center' }}>
       {rule}
@@ -405,7 +380,7 @@ function EndedRule(props: { theme: ReferenceUITheme; label?: string }): ReactEle
           letterSpacing: 1,
         }}
       >
-        {label}
+        {LIVE_ENDED_LABEL}
       </Text>
       <View style={{ width: 8 }} />
       {rule}
@@ -415,7 +390,7 @@ function EndedRule(props: { theme: ReferenceUITheme; label?: string }): ReactEle
 
 /**
  * The 150×(9:16) preview card with the centered countdown ring (LBPEndScreen
- * 295-314). The black `COVER_BG` fill is the deterministic placeholder; at RUNTIME
+ * moments.jsx 191-210). The black `COVER_BG` fill is the deterministic placeholder; at RUNTIME
  * (`live === true` + a non-empty `cover` = `next[0].cover`) the real cover photo loads
  * OVER it via {@link RemoteImage} (rb-rn-endscreen-recommended-video-cover, mirroring
  * `CarouselCardView`'s cover branch). The existing dark veil + ring + remaining seconds
@@ -468,10 +443,10 @@ function PreviewCard(props: {
 }
 
 /**
- * The auto-advance-to-next countdown RING (LBPEndScreen 298-313), rendered as a
+ * The auto-advance-to-next countdown RING (LBPEndScreen moments.jsx 194-209), rendered as a
  * DETERMINISTIC View-based representation (NOT Canvas / react-native-svg / Animated —
- * the RN render path has no SVG): a faint full-circle track (a bordered round View)
- * overlaid with {@link RING_SEGMENTS} small radial ticks whose first
+ * the RN render path has no SVG for this DYNAMIC geometry): a faint full-circle track (a bordered
+ * round View) overlaid with {@link RING_SEGMENTS} small radial ticks whose first
  * `round(progress * RING_SEGMENTS)` are painted in the accent color (the "remaining"
  * arc), with `remain` centered. The ring is PURE PRESENTATION of the snapshot — this
  * layer NEVER ticks it. Progress = `remain / total`, clamped to `[0, 1]`.
@@ -588,238 +563,68 @@ function DarkButton(props: {
   );
 }
 
-// MARK: - 熱門變體 (為你推薦 header + PLAIN Row of LBPHotCards)
+// MARK: - 空狀態 (直播已結束 title + 直播時長 line + 查看購物車 CTA)
 //
-// Mirrors `LBPEndScreen`'s 熱門 branch (moments.jsx 340-361): a「為你推薦」title +
-// a「換一批」pill, then the `hot` cards. The design uses a 2-col grid in a scroll;
-// the reference-ui surface renders a FIXED SMALL set (one page of `MAX_HOT_CARDS` = 3)
-// in a PLAIN `Row` (NEVER lazy / scroll — the verified family lesson).
-//
-// ★ 換一批 = LOCAL recommendation-window carousel (rb-rn-endscreen-reshuffle-local-window,
-//   the RN parity of iOS `860cd5b9` / Android `3bab95f7`). The `hot` list from the
-//   backend is often > 3 (no upper bound) and is fetched ONCE at channel load — core
-//   has NO re-fetch API and the backend has NO reshuffle endpoint. So「換一批」pages
-//   through a LOCAL window of the already-loaded `hot` (`hotWindow(hot, page)`) via a
-//   local `page` state; it does NOT open / switch videos. This corrects the four-platform
-//   proxy bug where 換一批 was mis-forwarded to `onPickHot(hot.first)` (open video). The
-//   design's 換一批 pill is a refresh-semantic no-op stub (demo wires onPickHot={() => {}}),
-//   never an open-video. The hot CARD tap keeps `onPickHot(item)` (open that video) —
-//   decoupled from the pill. `hot.length <= 3` (one page) → pill inert (no dim; a dimmed
-//   pill would break the snapshot baseline).
+// Mirrors `LBPEndScreen`'s empty branch (moments.jsx 237-252, design R41): replaces the retired
+// 熱門變體「為你推薦」card wall entirely. rb-rn-endscreen-live-empty-state.
 
-function HotVariant(props: {
+/**
+ * The LIVE-ended 空狀態 (`next` empty — `LBPEndScreen`'s `variant === 'liveEmpty'`, moments.jsx
+ * 237-252, R41): a big「直播已結束」title + a「直播時長：…」line (fallback `"--:--:--"` when
+ * `liveDuration` is empty) + a full-width accent「查看購物車」CTA (reusing the SAME button
+ * language as `ProductListView`'s cart-CTA footer — `CartFillGlyph` + `theme.cornerRadius` +
+ * `theme.accent`). Replaces the retired 熱門變體 (design R41 removed the「為你推薦」card wall
+ * entirely — EndScreen is now LIVE-only).
+ */
+function EmptyVariant(props: {
   theme: ReferenceUITheme;
-  hot: readonly HotRow[];
-  liveEnded?: boolean;
-  live: boolean;
-  onPickHot?: (item: HotRow) => void;
+  liveDuration: string;
+  onViewCart?: () => void;
 }): ReactElement {
-  const { theme, hot, liveEnded = false, live, onPickHot } = props;
-  // Local recommendation window index (pure presentation state — NEVER pushed back to
-  // the view-model / core, NOT part of EndScreenProps). Drives the「換一批」pill's local
-  // carousel (rb-rn-endscreen-reshuffle-local-window). `page === 0` (the default) →
-  // hotWindow returns hot.slice(0, 3) = the pre-reshuffle behavior → structural snapshot
-  // byte-identical. Mirrors iOS `@State hotPage` / Android `remember { mutableStateOf(0) }`.
-  const [page, setPage] = useState(0);
-  const pages = pageCount(hot.length);
-  const cards = hotWindow(hot, page);
-
+  const { theme, liveDuration, onViewCart } = props;
+  const durationText = liveDuration.length > 0 ? liveDuration : LIVE_DURATION_FALLBACK;
   return (
     <View
       style={{
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        paddingHorizontal: 18,
-        paddingTop: 16,
+        flex: 1,
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingHorizontal: 20,
       }}
     >
-      {/* end-screen-no-countdown: live ended with no next →「直播已結束」rule-flanked title
-          (same rendering as the countdown variant's「影片結束」) above 為你推薦. */}
-      {liveEnded ? (
-        <>
-          <View style={{ alignItems: 'center' }}>
-            <EndedRule theme={theme} label={LIVE_ENDED_LABEL} />
-          </View>
-          <View style={{ height: 14 }} />
-        </>
-      ) : null}
-      {/* 為你推薦 title + 換一批 pill. The pill is a LOCAL recommendation-window carousel:
-          onPress ONLY advances the local `page` (next 3 of the already-loaded `hot`) — it
-          does NOT open / switch videos and NEVER calls `onPickHot` (that stays wired to the
-          hot CARD tap → seams.ts → playerRef.load → open video). When `hot.length <= 3`
-          (pages <= 1, only one page) the action is inert (guard short-circuit), keeping the
-          pill pixels UNCHANGED (no disabled styling — a dimmed pill would break the snapshot
-          baseline, per the iOS finding). Fixes the four-platform proxy bug where 換一批 was
-          mis-forwarded to onPickHot(hot.first); the design's 換一批 is a refresh no-op stub
-          (moments.jsx demo wires onPickHot={() => {}}), never an open-video. */}
-      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-        <Text
-          style={{
-            color: '#FFFFFF',
-            fontSize: 18 * theme.fontScale,
-            fontWeight: '800',
-            letterSpacing: -0.2,
-          }}
-        >
-          {RECOMMEND_TITLE}
+      <View style={{ alignItems: 'center' }}>
+        <Text style={{ color: '#FFFFFF', fontSize: 30 * theme.fontScale, fontWeight: '800' }}>
+          {LIVE_ENDED_LABEL}
         </Text>
-        <View style={{ flex: 1 }} />
-        <Pressable
-          onPress={() => {
-            if (pages > 1) setPage((p) => (p + 1) % pages);
-          }}
-          testID={LBTestIDs.momentEndReshuffle}
-          style={{
-            backgroundColor: ON_DARK_FILL,
-            borderRadius: 999,
-            paddingHorizontal: 10,
-            paddingVertical: 6,
-            flexDirection: 'row',
-            alignItems: 'center',
-          }}
-        >
-          <Text style={{ color: '#FFFFFF', fontSize: 13 * theme.fontScale }}>↻</Text>
-          <View style={{ width: 5 }} />
-          <Text
-            style={{
-              color: '#FFFFFF',
-              fontSize: 12 * theme.fontScale,
-              fontWeight: '600',
-            }}
-          >
-            {SHUFFLE_LABEL}
-          </Text>
-        </Pressable>
+        <View style={{ height: 14 }} />
+        <Text style={{ color: ON_DARK_STRONG, fontSize: 15.5 * theme.fontScale }}>
+          {`${LIVE_DURATION_PREFIX}${durationText}`}
+        </Text>
       </View>
-      <View style={{ height: 12 }} />
-      {/* A PLAIN `Row` of `LBPHotCard`s — a FIXED SMALL set (first N), NEVER a lazy /
-          scroll container. Each card taps to `onPickHot(item)`. */}
-      {hot.length === 0 ? (
-        <View style={{ paddingVertical: 40, alignItems: 'center' }}>
-          <Text style={{ color: ON_DARK_FAINT_TEXT, fontSize: 13 * theme.fontScale }}>
-            {EMPTY_HOT_LABEL}
-          </Text>
-        </View>
-      ) : (
-        <View
-          testID={LBTestIDs.momentEndHotRow}
-          style={{ flexDirection: 'row', alignItems: 'flex-start' }}
-        >
-          {cards.map((item, i) => (
-            <View
-              key={item.id}
-              style={{ flex: 1, marginLeft: i > 0 ? 12 : 0 }}
-            >
-              <HotCard theme={theme} item={item} index={i} live={live} onPickHot={onPickHot} />
-            </View>
-          ))}
-        </View>
-      )}
-    </View>
-  );
-}
-
-/**
- * One 熱門卡 (LBPHotCard, moments.jsx 226-264): a 9:16 cover with a duration pill
- * (top-left, rendered ONLY when the optional `duration` is present) + a centered play
- * affordance, then a 2-line title. `duration` is a number in SECONDS formatted to
- * `mm:ss`. The RN template `EndScreenHotRow` carries NO duration, so live hot cards
- * omit the pill (no fabricated "00:00"); demo/golden seeds with a duration show it,
- * aligning to the `LBPHotCard` design.
- */
-function HotCard(props: {
-  theme: ReferenceUITheme;
-  item: HotRow;
-  index: number;
-  live: boolean;
-  onPickHot?: (item: HotRow) => void;
-}): ReactElement {
-  const { theme, item, index, live, onPickHot } = props;
-  // 9:16 cover: a fixed-aspect black placeholder. At RUNTIME (`live === true` + a non-empty
-  // `item.cover`) the real cover photo loads OVER it via RemoteImage (rb-rn-endscreen-recommended-
-  // video-cover, mirroring `CarouselCardView.tsx` cover branch); `live === false` (snapshot / demo
-  // — the DEFAULT) → RemoteImage renders NOTHING (no network `<Image>` in the tree → structural
-  // snapshot unchanged). The play affordance + duration pill stay OVER the cover.
-  return (
-    <Pressable testID={momentHotCard(index)} onPress={() => onPickHot?.(item)}>
-      <View
+      <View style={{ height: 36 }} />
+      <Pressable
+        testID={LBTestIDs.momentEndViewCart}
+        onPress={() => onViewCart?.()}
         style={{
-          aspectRatio: 9 / 16,
-          borderRadius: 12,
-          overflow: 'hidden',
-          backgroundColor: COVER_BG,
+          alignSelf: 'stretch',
+          paddingVertical: 14,
+          paddingHorizontal: 18,
+          borderRadius: theme.cornerRadius,
+          backgroundColor: theme.accent,
+          flexDirection: 'row',
           alignItems: 'center',
           justifyContent: 'center',
         }}
       >
-        {/* Real cover photo (host runtime only) OVER the black placeholder, BELOW the play
-            affordance + duration pill. `live === false` → renders NOTHING (placeholder shows
-            through; structural snapshot unchanged). Mirrors `CarouselCardView.tsx` cover branch. */}
-        <RemoteImage live={live} uri={item.cover} borderRadius={12} resizeMode="cover" />
-        {/* Centered play affordance (`rgba(0,0,0,0.5)` circle + play glyph). */}
-        <View
-          style={{
-            width: 32,
-            height: 32,
-            borderRadius: 16,
-            backgroundColor: PLAY_CIRCLE,
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-        >
-          <Text style={{ color: '#FFFFFF', fontSize: 13 * theme.fontScale }}>▶</Text>
-        </View>
-        {/* Duration pill (top-left, `rgba(0,0,0,0.55)`) — rendered ONLY when the
-            optional `duration` is present. The RN template `EndScreenHotRow` carries
-            no `duration`, so LIVE hot cards omit the pill (we never fabricate a
-            placeholder "00:00"); demo / golden seeds that carry a duration show
-            `mm:ss`, aligning to the `LBPHotCard` design. A future core change adding
-            duration to the RN bridge would populate it with no surface change. */}
-        {item.duration != null && (
-          <View
-            style={{
-              position: 'absolute',
-              top: 6,
-              left: 6,
-              backgroundColor: DURATION_PILL,
-              borderRadius: 999,
-              paddingTop: 2,
-              paddingBottom: 2,
-              paddingLeft: 4,
-              paddingRight: 6,
-              flexDirection: 'row',
-              alignItems: 'center',
-            }}
-          >
-            <Text style={{ color: '#FFFFFF', fontSize: 10 * theme.fontScale }}>▶</Text>
-            <View style={{ width: 4 }} />
-            <Text
-              style={{
-                color: '#FFFFFF',
-                fontSize: 10 * theme.fontScale,
-                fontWeight: '600',
-              }}
-            >
-              {formatSeconds(item.duration)}
-            </Text>
-          </View>
-        )}
-      </View>
-      <View style={{ height: 7 }} />
-      <Text
-        numberOfLines={2}
-        style={{
-          color: '#FFFFFF',
-          fontSize: 12 * theme.fontScale,
-          fontWeight: '600',
-          lineHeight: 15.6 * theme.fontScale,
-        }}
-      >
-        {item.title}
-      </Text>
-    </Pressable>
+        {/* Verbatim the SAME glyph `ProductListView`'s cart-CTA footer uses (design
+            `Icons.cartFill`) — see this file's header RENDER DISCIPLINE note for why a static
+            `CartFillGlyph` is the one deliberate react-native-svg exception in this family. */}
+        <CartFillGlyph color="#FFFFFF" size={20 * theme.fontScale} />
+        <View style={{ width: 10 }} />
+        <Text style={{ color: '#FFFFFF', fontSize: 16 * theme.fontScale, fontWeight: '700' }}>
+          {VIEW_CART_LABEL}
+        </Text>
+      </Pressable>
+    </View>
   );
 }

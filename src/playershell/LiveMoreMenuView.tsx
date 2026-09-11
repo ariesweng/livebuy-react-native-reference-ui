@@ -45,9 +45,8 @@ import { Text } from '../TightText';
 
 import type { ReferenceUITheme } from '../theme';
 import { ShareFillGlyph } from './ShareFillGlyph';
-import { railGlyphFor } from './OperationRailView';
+import { ContactGlyph } from './ContactGlyph';
 import { LBTestIDs } from '../testing/LBTestIDs';
-import { LBSideRailKind } from 'livebuy-react-native-ui';
 
 /** Grab-handle stroke (`STROKE_STRONG`, matches `VideoInfoPanelView`'s identically-named
  *  constant — the same design token, kept as a local literal rather than a cross-file import
@@ -68,10 +67,6 @@ const ROW_GAP = 20;
 
 const SHARE_LABEL = '分享';
 const CONTACT_LABEL = '客服';
-/** 客服 (customer service / contact merchant) glyph — REUSES
- *  `OperationRailView.railGlyphFor(LBSideRailKind.ServiceLink)` (`'💬'`) rather than a second
- *  literal, so the two surfaces can never drift on this glyph. */
-const CONTACT_GLYPH = railGlyphFor(LBSideRailKind.ServiceLink);
 
 /** Props for the {@link LiveMoreMenuView} surface. */
 export interface LiveMoreMenuProps {
@@ -141,7 +136,10 @@ export function LiveMoreMenuView(props: LiveMoreMenuProps): ReactElement {
           label={CONTACT_LABEL}
           onTap={onContactMerchant}
         >
-          <Text style={{ fontSize: ICON_GLYPH_SIZE, color: theme.text }}>{CONTACT_GLYPH}</Text>
+          {/* 客服 (customer service / contact merchant) 改設計稿自繪雙泡泡+問號 ContactGlyph
+              （rb-rn-icon-parity-contact-glyph），parity iOS/Android/Flutter ContactGlyph——不再
+              與 Chat 共用 railGlyphFor 的 '💬' 字面文字。 */}
+          <ContactGlyph color={theme.text} size={ICON_GLYPH_SIZE} />
         </MenuItem>
         <View style={{ width: ROW_GAP }} />
         {/* Reserved-but-invisible placeholders (design-literal: 4 cells drawn, only 2 wired).

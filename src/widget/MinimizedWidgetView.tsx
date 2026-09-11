@@ -60,6 +60,7 @@ import { Text } from '../TightText';
 
 import type { ReferenceUITheme } from '../theme';
 import { LBTestIDs } from '../testing/LBTestIDs';
+import { CloseGlyph } from './CloseGlyph';
 
 /** Pill width (logical px) — the design's fixed `width: 96` (LBPMinimizedWidget 512). */
 export const MINIMIZED_PILL_WIDTH = 96;
@@ -137,7 +138,7 @@ export function MinimizedWidget(props: MinimizedWidgetProps): ReactElement {
       {/* close affordance top-right → onClose (its own Pressable). */}
       <View style={styles.closeSlot}>
         <Pressable testID={LBTestIDs.minimizedClose} onPress={() => onClose?.()} style={styles.closeButton}>
-          <Text style={styles.closeGlyph}>✕</Text>
+          <CloseGlyph color={WHITE} size={14} />
         </Pressable>
       </View>
 
@@ -239,11 +240,6 @@ const styles = StyleSheet.create({
     backgroundColor: CLOSE_DARK,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  closeGlyph: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: WHITE,
   },
   dragHandleSlot: {
     position: 'absolute',

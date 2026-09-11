@@ -684,7 +684,7 @@ export function buildFeedHandlers(deps: SeamDeps): {
   };
 }
 
-/** moments seam defaults (pick-hot / skip / cancel / retry / dismiss). `onWatchNext`
+/** moments seam defaults (pick-hot / skip / cancel / retry / dismiss / close). `onWatchNext`
  *  is built by {@link buildWatchNextHandler} (it needs the moment model's next id). */
 export function buildMomentHandlers(deps: SeamDeps): {
   onPickHot: NonNullable<LivebuyPlayerConfig['onPickHot']>;
@@ -692,8 +692,18 @@ export function buildMomentHandlers(deps: SeamDeps): {
   onCancel: () => void;
   onRetry: () => void;
   onDismiss: () => void;
+  onClosePlayer: () => void;
 } {
   const { playerRef, config, switchVideo, currentVideoId } = deps;
+  // rb-rn-endscreen-live-empty-state — the SAME default-close resolution `LivebuyPlayerOverlays`'s
+  // header close icon / swipe-nav-close-on-empty already use elsewhere in this container
+  // (`config.onDismiss ?? unload()`), reused by BOTH: (a) EndScreen「取消」below (cancels the
+  // auto-next timer FIRST, then closes — the retired 熱門變體 fallback no longer exists to
+  // retreat to instead; design R41), and (b) `onClosePlayer` — the VOD-結束無-next auto-close
+  // gate (`MomentsView.shouldCloseInsteadOfEndScreen`): a VOD with nothing to recommend has
+  // nothing to show (EndScreen is now LIVE-only), so the player closes directly. DISTINCT from
+  // `onDismiss` below (ErrorScreen's 返回/前往更新, no-op unless host-wired) — NOT the same action.
+  const closePlayer = config.onDismiss ?? ((): void => playerRef.unload());
   return {
     onPickHot:
       config.onPickHot ??
@@ -713,9 +723,15 @@ export function buildMomentHandlers(deps: SeamDeps): {
         );
       }),
     onSkip: config.onSkip ?? ((): void => playerRef.skipStart()),
-    onCancel: config.onCancel ?? ((): void => playerRef.cancelAutoNext()),
+    onCancel:
+      config.onCancel ??
+      ((): void => {
+        playerRef.cancelAutoNext();
+        closePlayer();
+      }),
     onRetry: config.onRetry ?? ((): void => playerRef.load(currentVideoId())),
     onDismiss: config.onDismiss ?? ((): void => undefined),
+    onClosePlayer: closePlayer,
   };
 }
 

@@ -299,6 +299,23 @@ export class PlayerShellModel {
   }
 
   /**
+   * ALL products for the currently-open video, UNFILTERED by any playhead time window or
+   * narrate status (`DefaultPlayerTemplate.productOverlayState.products` — the full
+   * backend-provided list, each carrying `photos`/`pic`). Distinct from {@link
+   * vodActiveProducts} / {@link liveActiveProducts}, which are TIME/NARRATE-FILTERED VIEWS of
+   * this SAME list. Feeds the reference-ui product-image PREFETCH warm-up
+   * (rb-rn-product-image-loading-polish, `PlayerShellView`'s prefetch `useEffect`) — the full
+   * list arrives with the video load, well before any single product's window makes it
+   * "currently introducing", so prefetching against this UNFILTERED list starts the image
+   * download as early as possible instead of waiting for the narrower filtered views to
+   * include it. unbound demo → `[]` (no demo card leak into a real session, same discipline
+   * as {@link vodActiveProducts} / {@link liveActiveProducts}).
+   */
+  get products(): readonly LBProduct[] {
+    return this.template == null ? [] : this.template.productOverlayState.products;
+  }
+
+  /**
    * ALL LIVE now-introducing products — every `narrate_status == 2` product
    * (`DefaultPlayerTemplate.liveActiveProducts`, data-layer order). The backend MAY narrate
    * MULTIPLE simultaneously (live-multi-narrating-product-contract). Feeds the LIVE pinned-card

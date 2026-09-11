@@ -118,9 +118,10 @@ const CLOSE_SIZE = 22;
  *  (`ProductListView.tsx`'s `SOLD_OUT_COLOR`), confirmed adequate contrast on
  *  `theme.background` (white) without adjustment. */
 const SOLD_OUT_COLOR = '#9A96A3';
-/** Product-photo placeholder fill (mirrors `ProductDetail`'s warm media chip —
- *  deterministic, NO network image). */
-const PHOTO_FILL = '#E27D5A';
+/** Product-photo placeholder fill — deterministic, NO network image. Neutral gray
+ *  (rb-rn-product-image-loading-polish; was warm `'#E27D5A'`, mirrors `ProductDetail`'s media
+ *  chip, kept in sync with it). */
+const PHOTO_FILL = '#8E8E93';
 
 // MARK: - Fixed localized copy (static presentation strings — parity to iOS/Android)
 

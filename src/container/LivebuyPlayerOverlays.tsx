@@ -51,6 +51,13 @@ import type { PlayerRefLike, SeamDeps } from './seams';
 import { GapSurfacesModel } from '../gapsurfaces/GapSurfacesModel';
 import { resolveDirectCloseButtonEnabled, switchedVideoItem } from './collapsibleLogic';
 
+// rb-rn-scrub-expanded-chrome-lift — mirrors `PlayerShellView`'s OWN `SCRUB_CHROME_LIFT` (`36`,
+// declared PRIVATE there — this container cannot import it). Declared here as a SEPARATE constant
+// of the same value, cross-file doc-commented — the same two-constants-of-the-same-value pattern
+// this repo's iOS `PlayerShellView.scrubChromeLift` / `MinimalDesign.scrubChromeLift` and the
+// Android equivalent already use, not a new technique introduced by this change.
+const SCRUB_CHROME_LIFT = 36;
+
 /** Props for the composed {@link LivebuyPlayerOverlays} tree. */
 export interface LivebuyPlayerOverlaysProps {
   attachment: PlayerTemplateAttachment;
@@ -268,6 +275,14 @@ export function LivebuyPlayerOverlays(props: LivebuyPlayerOverlaysProps): ReactE
   // have its taps swallowed by the chat's scrollable hit-testing.
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
 
+  // rb-rn-scrub-expanded-chrome-lift — mirror PlayerShellView's scrub-bar post-release hold
+  // window (`onScrubBarExpandedChange`, already GATED to `scrubBarExpanded && !isScrubbing`) the
+  // SAME way infoPanelOpen / cleanMode / moreMenuOpen are mirrored above, so the LIVE-only chat
+  // feed (Surface 2, rendered OUTSIDE PlayerShellView's own render tree) lifts by the SAME
+  // SCRUB_CHROME_LIFT during that hold window that PlayerShellView's own LIVE overlay chrome /
+  // VOD chrome already apply internally.
+  const [scrubBarExpanded, setScrubBarExpanded] = useState(false);
+
   // Container-owned product LIST drawer open state (default CLOSED). The GOODS rail / bag tap
   // opens it; the scrim / close button dismisses it (re-openable). Parity iOS
   // `ProductSheetsModel.listPresented` (default false) — no longer auto-presents over the video.
@@ -326,6 +341,9 @@ export function LivebuyPlayerOverlays(props: LivebuyPlayerOverlaysProps): ReactE
           // rb-rn-live-more-sheet-above-chat — mirror the「更多」menu open state so the sibling
           // FeedWinView (below) can hide the chat feed while the menu is presented.
           onMoreMenuOpenChange={setMoreMenuOpen}
+          // rb-rn-scrub-expanded-chrome-lift — mirror the scrub-bar post-release hold window so
+          // the sibling FeedWinView (below) can lift its chat feed by the SAME SCRUB_CHROME_LIFT.
+          onScrubBarExpandedChange={setScrubBarExpanded}
           // Once-per-open LIVE gesture hints — host opts in via config (default false).
           showGestureHints={config.showGestureHints}
           // 訂閱徽章可見性（rb-rn-subscribe-favorite-visibility-toggle）：raw 轉發，leaf 元件
@@ -381,6 +399,9 @@ export function LivebuyPlayerOverlays(props: LivebuyPlayerOverlaysProps): ReactE
           // ActivityEntry / their sheets are unaffected — see FeedWinView.tsx's chatVisible
           // comment.
           moreMenuOpen={moreMenuOpen}
+          // rb-rn-scrub-expanded-chrome-lift — 進度條展開暫留期間額外上移聊天 feed，與既有公告避讓量
+          // 獨立相加（見 FeedWinView.chatBottomInsetWithScrubLift）。
+          scrubBottomInset={scrubBarExpanded ? SCRUB_CHROME_LIFT : 0}
           // rb-rn-event-join-gate:「加入活動」三層閘注入 overlay 自持的 FeedWinModel.joinEvent（唯一到
           // 得了 core 的 chokepoint）。onJoin 為 no-op 觀察者（join 由已被閘的 model.joinEvent 單一送出）。
           joinEventGate={joinEventGate}
@@ -463,15 +484,18 @@ export function LivebuyPlayerOverlays(props: LivebuyPlayerOverlaysProps): ReactE
           template={template}
           theme={theme}
           // Turnkey container composes over a real video surface → load the real end-screen
-          // cover photos in the 推薦 / 接下來 cards (rb-rn-endscreen-recommended-video-cover;
+          // cover photo in the 倒數變體 preview card (rb-rn-endscreen-recommended-video-cover;
           // parity with PlayerShellView's `live` above). Standalone / snapshot faces omit it → false.
           live
           onWatchNext={onWatchNext}
-          onPickHot={moment.onPickHot}
           onSkip={moment.onSkip}
           onCancel={moment.onCancel}
+          // 空狀態「查看購物車」CTA (rb-rn-endscreen-live-empty-state) — reuses the SAME
+          // open-product-list action the bag / side-rail Goods tap already uses above.
+          onViewCart={(): void => setProductListPresented(true)}
           onRetry={moment.onRetry}
           onDismiss={moment.onDismiss}
+          onClosePlayer={moment.onClosePlayer}
         />
       </View>
     </>

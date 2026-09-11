@@ -78,6 +78,7 @@ import { Text } from '../TightText';
 import { RemoteImage } from '../productsheets/RemoteImage';
 import { SheetHeaderCloseButton } from '../productsheets/SheetHeaderCloseButton';
 import { SheetScaffold } from '../productsheets/SheetScaffold';
+import { ContactGlyph } from './ContactGlyph';
 import { LBTestIDs } from '../testing/LBTestIDs';
 import type { ReferenceUITheme } from '../theme';
 import type { LBInfoTabState, LBInfoPanelTab } from 'livebuy-react-native-ui';
@@ -119,9 +120,6 @@ const SUBSCRIBED_LABEL = '已訂閱';
 const SHOP_SUBLINE_PREFIX = '這裡是 ';
 const NOTICE_EMPTY_PLACEHOLDER = '目前沒有公告';
 const CONTACT_LABEL = '與商家一對一對話';
-/** Deterministic Text glyph for the footer CTA (RN convention — parity with the
- *  NotifyRestock 🖼 glyph; the structural snapshot captures the string). */
-const GLYPH_CONTACT = '💬';
 /** `isLiveBroadcast === true` "直播中" badge (design R32) — fixed red, not theme-derived
  *  (matches the LIVE tag color used elsewhere, e.g. `LiveOverlayChromeView`'s pinned-card tag). */
 const LIVE_BADGE_BG = '#F03246';
@@ -436,9 +434,10 @@ export function VideoInfoPanel(props: VideoInfoPanelProps): ReactElement {
 //
 // The single bottom action button the design pins below the tab content regardless of
 // tab (`screens.jsx` `VideoInfoSheet`): a ghost「與商家一對一對話」. Full-width, padding
-// 0 18 18. Forwards its host-wired intent and is still drawn (inert) when omitted. Glyph is a
-// deterministic Text (RN convention — parity with NotifyRestock's 🖼 glyph; the structural
-// snapshot captures the string).
+// 0 18 18. Forwards its host-wired intent and is still drawn (inert) when omitted. Glyph is the
+// self-drawn dual speech-bubble + question-mark `ContactGlyph` (design `Icons.contact`,
+// rb-rn-icon-parity-contact-glyph — replaces the prior generic chat-bubble emoji `'💬'`, parity
+// iOS/Android/Flutter `ContactGlyph`).
 //
 // rb-rn-live-replay-more-menu-and-video-info-live-copy (design R32): the design PREVIOUSLY also
 // drew a PRIMARY「前往商城首頁」button above this one (house glyph + accent fill). Its PIXEL is
@@ -465,7 +464,7 @@ function Footer(props: {
     <View style={{ paddingHorizontal: 18, paddingBottom: 18, paddingTop: 4 }}>
       <FooterButton
         theme={theme}
-        glyph={GLYPH_CONTACT}
+        glyph={(color) => <ContactGlyph color={color} size={16} />}
         label={CONTACT_LABEL}
         primary={false}
         onPress={onContactMerchant}
@@ -480,10 +479,16 @@ function Footer(props: {
  * vertical padding, 15 * fontScale / bold label, glyph + label, gap 8). Primary =
  * accent fill + white; ghost = {@link BG_SUNKEN} fill + theme text. Renders correctly
  * (and inert) when `onPress` is omitted.
+ *
+ * `glyph` is a render function (not a plain `ReactElement`) so it can thread THIS button's own
+ * computed `fg` color (which depends on `primary`) without the caller re-deriving the same
+ * primary/ghost color logic a second time (rb-rn-icon-parity-contact-glyph design.md D3) — the
+ * ONE existing call site is always `primary={false}` today, but this keeps `FooterButton`
+ * correct if a future primary variant returns.
  */
 function FooterButton(props: {
   theme: ReferenceUITheme;
-  glyph: string;
+  glyph: (color: string) => ReactElement;
   label: string;
   primary: boolean;
   onPress?: () => void;
@@ -502,7 +507,7 @@ function FooterButton(props: {
   };
   const content = (
     <>
-      <Text style={{ color: fg, fontSize: 16, marginRight: 8 }}>{glyph}</Text>
+      <View style={{ marginRight: 8 }}>{glyph(fg)}</View>
       <Text style={{ color: fg, fontSize: 15 * theme.fontScale, fontWeight: 'bold' }}>
         {label}
       </Text>

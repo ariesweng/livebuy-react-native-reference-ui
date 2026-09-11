@@ -32,11 +32,18 @@ export const LBTestIDs = {
   railComment: 'lb_rail_comment',
   railShare: 'lb_rail_share',
   railSubtitle: 'lb_rail_subtitle',
+  // rb-rn-cc-icon-availability-redesign (design R42) — the VOD side rail CC pill's "未提供字幕"
+  // tooltip (shown when tapped while captions are unavailable; auto-dismisses ~1.8s).
+  railSubtitleTooltip: 'lb_rail_subtitle_tooltip',
   railService: 'lb_rail_service',
   railGoods: 'lb_rail_goods',
   // rb-rn-live-replay-more-menu-and-video-info-live-copy (design R32) — the VOD side rail's
-  // `LBSideRailKind.More` pill, shown only for a finished-live-replay
-  // (`OperationRailProps.isFinishedLiveReplay`); opens `LiveMoreMenuView`.
+  // `LBSideRailKind.More` pill (`OperationRailProps.isFinishedLiveReplay`); opens
+  // `LiveMoreMenuView`. ⚠️ Component-level only since `rb-rn-replay-live-chrome-parity`: the
+  // side rail is now PURE-VOD-ONLY and its current call site no longer feeds
+  // `isFinishedLiveReplay`, so this id is exercised only by direct unit tests
+  // (`OperationRail.test.tsx`) today, not by any real render path — see `liveMore` below for the
+  // real trigger.
   railMore: 'lb_rail_more',
 
   liveBagButton: 'lb_live_bag_button',
@@ -45,16 +52,20 @@ export const LBTestIDs = {
   liveShare: 'lb_live_share',
   liveHeart: 'lb_live_heart',
   // rb-rn-live-replay-more-menu-and-video-info-live-copy (design R32) — `chatClosed` replay
-  // variant's "更多" / CC buttons on `LiveBottomBarView`. ⚠️ Component-level only; see that
-  // component's file-header comment — the current call site never renders the `chatClosed`
-  // variant (RN routes a finished replay to the VOD side rail's `railMore` pill instead, see
-  // below), so these two ids are exercised only by direct unit tests today, not by any real
-  // render path.
+  // variant's "更多" / CC buttons on `LiveBottomBarView`. `rb-rn-replay-live-chrome-parity`
+  // wired the real call site: `PlayerShellView.tsx`'s `<LiveBottomBarView>` now feeds
+  // `chatClosed={model.isFinishedLiveReplay}`, so these two ids ARE reachable from a real
+  // finished-live-replay render — `liveMore` is the actual "更多" trigger (see `railMore` above
+  // for the now component-level-only side-rail predecessor).
   liveMore: 'lb_live_more',
   liveCC: 'lb_live_cc',
+  // rb-rn-cc-icon-availability-redesign (design R42) — the LIVE-replay (`chatClosed`) bottom
+  // bar's CC toggle's "未提供字幕" tooltip (same interaction as `railSubtitleTooltip` above, at
+  // the OTHER of the two CC entry points R42 scopes this to).
+  liveCcTooltip: 'lb_live_cc_tooltip',
   // The standalone `LiveMoreMenuView` sheet's two action items — REACHABLE in real playback via
-  // the VOD side rail's `railMore` pill (see `railMore` below / `OperationRailView
-  // .isFinishedLiveReplay`), NOT via `liveMore` above.
+  // `LiveBottomBarView`'s `liveMore` button above (`chatClosed` variant, since
+  // `rb-rn-replay-live-chrome-parity`), NOT via the (now component-level-only) `railMore`.
   liveMoreMenu: 'lb_live_more_menu',
   liveMoreMenuShare: 'lb_live_more_menu_share',
   liveMoreMenuContact: 'lb_live_more_menu_contact',
@@ -194,8 +205,14 @@ export const LBTestIDs = {
   momentEnd: 'lb_moment_end',
   momentEndWatch: 'lb_moment_end_watch',
   momentEndCancel: 'lb_moment_end_cancel',
+  // `momentEndReshuffle` / `momentEndHotRow` (熱門變體專屬) RETAINED though unreferenced by any
+  // production render path since rb-rn-endscreen-live-empty-state (design R41 retired the 熱門
+  // variant) — `openspec/specs/rn-e2e-test-ids/spec.md` still documents them and removing an
+  // enumerated id is out of THIS change's scope (component-contracts only).
   momentEndReshuffle: 'lb_moment_end_reshuffle',
   momentEndHotRow: 'lb_moment_end_hot_row',
+  // 空狀態「查看購物車」CTA (rb-rn-endscreen-live-empty-state, design R41).
+  momentEndViewCart: 'lb_moment_end_view_cart',
   momentStart: 'lb_moment_start',
   momentStartSkip: 'lb_moment_start_skip',
   momentLoading: 'lb_moment_loading',

@@ -42,7 +42,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactElement, RefObject } from 'react';
-import { AppState, Platform, View } from 'react-native';
+import { AppState, Platform, StyleSheet, View } from 'react-native';
 
 import { LivebuyPlayerCore, LivebuySDK, registerListener } from 'livebuy-react-native';
 import type {
@@ -64,6 +64,7 @@ import type { ReferenceUITheme } from '../theme';
 import { ReferenceUIThemeResolver } from '../theme';
 
 import { useChatComposer, useNicknamePrompt, useLoginPrompt } from './ChatComposerBar';
+import { resolvedLiveNowShopId } from './LivebuyPlayerConfig';
 import type { LivebuyPlayerConfig } from './LivebuyPlayerConfig';
 import { resolveDesign } from './ReferenceUIDesign';
 import { buildAwardClaimInjection } from './seams';
@@ -72,7 +73,11 @@ import { ProvideTightText } from '../TightText';
 import { refreshSubtitleCuesIfUrlChanged, subtitleToggleEnabled } from './subtitlePipeline';
 import type { VTTCue } from '../playershell/VTTSubtitleParser';
 import { liveEntryGate } from './liveEntryLogic';
-import { deriveHeaderChromeFields, deriveServiceLinkAvailable } from './channelChrome';
+import {
+  deriveHeaderChromeFields,
+  deriveServiceLinkAvailable,
+  deriveEndScreenNavRows,
+} from './channelChrome';
 
 export type { LivebuyPlayerConfig } from './LivebuyPlayerConfig';
 
@@ -205,17 +210,34 @@ function useResolvedTheme(
 const LIVE_NOW_POLL_INTERVAL_SECONDS = 30;
 
 /**
+ * rb-rn-player-open-opaque-backdrop — the always-present, stateless bottommost layer of
+ * {@link LivebuyPlayer}'s overlay `View`. See its render-site comment for the full rationale
+ * (RN `View`s are transparent by default; the native `LivebuyPlayerCore` needs a moment to
+ * attach). Same `#0C0C10` brand backdrop hex the `.loading` phase overlay already paints
+ * (`StartScreenView.tsx`'s `BRAND_BACKDROP`) — module-level so it is not re-created every render.
+ */
+const OPAQUE_BACKDROP_STYLE = [StyleSheet.absoluteFill, { backgroundColor: '#0C0C10' }];
+
+/**
  * Poll `LivebuySDK.fetchLatestLive(shopId)` for the「現正直播」`LiveNowPillView` right-edge
  * half-pill (rb-rn-live-now-pill), gated through the EXISTING pure `liveEntryGate` (only
  * `liveStatus === 1` counts) — REUSES it rather than re-authoring the same gate a second time.
- * `shopId == null` (`config.shopId` not wired) → PERMANENT no-op (zero extra `fetchLatestLive`
- * calls, `liveNow` stays `null` forever, the pill never appears).
+ * `shopId == null` → PERMANENT no-op (zero extra `fetchLatestLive` calls, `liveNow` stays `null`
+ * forever, the pill never appears). This hook's OWN signature and internal no-op behavior are
+ * UNCHANGED by rn-live-now-pill-auto-shopid-turnkey-reference-ui — the call site below no longer
+ * feeds it raw `config.shopId` directly; it feeds the EFFECTIVE shop id resolved by
+ * `resolvedLiveNowShopId` (`LivebuyPlayerConfig.ts`), which auto-falls-back to
+ * `LivebuySDK.currentShopId()` when `config.shopId` is unset and the (separately-named, unrelated)
+ * `config.showsLiveNowPill` flag is on (the default) — see that call site's own comment and
+ * `LivebuyPlayerConfig.shopId` / `.showsLiveNowPill` doc comments for the resolution.
  *
- * `shopId` is NULLABLE here — unlike Android's Composable, which can conditionally `remember` a
- * controller only when its `shopId != null`, a React hook by the Rules of Hooks MUST be called
- * UNCONDITIONALLY on every render, so the "opt in or not" branch has to live INSIDE this hook
- * (parity iOS `LiveNowPollController(shopId: String?)`'s nullable-ctor-internal-no-op shape, NOT
- * Android's non-null-ctor-caller-decides shape — see design.md for the full comparison).
+ * `shopId` is NULLABLE here — unlike Android's/Flutter's Composable/`State`, which can
+ * conditionally construct a controller only when the resolved shop id is non-null, a React hook
+ * by the Rules of Hooks MUST be called UNCONDITIONALLY on every render, so the "opt in or not"
+ * branch has to live in what value is computed and passed to this hook's argument, not inside the
+ * hook itself (parity iOS `LiveNowPollController(shopId: String?)`'s nullable-ctor-internal-no-op
+ * shape, NOT Android's/Flutter's non-null-ctor-caller-decides shape — see design.md for the full
+ * comparison).
  *
  * Deliberately DOES NOT share an instance / state with `LivebuyLiveEntry`'s OWN `useLiveEntry`
  * poll (defined in `LivebuyLiveEntry.tsx`) — the two drop-in surfaces stay independent (parity
@@ -335,9 +357,21 @@ export function LivebuyPlayer(props: LivebuyPlayerProps): ReactElement {
   const sdkConfig = useSdkConfig(config.sdkConfig);
   const theme = useResolvedTheme(sdkConfig, config.hostOptions);
   const attachment = useTemplateAttachment(sdkConfig, config.hostOptions, playerRef);
-  // 「現正直播」LiveNowPillView 輪詢（rb-rn-live-now-pill）：`config.shopId == null` → 永久 no-op
-  // （見 `useLiveNowPoll` doc comment）。
-  const liveNow = useLiveNowPoll(config.shopId);
+  // 「現正直播」LiveNowPillView 輪詢（rb-rn-live-now-pill,
+  // rn-live-now-pill-auto-shopid-turnkey-reference-ui）：`useLiveNowPoll` itself is UNCHANGED
+  // (still `shopId == null` → 永久 no-op, see its doc comment) — what changed is what value flows
+  // INTO it. `resolvedLiveNowShopId` is called HERE, before the hook (Rules of Hooks forbids
+  // conditionally calling the hook itself), to resolve: `config.showsLiveNowPill ?? true` off →
+  // `undefined` unconditionally; on (the default) → `config.shopId` (explicit override) ??
+  // `LivebuySDK.currentShopId()` (the shopId last passed to `configure()`) — so a host that never
+  // wires `shopId` now gets the pill automatically instead of a silent permanent no-op. See
+  // `LivebuyPlayerConfig.shopId` / `.showsLiveNowPill` doc comments + this change's design.md.
+  const effectiveLiveNowShopId = resolvedLiveNowShopId({
+    showsLiveNowPill: config.showsLiveNowPill ?? true,
+    explicitShopId: config.shopId,
+    configuredShopId: LivebuySDK.currentShopId(),
+  });
+  const liveNow = useLiveNowPoll(effectiveLiveNowShopId);
 
   // rb-rn-live-activity-sheet — latest `attachment` for the once-registered (`[]` deps)
   // `activeEvents()` backfill effect below. `attachment` only becomes non-null asynchronously
@@ -526,6 +560,16 @@ export function LivebuyPlayer(props: LivebuyPlayerProps): ReactElement {
     // `LivebuyPlayerCore` is unaffected (provider only flips a Text-style context).
     <ProvideTightText>
       <View style={[{ flex: 1 }, config.style]} pointerEvents="box-none">
+      {/* rb-rn-player-open-opaque-backdrop — the bottommost layer, ALWAYS painted, gated on
+          NOTHING. The root `View` above has no `backgroundColor` of its own (RN Views are
+          transparent by default — same shape as the `Material(type: transparency)` gap Flutter
+          had), and `LivebuyPlayerCore` below is a `requireNativeComponent` bridge whose actual
+          native view needs a moment to attach and paint. Without this, whatever the host stacks
+          `LivebuyPlayer` on top of (e.g. the sample app's tab shell, which `CollapsibleLivebuyPlayer`
+          overlays absolute-fill above) could show through that gap. This never needs to know when
+          to hide — everything above it (the native texture, then chrome) naturally paints over it
+          once ready. */}
+      <View style={OPAQUE_BACKDROP_STYLE} pointerEvents="none" />
       {/* Headless native player — absolute-fill BOTTOM layer; OS PiP armed (D-5). */}
       <LivebuyPlayerCore
         ref={playerRef}
@@ -539,14 +583,17 @@ export function LivebuyPlayer(props: LivebuyPlayerProps): ReactElement {
         onChannelChange={(info): void => {
           serviceLinkRef.current = info.serviceLink;
           // player-channel-chrome-wiring-reference-ui-rn — auto-derive the PlayerHeader top-bar
-          // chrome (title / hostName / shopLogo / shareUrl / isLive / isFinishedLiveReplay) on
-          // every channel load, parity iOS/Android `ingestChannel`'s auto-feed (RN has no
-          // `ingestChannel`; `onChannelChange` is the host-fed equivalent trigger point — see
-          // `channelChrome.ts`). `isFinishedLiveReplay` is now computed too
+          // chrome (title / hostName / shopLogo / shareUrl / isLive / isFinishedLiveReplay /
+          // isFlashSale) on every channel load, parity iOS/Android `ingestChannel`'s auto-feed (RN
+          // has no `ingestChannel`; `onChannelChange` is the host-fed equivalent trigger point —
+          // see `channelChrome.ts`). `isFinishedLiveReplay` is now computed too
           // (isfinishedlivereplay-wiring-reference-ui-rn) — `channel-type-bridge-core-rn` bridged
           // `channel.type` onto `LBPlayerChannelInfo`, so `deriveHeaderChromeFields` derives it
           // via the existing `isFinishedLiveReplay(type, liveStatus)` pure function and this same
-          // call forwards it (partial-merge — no second call needed).
+          // call forwards it (partial-merge — no second call needed). `isFlashSale` is a straight
+          // pass-through of `info.isFlashSale` (rb-rn-flash-sale-live-signal-wiring) — the data
+          // source `channel-flash-sale-flag-core-rn` had already bridged it onto
+          // `LBPlayerChannelInfo`, but no caller fed it into `handleHeaderChrome` until now.
           attachmentRef.current?.template.handleHeaderChrome(deriveHeaderChromeFields(info));
           // Same channel load also flips the side-rail「聯繫商家」icon's visibility. Fired HERE,
           // as its OWN independent call — NOT folded into the subtitle pipeline's `setAvailable`
@@ -604,6 +651,25 @@ export function LivebuyPlayer(props: LivebuyPlayerProps): ReactElement {
           // derivation, same shape as the calls above — so the general (not upcoming-scoped)
           // loading-phase cover background reaches `StartScreenView`'s `.loading` branch.
           attachmentRef.current?.template.applyLoadingCover(info.cover);
+          // rn-moment-products-wiring-reference-ui — forward the channel's live-updating
+          // products / narratingProduct (rn-moment-products-bridge-core) to
+          // `handleMomentSnapshot`, the ONLY entry point that feeds `DefaultProductOverlayState`'s
+          // `products`/`activeProduct` from this source. Pure pass-through (no derivation) — same
+          // shape as the calls above. Because `onChannelChange` now re-fires on every native
+          // moment-state poll tick (not just channel load — see `rn-moment-products-bridge-core`'s
+          // design.md), this call naturally overwrites `channel.goods`'s load-time-only static
+          // snapshot with fresh data each round; no separate merge/priority logic needed.
+          // rb-rn-endscreen-live-empty-state — same call, now ALSO forwarding the channel's
+          // EndScreen watch-next targets (`channel.next`, rn-endscreen-next-bridge-core) via the
+          // pure `deriveEndScreenNavRows` fold (`channelChrome.ts`). Scope otherwise kept narrow
+          // on purpose: `handleMomentSnapshot`'s remaining fields (`isSubscribed`/`viewerCount`/
+          // `hasStart`/`hot`) are untouched here — each is either already wired elsewhere in this
+          // file, or (for `hot`) a retired reference-ui rendering path with no consumer left.
+          attachmentRef.current?.template.handleMomentSnapshot({
+            products: info.products,
+            activeProduct: info.narratingProduct,
+            next: deriveEndScreenNavRows(info.next),
+          });
           // VOD CC 字幕（rb-react-native-subtitle-vtt-caption-display）：抓取 + 解析
           // `channel.subtitle_url`（換片防呆 + staleness 邏輯見 `subtitlePipeline.ts`），同時餵
           // `handleRailEnablement({ subtitleAvailable })` 讓側欄 CC 鈕的可見性正確反映這支影片是否
@@ -619,6 +685,19 @@ export function LivebuyPlayer(props: LivebuyPlayerProps): ReactElement {
                 subtitleAvailable: available,
               }),
           });
+        }}
+        // fix-rn-replay-chat-progressive-reveal-reference-ui — forward the core's PROGRESSIVE
+        // `onReplayChatRevealed` seam (fires repeatedly during finished-live replay as playback
+        // advances, each call carrying the currently-revealed prefix ascending by
+        // `LBComment.time`) into `DefaultPlayerTemplate.handleReplayChatRevealed`, the single
+        // write path that reconciles the merged chat feed for replay. This is the ONLY correct
+        // production caller — the prior `TemplateAttachment` `ROUTED.CHAT_HISTORY_LOADED` wiring
+        // was removed by `fix-rn-replay-chat-progressive-reveal-template` because that event is a
+        // native ONE-SHOT (fires once, full video's comments), not the progressive reveal
+        // `handleReplayChatRevealed`'s reconcile logic assumes. `attachmentRef.current` is
+        // `null` before the template attaches (same guard every other handler above uses).
+        onReplayChatRevealed={(comments): void => {
+          attachmentRef.current?.template.handleReplayChatRevealed(comments);
         }}
         style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
       />

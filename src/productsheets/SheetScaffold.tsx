@@ -17,6 +17,7 @@
 // ScrollView only — no animation / randomness. jsx automatic runtime (no React import).
 
 import type { ReactElement, ReactNode } from 'react';
+import { useEffect, useRef } from 'react';
 import { View, ScrollView, Dimensions } from 'react-native';
 
 import type { ReferenceUITheme } from '../theme';
@@ -78,6 +79,23 @@ export interface SheetScaffoldProps {
    *  sheet surface (`productList` / `notifyRestockSheet` / `infoPanel`) carry its registry
    *  id WITHOUT a wrapper node, so the structural snapshot stays a pure testID add. */
   readonly testID?: string;
+  /**
+   * An IDENTITY value (e.g. `detail.productId` — NOT a fresh object/array constructed every
+   * render) that, when it CHANGES, resets the scrollable {@link SheetScaffoldProps.body body}
+   * back to the top (`scrollTo({ y: 0, animated: false })`). `undefined` (DEFAULT — every sheet
+   * built on this scaffold that does not pass this prop: product list / `.addToCart` / notify-
+   * restock / video-info panel) → the reset effect never runs, byte-identical to before this
+   * prop existed.
+   *
+   * Exists for `rb-rn-recommendation-switch-scroll-reset`: the product-detail sheet SWAPS its
+   * `detail` in place on the SAME mounted `<ProductDetail>` instance when the user taps a
+   * "更多商品" recommendation card (see `ProductDetailSheetView.tsx`'s own `detail.productId`-keyed
+   * photo-gallery reset `useEffect` for the identical "why this key" reasoning) — without an
+   * explicit reset, the `<ScrollView>`'s scroll offset from the PREVIOUS product would otherwise
+   * survive the swap. `SheetScaffold` itself has no concept of "product id"; it only compares this
+   * opaque value across renders via `useEffect`'s dependency-array semantics.
+   */
+  readonly scrollResetKey?: string | number;
 }
 
 /**
@@ -88,9 +106,24 @@ export interface SheetScaffoldProps {
  * between the two pinned chrome regions (parity iOS `LBSheetScaffold`).
  */
 export function SheetScaffold(props: SheetScaffoldProps): ReactElement {
-  const { theme, header, body, footer, fillToCap = false, capPct, testID } = props;
+  const { theme, header, body, footer, fillToCap = false, capPct, testID, scrollResetKey } = props;
   const cap = sheetCapHeight(fillToCap, capPct);
   const fixedHeight = usesFixedHeight(fillToCap, capPct);
+
+  // Scroll-position reset on content swap (rb-rn-recommendation-switch-scroll-reset). `undefined`
+  // (every caller that doesn't pass `scrollResetKey`) → early return, `scrollTo` is never called —
+  // byte-identical to before this capability existed. A DEFINED value that CHANGES (e.g. the
+  // product-detail sheet's `detail.productId` swapping to a different product on the SAME mounted
+  // instance) → snap the body back to the top; `animated: false` because this reads as "a new
+  // sheet of content just opened", not a smooth in-place scroll (parity with this component
+  // family's other product-switch resets — the gallery photo index, the variant/qty defaults —
+  // which are likewise instant, not animated).
+  const scrollRef = useRef<ScrollView>(null);
+  useEffect(() => {
+    if (scrollResetKey === undefined) return;
+    scrollRef.current?.scrollTo({ y: 0, animated: false });
+  }, [scrollResetKey]);
+
   return (
     <View
       testID={testID}
@@ -109,7 +142,7 @@ export function SheetScaffold(props: SheetScaffoldProps): ReactElement {
       {header}
       {/* Scrollable body — `flex: 1`（固定填滿）填滿剩餘空間（內容頂部、下方留白）；否則
           `flexShrink: 1` content-sized（短 sheet 取內容高、長 sheet 捲動，footer 恆可見）。 */}
-      <ScrollView style={fixedHeight ? { flex: 1 } : { flexShrink: 1 }}>{body}</ScrollView>
+      <ScrollView ref={scrollRef} style={fixedHeight ? { flex: 1 } : { flexShrink: 1 }}>{body}</ScrollView>
       {/* Pinned footer (never scrolls). */}
       {footer ?? null}
     </View>

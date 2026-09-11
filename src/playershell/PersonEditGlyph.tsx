@@ -1,89 +1,50 @@
 import type { ReactElement } from 'react';
-import { View } from 'react-native';
+import Svg, { Circle, Path } from 'react-native-svg';
 
 // MARK: - PersonEditGlyph — self-drawn person-edit (head + pencil badge) nickname icon
 //
 // Spec: `reference-ui-rendering/spec.md` (rb-align-nickname-icon-person-edit).
 // RN parity of iOS `Glyphs/PersonEditGlyph.swift` / Android `PersonEditGlyph.kt` / Flutter
-// `person_edit_glyph.dart`. Design `design/templates/minimal/live-chrome.jsx` `LBLiveBottomBar`
-// 設定暱稱 button (≈224): head circle + shoulders + a pencil badge (bottom-right).
+// `person_edit_glyph.dart`. Design `design/shared/icons.jsx` `Icons.personEdit` (24px viewBox,
+// `stroke="currentColor"`, `strokeWidth=1.8`, round cap/join, `fill="none"`):
 //
-// RN has NO Canvas / react-native-svg (same constraint as `ShareGlyph.tsx`), so the composite is
-// drawn with deterministic `View`s — a bordered head circle, a bordered shoulders arch (clipped
-// to the box), and a rotated bordered rect for the pencil badge — NOT the prior `👤` emoji Text.
-// Same design INTENT (person + edit pencil) as the vector-faithful platforms.
+//   <circle cx="10" cy="8" r="3.2" />
+//   <path d="M3 21c0-4 3-6 7-6" />
+//   <path d="M14 18l5-5 2 2-5 5h-2v-2z" />
 //
-// Geometry mirrors the 24-unit design space, scaled by `size/24`.
-
-const STROKE = 1.8;
+// rb-rn-personedit-pencil-badge-visibility-fix (2026-09-11): this used to be a `View`-composed
+// approximation (bordered circle + bordered arch + rotated rect for the pencil badge) from
+// before this package depended on `react-native-svg`. That approximation's pencil badge had a
+// structural bug (border width consumed the entire box height at every `size`, confirmed via a
+// real-device screenshot to render as an unrecognizable diagonal sliver merged into the
+// shoulders) and, even after fixing that arithmetic (filled instead of bordered), still didn't
+// read as a "pencil" — a plain rotated bar next to a person silhouette isn't legible as an edit
+// affordance no matter how it's filled. `react-native-svg` is ALREADY a peer dependency of this
+// package (used by `BagGlyph` / `CcGlyph` / `DetailGlyph` / `HeartFillGlyph` / `HeartGlyph` /
+// `MegaphoneGlyph` / `PeopleGlyph` / `ShareFillGlyph` / `SpeakerGlyphs` — `PersonEditGlyph`
+// and `ShareGlyph` were simply never migrated when it was added), so this draws the design's
+// exact `d` path data verbatim instead of approximating it with the CSS box model — true vector
+// parity with the iOS/Android/Flutter siblings, not just "same design intent".
+//
+// Pure presentation: only `color` / `size` props. The nickname BEHAVIOR (`onNickname`) is
+// unchanged — this is a pixel-only fix.
 
 export function PersonEditGlyph(props: { color: string; size?: number }): ReactElement {
   const { color, size = 18 } = props;
-  const s = size / 24;
-  const sw = STROKE * s;
-
-  // Head: stroked circle ~ center (9.5,8) r=3.2.
-  const headR = 3.2 * s;
-  const headCx = 9.5 * s;
-  const headCy = 8 * s;
-
-  // Shoulders: a bordered arch under the head (top rounded, sides down, bottom clipped by the box).
-  const shW = 12 * s;
-  const shLeft = 3.5 * s;
-  const shTop = 15 * s;
-
-  // Pencil badge: a rotated bordered rect at the bottom-right (the edit affordance).
-  const penW = 9 * s;
-  const penH = 3.6 * s;
-  const penCx = 17.5 * s;
-  const penCy = 16.5 * s;
-
   return (
-    <View style={{ width: size, height: size, overflow: 'hidden' }} pointerEvents="none">
-      {/* Shoulders arch (drawn first, under the head). */}
-      <View
-        style={{
-          position: 'absolute',
-          left: shLeft,
-          top: shTop,
-          width: shW,
-          height: shW,
-          borderTopLeftRadius: shW / 2,
-          borderTopRightRadius: shW / 2,
-          borderTopWidth: sw,
-          borderLeftWidth: sw,
-          borderRightWidth: sw,
-          borderBottomWidth: 0,
-          borderColor: color,
-        }}
-      />
-      {/* Head circle. */}
-      <View
-        style={{
-          position: 'absolute',
-          left: headCx - headR,
-          top: headCy - headR,
-          width: headR * 2,
-          height: headR * 2,
-          borderRadius: headR,
-          borderWidth: sw,
-          borderColor: color,
-        }}
-      />
-      {/* Pencil badge (rotated bordered rect, bottom-right). */}
-      <View
-        style={{
-          position: 'absolute',
-          left: penCx - penW / 2,
-          top: penCy - penH / 2,
-          width: penW,
-          height: penH,
-          borderRadius: 1 * s,
-          borderWidth: sw,
-          borderColor: color,
-          transform: [{ rotate: '-45deg' }],
-        }}
-      />
-    </View>
+    <Svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke={color}
+      strokeWidth={1.8}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <Circle cx={10} cy={8} r={3.2} />
+      <Path d="M3 21c0-4 3-6 7-6" />
+      <Path d="M14 18l5-5 2 2-5 5h-2v-2z" />
+    </Svg>
   );
 }

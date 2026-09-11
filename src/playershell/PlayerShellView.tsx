@@ -87,19 +87,27 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactElement } from 'react';
-import { View, Pressable, PanResponder } from 'react-native';
+import { View, Pressable, PanResponder, Image } from 'react-native';
 import type { GestureResponderEvent, LayoutChangeEvent } from 'react-native';
 import { Text } from '../TightText';
 
 import type { ReferenceUITheme } from '../theme';
 import { PlayerShellModel } from './PlayerShellModel';
+import { productImagePrefetchUrls } from './productImagePrefetch';
 
 import { PlayerHeaderBar } from './PlayerHeaderBarView';
-import { OperationRail, FloatingBagButton } from './OperationRailView';
+import { OperationRail, FloatingBagButton, subtitleAvailableFrom } from './OperationRailView';
 import { VideoInfoPanel } from './VideoInfoPanelView';
 import { ContactMerchantModal } from './ContactMerchantModalView';
 import { BottomSheetPresenter } from '../productsheets/BottomSheetPresenter';
-import { LiveOverlayChrome, visiblePinnedProducts } from './LiveOverlayChromeView';
+// rb-rn-chat-reveal-sheet-dismiss-timing — reuse SlideUpSheet's existing slide-animation
+// duration (not a new magic number) to time the deferred dismiss-bubble below.
+import { DURATION as SHEET_DISMISS_BUBBLE_DELAY_MS } from '../SlideUpSheet';
+import {
+  LiveOverlayChrome,
+  visiblePinnedProducts,
+  LIVE_BOTTOM_BAR_CLEARANCE_GAP,
+} from './LiveOverlayChromeView';
 import { NowIntroducingCarousel } from './NowIntroducingCarouselView';
 import { HeartBurst } from './HeartBurst';
 import {
@@ -107,7 +115,7 @@ import {
   likedHoldDurationMs,
   resolveLikeBurstCount,
 } from './likeBurstAnimation';
-import { LiveBottomBarView } from './LiveBottomBarView';
+import { LiveBottomBarView, LIVE_BOTTOM_BAR_HEIGHT } from './LiveBottomBarView';
 import { LiveMoreMenuView } from './LiveMoreMenuView';
 import { UpcomingCountdownView } from './UpcomingCountdownView';
 import { PlaybackProgressBarView } from './PlaybackProgressBarView';
@@ -179,7 +187,7 @@ export interface PlayerShellViewProps {
   readonly showViewerCount?: boolean;
   /**
    * Whether the header's trailing top-right button shows a close (✕) icon instead of the minimize
-   * (`◳`) icon (rb-rn-player-direct-close-button). The container (`LivebuyPlayerOverlays`) resolves
+   * (`PipGlyph`) icon (rb-rn-player-direct-close-button). The container (`LivebuyPlayerOverlays`) resolves
    * `LivebuyPlayerConfig.enableDirectCloseButton` against the global `LivebuySDK
    * .isDirectCloseButtonEnabled()` preference (via the shared pure function
    * `resolveDirectCloseButtonEnabled`) and forwards the ALREADY-RESOLVED boolean here — this view
@@ -340,6 +348,23 @@ export interface PlayerShellViewProps {
    */
   readonly onMoreMenuOpenChange?: (open: boolean) => void;
   /**
+   * Reports the scrub-bar post-release hold window (`isScrubChromeLifted(scrubBarExpanded,
+   * isScrubbing)`, i.e. `scrubBarExpanded && !isScrubbing`) to a container so a family living
+   * OUTSIDE this component's render tree (`feedwin`'s `FeedWinView`) can mirror the SAME lift
+   * over its own chat-feed bottom inset (rb-rn-scrub-expanded-chrome-lift) — mirrors the
+   * established {@link onInfoPanelOpenChange} / {@link onCleanModeChange} /
+   * {@link onMoreMenuOpenChange} precedent (same reason: `PlayerShellView` cannot reach outside
+   * its own tree to lift a sibling family, only report state for a wrapping container to act on).
+   * Fired on every `scrubBarExpanded` / `isScrubbing` change, INCLUDING the initial mount (parity
+   * `onInfoPanelOpenChange`). **Reports the GATED value, NOT the raw wide `scrubBarExpanded`** —
+   * while actively dragging (`isScrubbing === true`) this reports `false`, matching this
+   * component's own `scrubChromeLift` (the LIVE-overlay / VOD-chrome lift this same file already
+   * applies) so a container never lifts the chat feed during an active drag. Default `undefined`
+   * (demo / unwired) → inert no-op; `scrubBarExpanded` / `isScrubbing` / `scrubChromeLift`'s own
+   * internal effects are unaffected either way.
+   */
+  readonly onScrubBarExpandedChange?: (expanded: boolean) => void;
+  /**
    * VOD CC 字幕 cue 清單（rb-react-native-subtitle-vtt-caption-display）. **NOT** template-derived
    * — there is no `DefaultPlayerTemplate` public read surface for the active-caption TEXT (only
    * the `enabled` toggle, exposed as `PlayerShellModel.subtitleEnabled` — see design.md D1/D2 for
@@ -360,6 +385,14 @@ export interface PlayerShellViewProps {
  * moves stay with the tap-to-mute Pressable (parity to iOS `swipeThreshold = 60`).
  */
 const SWIPE_THRESHOLD = 60;
+
+/**
+ * Stable empty array for the `live === false` (snapshot / demo, DEFAULT) branch of the product-
+ * image prefetch effect (rb-rn-product-image-loading-polish) — a single shared reference rather
+ * than a fresh `[]` literal every render (harmless either way for correctness, since the
+ * dependent `prefetchKey` is always `''`, but avoids an unnecessary allocation on the hot path).
+ */
+const EMPTY_PREFETCH_URLS: readonly string[] = [];
 
 /**
  * Long-press hold duration (ms) that starts the 2x-speed-approximation seek tick, ONLY while
@@ -530,6 +563,23 @@ const SCRUB_HOLD_DURATION_MS = 2800;
 const SCRUB_CHROME_LIFT = 36;
 
 /**
+ * PURE: whether the scrub-bar's post-release hold window is currently active —
+ * `scrubBarExpanded` (touch-down through the 2.8s post-release hold) AND NOT actively scrubbing
+ * (`!isScrubbing`, during an active drag the transport bar is already expanded via a different
+ * path so no extra lift is needed). This is the SAME gate the local `scrubChromeLift` value below
+ * uses to decide whether to apply {@link SCRUB_CHROME_LIFT} — it is also what
+ * {@link PlayerShellViewProps.onScrubBarExpandedChange} reports to a container
+ * (rb-rn-scrub-expanded-chrome-lift) so a sibling family living OUTSIDE this component's render
+ * tree (`feedwin`'s `FeedWinView`) can mirror the SAME lift over its own chat-feed bottom inset.
+ * Routing both consumers through one function keeps them from ever silently diverging. Parity iOS
+ * `PlayerShellView.scrubChromeLiftIfExpanded` / Android `PlayerShellView.scrubChromeLift`'s shared
+ * gate expression.
+ */
+export function isScrubChromeLifted(scrubBarExpanded: boolean, isScrubbing: boolean): boolean {
+  return scrubBarExpanded && !isScrubbing;
+}
+
+/**
  * PURE: whether {@link PlaybackProgressBarView} should be composed (design `screens.jsx`
  * `LBPPlayerScreen` "Playback progress bar — VOD and replay only":
  * `isMain && !isUpcoming && (!isLive || isReplay)`). The `isReplay` disjunct MUST be fed
@@ -628,18 +678,28 @@ export function showsLiveNowPill(
 /**
  * PURE: whether {@link CaptionOverlayView} should be composed (rb-react-native-subtitle-vtt-
  * caption-display). Five conditions, ALL must hold: `!cleanMode` (乾淨模式 hides it, same as the
- * other floating VOD chrome — design R23), `!usesLiveChrome` (LIVE or a finished-live replay never
- * shows the VOD caption — `usesLiveChrome` is the caller-computed `model.isLive ||
- * model.isFinishedLiveReplay`, parity iOS/Android's identically-named "purely VOD" gate),
- * `!introPlaying` (直播預告開場片頭 is not yet the main VOD playback phase), `!isScrubbing`
- * (dragging the playback-progress bar hides it, matching the sibling `NowIntroducingCarousel`'s
- * own `!isScrubbing` gate in this same VOD branch), `subtitleEnabled` (CC is on) AND `captionText`
- * is non-empty (nothing to show). Parity Android `shouldShowCaptionOverlay` (same 5-condition AND,
- * mirrored parameter order) / iOS's inline VOD-branch check. Pure, unit-testable without
- * rendering, per unit-test discipline.
+ * other floating VOD chrome — design R23), `!isLive` (a genuinely in-progress broadcast never
+ * shows the VOD caption; a **finished-live replay does** — `isLive` and `isFinishedLiveReplay` are
+ * mutually exclusive, and a replay is functionally VOD (seekable progress bar, no live chat
+ * requirement to play), so it belongs on the "shows the caption" side of this gate, not the
+ * "never shows it" side), `!introPlaying` (直播預告開場片頭 is not yet the main VOD playback
+ * phase), `!isScrubbing` (dragging the playback-progress bar hides it, matching the sibling
+ * `NowIntroducingCarousel`'s own `!isScrubbing` gate in this same VOD branch), `subtitleEnabled`
+ * (CC is on) AND `captionText` is non-empty (nothing to show). Parity Android
+ * `shouldShowCaptionOverlay` (same 5-condition AND, mirrored parameter order) / iOS's inline
+ * VOD-branch check. Pure, unit-testable without rendering, per unit-test discipline.
+ *
+ * `rb-rn-replay-caption-overlay-fix`: this parameter was previously fed the caller's broader
+ * `usesLiveChrome = model.isLive || model.isFinishedLiveReplay` (and named the same), which wrongly
+ * excluded finished-live replays from the VOD caption too — they'd fall into the LIVE-chrome
+ * branch and only ever see `LiveOverlayChromeView`'s unrelated host caption (`LBLiveHostCaption`,
+ * a static/host-fed string with no VTT wiring), so toggling CC on a replay flipped the switch with
+ * nothing ever appearing. Renamed + narrowed to strict `isLive` to fix this; every OTHER
+ * `usesLiveChrome` consumer in this file (Surface 4 routing, side rail, floating bag,
+ * `LiveBottomBarView`, `HeartBurst`) is UNCHANGED by this fix — this is the one caption call site.
  */
 export function shouldShowCaptionOverlay(
-  usesLiveChrome: boolean,
+  isLive: boolean,
   introPlaying: boolean,
   isScrubbing: boolean,
   cleanMode: boolean,
@@ -648,11 +708,114 @@ export function shouldShowCaptionOverlay(
 ): boolean {
   return (
     !cleanMode &&
-    !usesLiveChrome &&
+    !isLive &&
     !introPlaying &&
     !isScrubbing &&
     subtitleEnabled &&
     captionText.length > 0
+  );
+}
+
+/**
+ * PURE: the caption overlay's right-edge inset (rb-rn-caption-overlay-align-hide-chat), narrowing
+ * the overlay's horizontal centering box away from full-width (`left:0, right:0`) to align with
+ * design `LBPCaptionOverlay` (`design/templates/minimal/sdk-components.jsx`) — `left` stays a fixed
+ * `8` (the design's own hardcoded value, same in both scenarios). Pure VOD leaves room for the
+ * `OperationRailView` VOD side rail (`right: 68`, the design component's own default prop value);
+ * an already-finished live replay leaves room for the wider LIVE-chrome bottom bar / pinned-card
+ * rail (`right: 120`, design `screens.jsx`'s `isReplay && ccOn` branch's `right={120}`).
+ * `isFinishedLiveReplay` is the ONLY input — a genuinely live broadcast never reaches this function
+ * (`shouldShowCaptionOverlay`'s `!isLive` excludes it upstream, so only the two mutually exclusive
+ * "shows the VOD caption" branches — pure VOD and finished-live-replay — ever call this).
+ */
+export function captionOverlayRightInset(isFinishedLiveReplay: boolean): number {
+  return isFinishedLiveReplay ? 120 : 68;
+}
+
+/**
+ * PURE: the caption overlay's bottom inset. Originally `rb-rn-caption-overlay-bottom-bar-
+ * clearance-fix` (fixing the "dead-reckoned literal, zero-coupled to `LiveBottomBarView`"
+ * structural bug already fixed on iOS/Flutter for the already-finished-live-replay branch);
+ * `rb-rn-vod-caption-reserve-card-space` MODIFIED the pure-VOD branch's base constant.
+ *
+ * Pure VOD (`isFinishedLiveReplay === false`) has no `LiveBottomBarView` to avoid, but it DOES
+ * share the screen with `NowIntroducingCarousel` (the「介紹中」product card) — a separate,
+ * independently-positioned `position: 'absolute'` View that neither knows about the other. The
+ * design authority (`design/templates/minimal/screens.jsx:533`, `LBPCaptionOverlay`'s
+ * `safeBottom = safeArea.bottom + (scrubVisible ? 36 : 0) + 92`) reserves a fixed `92`
+ * unconditionally — regardless of whether the product card (`LBPMiniCart`,
+ * `design/templates/minimal/sdk-components.jsx:908`, `bottom: 12 + safeBottom`) is actually
+ * rendered at that instant — so the caption never collides with it when it does appear. This
+ * function's pure-VOD branch mirrors that: `92 + lift` (was `8 + lift` before this fix, which had
+ * zero awareness of the card and could sit directly underneath/behind it).
+ *
+ * An already-finished live replay DOES render `LiveBottomBarView` (the `usesLiveChrome` branch),
+ * so it clears that bar's real height plus an explicit safety gap (`LIVE_BOTTOM_BAR_HEIGHT +
+ * LIVE_BOTTOM_BAR_CLEARANCE_GAP`, the SAME single-source-of-truth constants
+ * `LiveOverlayChromeView`'s bottom row uses — `= 72`) — unchanged by this fix, out of its scope.
+ *
+ * `lift` is the caller's existing `scrubChromeLift` value (additive, not recomputed here) — both
+ * branches keep adding it unchanged; the pure-VOD branch's `isScrubbing` display gate
+ * (`shouldShowCaptionOverlay`) is also unaffected by this fix. This file has no `safeAreaBottom`
+ * concept (unlike Flutter's same-named function) — verified there is no safe-area API consumed
+ * anywhere in this file, so this signature deliberately omits that parameter rather than carrying
+ * a dead one.
+ */
+export function captionOverlayBottomInset(isFinishedLiveReplay: boolean, lift: number): number {
+  return isFinishedLiveReplay ? LIVE_BOTTOM_BAR_HEIGHT + LIVE_BOTTOM_BAR_CLEARANCE_GAP + lift : 92 + lift;
+}
+
+/**
+ * rb-rn-chat-reveal-sheet-dismiss-timing — bubble a sheet's `open` boolean up to `onChange`, but
+ * DEFER the CLOSE-direction bubble by `delayMs` (the shared `BottomSheetPresenter`/`SlideUpSheet`
+ * slide-out duration) so a sibling driven purely by the raw boolean (`FeedWinView`'s
+ * `computeChatVisible`, a hard `if` with no transition of its own) does not reappear until the
+ * sheet has visually finished sliding away. Shared by both `infoPanelOpen` and `moreMenuOpen`
+ * below — same shape, same delay — to avoid duplicating the timer bookkeeping.
+ *
+ * - OPEN (`open === true`) is always synchronous — no affordance should ever feel unresponsive.
+ * - The FIRST call after mount is also synchronous, regardless of `open`'s value — this mirrors
+ *   the established RN precedent (`onInfoPanelOpenChange` / `onMoreMenuOpenChange` report on
+ *   initial mount too, see the call sites below) and there is no prior sheet content sliding away
+ *   to time a mount-time report against.
+ * - CLOSE (`open === false`, after the first call) schedules `onChange(false)` via `setTimeout`;
+ *   re-opening before it fires cancels the pending stale `false` (cancel-and-reschedule, same
+ *   shape as this file's existing `scrubCollapseTimerRef` / `pendingCleanModeToggleTimerRef`).
+ * - Unmounting cancels any pending timer so it never fires against an unmounted component.
+ */
+function useDeferredDismissBubble(
+  open: boolean,
+  onChange: ((open: boolean) => void) | undefined,
+  delayMs: number,
+): void {
+  const isFirstCallRef = useRef(true);
+  const dismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (dismissTimerRef.current != null) {
+      clearTimeout(dismissTimerRef.current);
+      dismissTimerRef.current = null;
+    }
+    if (isFirstCallRef.current) {
+      isFirstCallRef.current = false;
+      onChange?.(open);
+      return;
+    }
+    if (open) {
+      onChange?.(true);
+      return;
+    }
+    dismissTimerRef.current = setTimeout(() => {
+      dismissTimerRef.current = null;
+      onChange?.(false);
+    }, delayMs);
+  }, [open, onChange, delayMs]);
+
+  useEffect(
+    () => () => {
+      if (dismissTimerRef.current != null) clearTimeout(dismissTimerRef.current);
+    },
+    [],
   );
 }
 
@@ -694,6 +857,7 @@ export function PlayerShellView(props: PlayerShellViewProps): ReactElement {
     onDidSwitchVideo,
     onCleanModeChange,
     onMoreMenuOpenChange,
+    onScrubBarExpandedChange,
     subtitleCues = [],
   } = props;
 
@@ -726,9 +890,13 @@ export function PlayerShellView(props: PlayerShellViewProps): ReactElement {
   // Report info-panel open/closed (initial + every change) so the container can hide the
   // higher-layer chat feed while the panel is up (parity iOS rb-ios-info-panel-not-covered-
   // by-chat). The panel's own state / dismiss paths are unchanged.
-  useEffect(() => {
-    onInfoPanelOpenChange?.(infoPanelOpen);
-  }, [infoPanelOpen, onInfoPanelOpenChange]);
+  //
+  // rb-rn-chat-reveal-sheet-dismiss-timing: the CLOSE-direction bubble is now deferred by
+  // `SHEET_DISMISS_BUBBLE_DELAY_MS` (see `useDeferredDismissBubble` above) so the sibling chat
+  // feed's hard `chatVisible` boolean does not reappear until the `BottomSheetPresenter`/
+  // `SlideUpSheet` slide-out animation has visually finished — OPEN and the initial-mount report
+  // stay synchronous, unchanged.
+  useDeferredDismissBubble(infoPanelOpen, onInfoPanelOpenChange, SHEET_DISMISS_BUBBLE_DELAY_MS);
 
   // 乾淨模式（cleanMode，rb-rn-gesture-clean-mode-v2，design R29）: toggled by a SHORT tap on the
   // video-area Pressable — non-seekable (live in progress / upcoming) toggles immediately;
@@ -837,13 +1005,17 @@ export function PlayerShellView(props: PlayerShellViewProps): ReactElement {
   // existing serviceLink host exit. Default false → modal not drawn → existing snapshots unchanged.
   const [contactMerchantPresented, setContactMerchantPresented] = useState(false);
 
-  // Whether the「更多」collapsed menu (`LiveMoreMenuView`, design R32) is presented
-  // (rb-rn-live-replay-more-menu-and-video-info-live-copy). Opened by the VOD side rail's
-  // `LBSideRailKind.More` pill — which `OperationRail` only draws when the shell passes it
-  // `isFinishedLiveReplay={model.isFinishedLiveReplay}` (see the `<OperationRail>` call site
-  // below) — via `handleRailTap`'s `More` branch. Default false → sheet not drawn → existing
-  // snapshots unchanged (no existing call site renders a finished-live-replay `items` snapshot
-  // with `More` enabled AND `isFinishedLiveReplay: true` together).
+  // Whether the「更多」collapsed menu (`LiveMoreMenuView`, design R32) is presented (element
+  // itself by rb-rn-live-replay-more-menu-and-video-info-live-copy). rb-rn-replay-live-chrome-
+  // parity: the real trigger is now `LiveBottomBarView`'s `onMore` (the `chatClosed` variant's
+  // "更多" button, fed `chatClosed={model.isFinishedLiveReplay}` — see that `<LiveBottomBarView>`
+  // call site below), which calls `setMoreMenuOpen(true)` DIRECTLY — NOT through
+  // `handleRailTap`. The side rail's OWN `LBSideRailKind.More` pill (`OperationRail`'s
+  // `isFinishedLiveReplay` prop + `handleRailTap`'s `More` branch below) is the PRIOR trigger
+  // path — kept for component-level source compat, but this call site no longer feeds
+  // `OperationRail.isFinishedLiveReplay`, so that pill can no longer appear in a real render
+  // tree (see the `<OperationRail>` call site's own comment). Default false → sheet not drawn
+  // → existing snapshots unchanged.
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
 
   // Report「更多」menu open/closed (initial + every change) so a family living OUTSIDE this
@@ -851,9 +1023,10 @@ export function PlayerShellView(props: PlayerShellViewProps): ReactElement {
   // is up — mirrors `onInfoPanelOpenChange` / `onCleanModeChange` above (rb-rn-live-more-sheet-
   // above-chat). `PlayerShellView` itself never reaches out to control such a sibling family
   // directly; the menu's own content / actions are unaffected.
-  useEffect(() => {
-    onMoreMenuOpenChange?.(moreMenuOpen);
-  }, [moreMenuOpen, onMoreMenuOpenChange]);
+  //
+  // rb-rn-chat-reveal-sheet-dismiss-timing: same deferred-CLOSE-bubble shape as `infoPanelOpen`
+  // above — see `useDeferredDismissBubble`'s doc comment.
+  useDeferredDismissBubble(moreMenuOpen, onMoreMenuOpenChange, SHEET_DISMISS_BUBBLE_DELAY_MS);
 
   // Locally-dismissed VOD now-introducing productIds (rb-rn-now-introducing-real-image-
   // carousel，問題 9/10): a card's ✕ removes it from the carousel until the playhead moves
@@ -895,7 +1068,11 @@ export function PlayerShellView(props: PlayerShellViewProps): ReactElement {
   };
 
   // Drag moved → forward the new absolute position to the EXISTING `model.seek()` forwarder (no
-  // new core / view-model API; no debounce, per design). Parity iOS
+  // new core / view-model API). This forwarder itself is called at most as often as
+  // `PlaybackProgressBarView` actually EMITS `onScrub` — that component throttles the frequency of
+  // its own `onScrub` calls internally (`rb-rn-progress-bar-drag-seek-throttle`, since each call
+  // here ultimately dispatches a real cross JS/native bridge command via `model.seek()`); this
+  // forwarder's own logic is unchanged and has no throttle of its own. Parity iOS
   // `PlayerShellView.handleScrub(_:)`.
   const handleScrub = (ratio: number): void => {
     model.seek(ratio * model.duration);
@@ -919,7 +1096,42 @@ export function PlayerShellView(props: PlayerShellViewProps): ReactElement {
     };
   }, []);
 
+  // Report the scrub-bar post-release hold window (initial + every change) so a family living
+  // OUTSIDE this component's render tree (`feedwin`'s FeedWinView) can mirror the SAME lift over
+  // its own chat-feed bottom inset — mirrors `onInfoPanelOpenChange` / `onCleanModeChange` /
+  // `onMoreMenuOpenChange` above (rb-rn-scrub-expanded-chrome-lift). Reports the GATED value
+  // (`isScrubChromeLifted`, i.e. `scrubBarExpanded && !isScrubbing`) — NOT the raw wide
+  // `scrubBarExpanded` — so a container never lifts the chat feed during an active drag, matching
+  // this component's own `scrubChromeLift` gate for `LiveOverlayChrome`'s `bottomInset` below.
+  useEffect(() => {
+    onScrubBarExpandedChange?.(isScrubChromeLifted(scrubBarExpanded, isScrubbing));
+  }, [scrubBarExpanded, isScrubbing, onScrubBarExpandedChange]);
+
   const model = new PlayerShellModel(template);
+
+  // PREFETCH (rb-rn-product-image-loading-polish): warm RN's own <Image> cache for every
+  // product's primary photo as soon as the FULL (unfiltered) product list arrives
+  // (`model.products`) — well before any one product's [beginTime,endTime) window
+  // (`model.vodActiveProducts`) or narrate-status window (`model.liveActiveProducts`) makes it
+  // "currently introducing". Reading the FULL list instead of either filtered view means BOTH
+  // the VOD now-introducing carousel and the LIVE narrating carousel are covered by this ONE
+  // effect — no second parallel path is needed for `liveActiveProducts` (a subset of the same
+  // list). Runtime-only (`live`): a `false` (snapshot / demo, DEFAULT) instance never calls the
+  // real prefetch API, so structural snapshot tests make zero prefetch calls. The dependency
+  // key is the resolved URL list's own join — `model.products` is a fresh array reference every
+  // render (the model itself is re-`new`'d each render), so comparing by content (not identity)
+  // avoids re-issuing the same batch of `Image.prefetch` calls on every unrelated re-render.
+  const prefetchUrls = live ? productImagePrefetchUrls(model.products) : EMPTY_PREFETCH_URLS;
+  const prefetchKey = prefetchUrls.join('|');
+  useEffect(() => {
+    if (prefetchUrls.length === 0) return;
+    for (const url of prefetchUrls) {
+      // Best-effort warm-up only — a failed prefetch is not a regression: `RemoteImage`'s own
+      // `onError` still falls back to the placeholder when it later renders that product.
+      Image.prefetch(url).catch(() => {});
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prefetchKey, live]);
 
   // Vertical-swipe → adjacent-video navigation (rb-player-shell-swipe) + close-on-empty
   // (swipe-nav-close-on-empty). A PanResponder on the full-bleed tap-to-mute layer: it only
@@ -981,6 +1193,14 @@ export function PlayerShellView(props: PlayerShellViewProps): ReactElement {
   // fired in real usage; repurposing it carries zero behavior-change risk for existing hosts.
   // The header host-pill's own info-panel toggle (`onTapHostBadge`) is a SEPARATE, direct
   // `setInfoPanelOpen` wire (see that call site below) and is UNAFFECTED by this change.
+  //
+  // rb-rn-replay-live-chrome-parity: this `More` branch is RETAINED (source compat, and
+  // `OperationRail.isFinishedLiveReplay` — the ONLY thing that could ever feed this function a
+  // `More`-valued `kind` — stays a component-level capability), but the `<OperationRail>` call
+  // site below no longer feeds `isFinishedLiveReplay`, so in the CURRENT real render tree this
+  // branch is once again unreachable from any actual tap — the real "更多" trigger moved to
+  // `LiveBottomBarView.onMore`, which calls `setMoreMenuOpen(true)` directly (see that state's
+  // own doc comment above) and does NOT come through here.
   const handleRailTap = (kind: LBSideRailKind): void => {
     if (kind === LBSideRailKind.More) {
       setMoreMenuOpen(true);
@@ -1234,13 +1454,17 @@ export function PlayerShellView(props: PlayerShellViewProps): ReactElement {
 
   // VOD CC 字幕（rb-react-native-subtitle-vtt-caption-display）：以目前 model.position 現算命中的
   // cue 文字（`subtitleCues` prop 是唯一來源 — RN 沒有 host-override caption-text 入口，design.md
-  // Non-Goals）。`usesLiveChromeForCaption` 鏡射 iOS/Android 的「purely VOD」定義（isLive **或**
-  // isFinishedLiveReplay 皆不算純 VOD），與這個 shell 既有的 `!model.isLive`-only chrome 分流變數
-  // 刻意不同——後者是既有、獨立的四端小分歧（design.md D7），不在本次修正範圍。
+  // Non-Goals）。`usesLiveChrome`（下方定義，鏡射 iOS/Android/Flutter 的「purely VOD」定義：isLive
+  // **或** isFinishedLiveReplay 皆不算純 VOD）服務 Surface 4 分流 / 側欄 / 浮動購物袋 /
+  // LiveBottomBarView 組裝 / HeartBurst 組裝這些判斷點（`rb-rn-replay-live-chrome-parity`），但**不**
+  // 服務這個字幕呼叫點——`rb-rn-replay-caption-overlay-fix` 訂正：VOD 字幕改吃嚴格 `model.isLive`，
+  // 已結束直播回放（`isFinishedLiveReplay`）視為可顯示 VOD 字幕（回放本質是 VOD：可拖曳進度條、播放
+  // 不需即時聊天室），不再落入排除範圍（先前誤用 `usesLiveChrome` 會把回放誤判為「LIVE chrome」，
+  // 改顯示 `LiveOverlayChromeView` 的主持人字幕，那個機制無 VTT 資料來源，畫面上永遠看不到字幕）。
   const effectiveCaption = VTTSubtitleParser.activeCue(subtitleCues, model.position)?.text ?? '';
-  const usesLiveChromeForCaption = model.isLive || model.isFinishedLiveReplay;
+  const usesLiveChrome = model.isLive || model.isFinishedLiveReplay;
   const showsCaption = shouldShowCaptionOverlay(
-    usesLiveChromeForCaption,
+    model.isLive,
     model.introPlaying,
     isScrubbing,
     cleanMode,
@@ -1250,8 +1474,10 @@ export function PlayerShellView(props: PlayerShellViewProps): ReactElement {
 
   // The extra bottom lift applied to VOD chrome that has reappeared during the post-release hold
   // window (`scrubBarExpanded && !isScrubbing`) so it clears the still-expanded transport bar;
-  // `0` at every other time. Parity iOS `PlayerShellView.scrubChromeLiftIfExpanded`.
-  const scrubChromeLift = scrubBarExpanded && !isScrubbing ? SCRUB_CHROME_LIFT : 0;
+  // `0` at every other time. Parity iOS `PlayerShellView.scrubChromeLiftIfExpanded`. Routed
+  // through `isScrubChromeLifted` (rb-rn-scrub-expanded-chrome-lift) so this value and the
+  // `onScrubBarExpandedChange` report below share the exact same gate.
+  const scrubChromeLift = isScrubChromeLifted(scrubBarExpanded, isScrubbing) ? SCRUB_CHROME_LIFT : 0;
 
   // Surface 4 (VOD branch) — the now-introducing carousel peeks (rb-rn-now-introducing-
   // real-image-carousel，問題 9/10): ALL products whose [beginTime,endTime) window covers the
@@ -1269,6 +1495,10 @@ export function PlayerShellView(props: PlayerShellViewProps): ReactElement {
   }));
   // Trailing clearance follows the side rail's visibility (shown from Buffering
   // onward, suppressed only in Loading/Splash) — rb-rn-vod-rail-show-on-buffering.
+  // Also drives the now-introducing card's own MOUNT decision below, not just its
+  // trailing padding (rb-rn-now-introducing-carousel-buffering-gate) — the card
+  // MUST NOT appear before the side rail even if `nowIntroducingPeeks` is already
+  // non-empty during the VOD opening sequence.
   const railShown =
     model.startPhase !== StartScreenPhase.Loading &&
     model.startPhase !== StartScreenPhase.Splash;
@@ -1329,14 +1559,16 @@ export function PlayerShellView(props: PlayerShellViewProps): ReactElement {
         />
       </View>
 
-      {/* Surface 4 — now-introducing surface. LIVE → the full-bleed LiveOverlayChrome
-          (announce marquee / pinned card / host caption / gesture hints). VOD → the
+      {/* Surface 4 — now-introducing surface. usesLiveChrome (真直播 OR 已結束直播回放,
+          rb-rn-replay-live-chrome-parity) → the full-bleed LiveOverlayChrome (announce
+          marquee / pinned card / host caption / gesture hints; `isLive` narrows which of
+          the two sub-states within this branch — see the call site below). 純 VOD → the
           now-introducing CAROUSEL (real image + full width + page dots over ALL products
           whose [beginTime,endTime) covers the playhead, minus dismissed) anchored
           bottom-leading. intro 片頭 (introPlaying) → NEITHER (the opening MP4 is not yet
-          live). Parity iOS/Android/Flutter: LIVE → LiveOverlayChrome, VOD →
+          live). Parity iOS/Android/Flutter: usesLiveChrome → LiveOverlayChrome, 純 VOD →
           NowIntroducingCarousel (mutually exclusive branches). */}
-      {model.isLive ? (
+      {usesLiveChrome ? (
         <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}>
           <LiveOverlayChrome
             theme={theme}
@@ -1344,12 +1576,22 @@ export function PlayerShellView(props: PlayerShellViewProps): ReactElement {
             // `announceText.length > 0` 判斷本已把空字串視為「不畫」，故傳空字串即可，元件內部零
             // 改動（rb-rn-gesture-clean-mode-rewrite，design R23）。
             announceText={cleanMode ? '' : model.announceText}
-            // LIVE 全部介紹中商品（多件 narrate_status==2）→ 釘選卡多商品輪播 + 分頁點；空時 fallback
-            // 單一 pinnedProduct（activeProduct ?? first isHot）一元陣列（問題 7, rb-rn-live-now-
-            // introducing-carousel）。再依本地 dismissedLivePinnedIds 過濾（釘選卡 close 逐商品本地
-            // 隱藏，rb-rn-live-pinned-card-dismiss；換不同 narrate 商品帶入新 id 時自動重新顯示）。
+            // 釘選卡資料源依窄義 model.isLive 分流（rb-rn-replay-live-chrome-parity，parity iOS/
+            // Flutter）：真直播 → LIVE 全部介紹中商品（多件 narrate_status==2）→ 釘選卡多商品輪播 +
+            // 分頁點；空時 fallback 單一 pinnedProduct（activeProduct ?? first isHot）一元陣列
+            // （問題 7, rb-rn-live-now-introducing-carousel）。已結束直播回放 → vodActiveProducts
+            // （時間窗 [beginTime,endTime) 涵蓋 playhead 的商品，與 VOD now-introducing 輪播同一資料
+            // 源）。兩分支皆再依同一份本地 dismissedLivePinnedIds 過濾（釘選卡 close 逐商品本地
+            // 隱藏，rb-rn-live-pinned-card-dismiss；換不同商品帶入新 id 時自動重新顯示）。
             // 唯一在乾淨模式下仍保留的 LIVE chrome（design R23）——`cleanMode` 不影響此 prop。
-            pinnedProducts={visiblePinnedProducts(model.livePinnedProducts, dismissedLivePinnedIds)}
+            pinnedProducts={visiblePinnedProducts(
+              model.isLive ? model.livePinnedProducts : model.vodActiveProducts,
+              dismissedLivePinnedIds,
+            )}
+            // 分辨「真直播」與「已結束直播回放」兩個同屬 usesLiveChrome 大分支的子狀態
+            // （rb-rn-replay-live-chrome-parity，parity iOS LiveOverlayChromeView.isLive）：驅動長按
+            // 2倍速快轉手勢提示（僅回放顯示）與釘選卡「介紹中」ribbon 判斷（isNarrating）。
+            isLive={model.isLive}
             showGestureHints={showGestureHints && !cleanMode}
             // rb-rn-live-overlay-gesture-hint-autofade: gesture hints auto-fade 3.5s after they
             // appear (0.6s ease-out) only over real playback content — `live` (NOT `model.isLive`,
@@ -1374,12 +1616,20 @@ export function PlayerShellView(props: PlayerShellViewProps): ReactElement {
               handleSelectTab(LBInfoPanelTab.Notice);
               setInfoPanelOpen(true);
             }}
+            // 放開播放進度條到 2.8 秒收回這段暫留期間，公告 banner / 釘選商品卡跟著既有 VOD 側欄 / 浮動
+            // 購物袋 / now-introducing 輪播同步上移（rb-rn-scrub-expanded-chrome-lift）——沿用同一個既有
+            // `scrubChromeLift` 變數，非另算一份。
+            bottomInset={scrubChromeLift}
           />
         </View>
-      ) : !model.introPlaying && !isScrubbing && nowIntroducingPeeks.length > 0 ? (
+      ) : !model.introPlaying && !isScrubbing && nowIntroducingPeeks.length > 0 && railShown ? (
         // Hidden while actively dragging the playback-progress bar (rb-rn-vod-playback-progress-
         // bar) — reappears (lifted `scrubChromeLift`, see padding below) once the finger lifts,
-        // for the remainder of the post-release hold window.
+        // for the remainder of the post-release hold window. The card's MOUNT itself (not just
+        // its trailing padding below) now follows `railShown` (rb-rn-now-introducing-carousel-
+        // buffering-gate): during the VOD opening sequence (`startPhase ∈ {Loading, Splash}`)
+        // this card is suppressed together with the side rail, even if `nowIntroducingPeeks`
+        // (derived from `model.vodActiveProducts`) is already non-empty.
         <View
           style={{
             position: 'absolute',
@@ -1413,11 +1663,22 @@ export function PlayerShellView(props: PlayerShellViewProps): ReactElement {
           shopLogo={model.shopLogo}
           viewerCount={model.viewerCount}
           isSubscribed={model.isSubscribed}
-          // LIVE pill ⟺ isLive && !isReplay; viewer count ⟺ isLive. Replay (scrubbed
-          // behind live edge) keeps the count but drops the pill (design
-          // `hideLivePill = isReplay`). Both flags already on the model.
-          isLive={model.isLive}
-          isReplay={model.isReplay}
+          // LIVE pill ⟺ isLive && !isReplay; viewer count ⟺ isLive. `isLive` here is fed
+          // `usesLiveChrome`（真直播 OR 已結束直播回放，rb-rn-playerheaderbar-viewer-count-replay-
+          // parity）——NOT the narrower `model.isLive`：a finished-live replay wears LIVE chrome
+          // (`LiveOverlayChrome` / `LiveBottomBarView`, see `rb-rn-replay-live-chrome-parity`) and
+          // MUST still show the viewer count (parity iOS `PlayerShellView.swift:1499` `isLive:
+          // usesLiveChrome` / Flutter `player_shell_view.dart:1344` same). `isReplay` is
+          // correspondingly widened to `model.isReplay || model.isFinishedLiveReplay` (parity iOS
+          // `:1504` / Flutter `:1345`) so the LIVE pill is STILL hidden for a finished replay
+          // (`isLive && !isReplay` → `true && !true` → hidden) while the viewer count stays shown
+          // (`isLive` alone → `true`) — `model.isReplay` (DVR-behind-live-edge WHILE still live)
+          // and `model.isFinishedLiveReplay` (`liveStatus == 3`, no longer live) are mutually
+          // exclusive by construction, so this OR never double-counts either state; a real,
+          // actively-live broadcast (not behind the edge) still shows both pill and count
+          // unchanged (`isLive === true`, `isReplay === false`).
+          isLive={usesLiveChrome}
+          isReplay={model.isReplay || model.isFinishedLiveReplay}
           live={live}
           onMinimize={onMinimize}
           onToggleSubscribe={onToggleSubscribe}
@@ -1445,15 +1706,18 @@ export function PlayerShellView(props: PlayerShellViewProps): ReactElement {
           onToggleMute={cleanMode ? onToggleMute : undefined}
         />
         {/* Spacer pushes the side rail to the bottom-trailing corner. Side rail is
-            VOD-ONLY chrome (design screens.jsx gates `LBPSideRail` on `!isLive`); in
-            LIVE the bottom bar (below) replaces it — mutually exclusive by mode. Suppressed
-            only during the intro 片頭 (introPlaying) and the VOD OPENING sequence
-            (`startPhase` Loading/Splash) — design `showMainChrome` hides VOD chrome there;
-            from Buffering onward the rail shows (no-intro VOD: channel loaded, rail
-            enablement set, header filled), so it appears alongside the header instead of
-            waiting for the first frame (Done). Header is kept throughout
-            (rb-rn-vod-rail-show-on-buffering, parity to iOS rb-ios-vod-rail-show-on-buffering). */}
-        {!model.isLive &&
+            PURE-VOD-ONLY chrome (rb-rn-replay-live-chrome-parity: gated on `!usesLiveChrome`,
+            NOT the narrower `!isLive` — a finished-live replay now also counts as
+            usesLiveChrome and routes to the LIVE bottom bar below instead, see that call
+            site's `chatClosed` variant); in usesLiveChrome the bottom bar (below) replaces
+            it — mutually exclusive by mode. Suppressed only during the intro 片頭
+            (introPlaying) and the VOD OPENING sequence (`startPhase` Loading/Splash) — design
+            `showMainChrome` hides VOD chrome there; from Buffering onward the rail shows
+            (no-intro VOD: channel loaded, rail enablement set, header filled), so it appears
+            alongside the header instead of waiting for the first frame (Done). Header is kept
+            throughout (rb-rn-vod-rail-show-on-buffering, parity to iOS
+            rb-ios-vod-rail-show-on-buffering). */}
+        {!usesLiveChrome &&
         !model.introPlaying &&
         !isScrubbing &&
         !cleanMode &&
@@ -1475,11 +1739,17 @@ export function PlayerShellView(props: PlayerShellViewProps): ReactElement {
                 heartBurstTick={model.heartBurstTick}
                 muted={model.muted}
                 onTapItem={handleRailTap}
-                // design R32 (rb-rn-live-replay-more-menu-and-video-info-live-copy): this rail
-                // IS what a finished-live-replay renders in RN (see `LiveBottomBarView.tsx`'s
-                // file-header comment) — feeding `model.isFinishedLiveReplay` here is what makes
-                // the "更多" pill (and the sheet it opens) reachable in real playback.
-                isFinishedLiveReplay={model.isFinishedLiveReplay}
+                // rb-rn-cc-icon-active-fill-state: drives the Subtitle (CC) pill's active fill
+                // state (white bg + accent glyph) — the only kind this affects.
+                subtitleEnabled={model.subtitleEnabled}
+                // rb-rn-replay-live-chrome-parity: this rail is now PURE-VOD-ONLY (gated
+                // `!usesLiveChrome` above) — a finished-live replay no longer reaches this
+                // branch at all, so `isFinishedLiveReplay` is deliberately NOT fed here
+                // any more (the "更多" pill this prop used to append is unreachable from this
+                // call site; `OperationRailProps.isFinishedLiveReplay` stays a
+                // component-level-only capability, see that prop's own doc comment). "更多"
+                // is now reachable via `LiveBottomBarView`'s `chatClosed` variant instead
+                // (see that call site's `onMore`).
               />
             </View>
           </View>
@@ -1488,8 +1758,10 @@ export function PlayerShellView(props: PlayerShellViewProps): ReactElement {
 
       {/* Floating shopping bag (design LBPBagButton, iOS FloatingBagButtonView): a SEPARATE
           affordance from the side rail, anchored low (bottom 16) — distinct from the rail (bottom
-          80). VOD-main chrome only. Tap → open the product list (handleRailTap(Goods)). */}
-      {!model.isLive && !model.introPlaying && !isScrubbing && !cleanMode && railShown ? (
+          80). Pure-VOD chrome only (rb-rn-replay-live-chrome-parity: `!usesLiveChrome`, parity
+          the side rail above — a finished-live replay no longer reaches this branch). Tap →
+          open the product list (handleRailTap(Goods)). */}
+      {!usesLiveChrome && !model.introPlaying && !isScrubbing && !cleanMode && railShown ? (
         // Additionally hidden while actively dragging the playback-progress bar
         // (rb-rn-vod-playback-progress-bar) or in clean mode (rb-rn-gesture-clean-mode-rewrite,
         // design R23).
@@ -1503,24 +1775,46 @@ export function PlayerShellView(props: PlayerShellViewProps): ReactElement {
       ) : null}
 
       {/* LIVE bottom bar — surfaces the design's `LBLiveBottomBar` at the bottom in
-          LIVE mode OR the intro 片頭 (introPlaying) (VOD-main uses the side rail above
-          instead). introPlaying → the BAG-ONLY variant (just the bag). bag / like / CC route
-          through the existing `onTapRailItem` wiring by kind (the container seam's default sends
-          `Like` to core — rb-rn-like-tap-wire — while `Goods` is intercepted upstream and `Subtitle`
-          is still un-wired); share / nickname raise their dedicated `onShare` / `onNickname` intents
+          usesLiveChrome (真直播 OR 已結束直播回放, rb-rn-replay-live-chrome-parity) OR the intro
+          片頭 (introPlaying) (純 VOD uses the side rail above instead). `!isScrubbing` is a
+          NEW gate added by that same change: unifying `usesLiveChrome` means a finished-live
+          replay can now simultaneously satisfy this bar's assembly condition AND
+          `showsPlaybackProgressBar` (the VOD-style transport bar below) — before the
+          unification, a genuinely-live broadcast never has `showsPlaybackProgressBar === true`
+          (mutually exclusive by construction), so no such overlap could occur; `!isScrubbing`
+          prevents the two overlapping while the viewer is actively dragging the transport bar
+          (parity iOS's pre-existing `!isScrubbing` term on this same gate). `cleanMode` is now
+          folded INTO the `usesLiveChrome` operand (was a separate `&&` term on the whole
+          expression) precisely so it does NOT also suppress the `introPlaying` bag-only
+          variant, which was never gated by `cleanMode` to begin with. introPlaying → the
+          BAG-ONLY variant (just the bag). bag / like / CC route through the existing
+          `onTapRailItem` wiring by kind (the container seam's default sends `Like` to core —
+          rb-rn-like-tap-wire — while `Goods` is intercepted upstream and `Subtitle` is still
+          un-wired); share / nickname raise their dedicated `onShare` / `onNickname` intents
           when injected, falling back to the rail route otherwise; 留言 raises the dedicated
-          `onComment` intent. Below the info-panel
-          modal (which renders later in this parent → on top). Hidden while the on-demand composer
-          is up (`!composerPresented`) so the opaque composer has no bottom bar peeking behind it
-          (parity iOS PlayerShellView composerPresented gate). Also hidden in clean mode
-          (rb-rn-gesture-clean-mode-rewrite, design R23). */}
-      {(model.isLive || model.introPlaying) && !composerPresented && !cleanMode ? (
+          `onComment` intent (真直播) or is disabled — see `chatClosed` below (已結束直播回放).
+          Below the info-panel modal (which renders later in this parent → on top). Hidden
+          while the on-demand composer is up (`!composerPresented`) so the opaque composer has
+          no bottom bar peeking behind it (parity iOS PlayerShellView composerPresented gate). */}
+      {((usesLiveChrome && !cleanMode) || model.introPlaying) && !composerPresented && !isScrubbing ? (
         <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0 }}>
           <LiveBottomBarView
             theme={theme}
             bagCount={model.bagCount}
             isReplay={model.isReplay}
             bagOnly={model.introPlaying}
+            // 已結束直播回放（design R32，rb-rn-live-replay-more-menu-and-video-info-live-copy
+            // 新增的元件本身，rb-rn-replay-live-chrome-parity 起本呼叫處才真的餵值）：留言區換成
+            // disabled「聊天室已關閉」、暱稱鈕換成「更多」、分享鈕位置換成 CC 切換；愛心鈕不變。
+            chatClosed={model.isFinishedLiveReplay}
+            // CC 開關視覺狀態——與 VOD 字幕疊層（shouldShowCaptionOverlay 呼叫處）/ 側欄 Subtitle
+            // pill 共用同一顆單一真相來源，非新增狀態。
+            ccOn={model.subtitleEnabled}
+            // 字幕來源是否存在（design R42，rb-rn-cc-icon-availability-redesign）：與側欄
+            // OperationRail 讀同一份 model.railItems（透過 subtitleAvailableFrom），確保兩個 CC
+            // 入口（VOD 側欄 pill / 已結束直播回放底部 bar CC 鈕，兩者互斥、不會同時掛載）對「是否有
+            // 字幕來源」的判斷一致。
+            subtitleAvailable={subtitleAvailableFrom(model.railItems)}
             onBag={() => handleRailTap(LBSideRailKind.Goods)}
             onComment={onComment}
             // 暱稱鈕 → 容器本地呈現 設定暱稱 modal（onNickname；parity iOS / Android）；未接時
@@ -1539,6 +1833,11 @@ export function PlayerShellView(props: PlayerShellViewProps): ReactElement {
             }}
             liked={liveLiked}
             onToggleCC={() => handleRailTap(LBSideRailKind.Subtitle)}
+            // 「更多」選單（design R32 `LiveMoreMenuView`）：rb-rn-replay-live-chrome-parity 起
+            // 觸發來源從側欄 `OperationRail` 的 `LBSideRailKind.More` pill 改到這裡——直接呼叫既有
+            // `moreMenuOpen` state setter，MUST NOT 經 `handleRailTap`（那是側欄既有、獨立的派送
+            // 鏈，這裡是全新、獨立的 intent，見側欄呼叫處的對應註解）。
+            onMore={() => setMoreMenuOpen(true)}
           />
         </View>
       ) : null}
@@ -1547,22 +1846,29 @@ export function PlayerShellView(props: PlayerShellViewProps): ReactElement {
           （trailing-most 鈕）上方。introPlaying（bag-only，無愛心）不畫。靜止態 HeartBurst render null
           → snapshot 中立（含定位的 root 只在飄心 in-flight 時出現）。也在乾淨模式下隱藏
           （rb-rn-gesture-clean-mode-v2，design R29）。
-          rb-rn-gesture-clean-mode-v2：已結束直播回放的雙擊送愛心整段退役（改為雙擊 seek ±10 秒，
-          見「...影片區手勢二度重寫...」Requirement），`isFinishedLiveReplay` 這個分支不再有任何觸發
-          `liveHeartTick` 的路徑（回放沒有 LIVE 底部 bar，側欄/浮動購物袋取代）——條件收斂回
-          `model.isLive`，唯一的觸發來源是 `LiveBottomBarView.onLike`。 */}
-      {model.isLive && !cleanMode ? (
+          rb-rn-replay-live-chrome-parity：已結束直播回放現在也真的組出 LiveBottomBarView（見上方），
+          `onLike` 因此可達——這個子句從先前的恆為 no-op（`model.isFinishedLiveReplay` 分支從不觸發
+          `liveHeartTick`，回放沒有 LIVE 底部 bar、側欄/浮動購物袋取代）變成真實生效，條件擴大為
+          `usesLiveChrome`（取代先前的窄義 `model.isLive`），並比照上方底部 bar 本身的組裝條件新增
+          `!isScrubbing`（拖曳進度條時底部 bar 本身已隱藏，愛心 burst 一併隱藏維持語意一致）。 */}
+      {usesLiveChrome && !cleanMode && !isScrubbing ? (
         <HeartBurst theme={theme} tick={liveHeartTick} style={{ position: 'absolute', right: 18, bottom: 64 }} />
       ) : null}
 
       {/* VOD / replay playback-progress transport bar (rb-rn-vod-playback-progress-bar). Composed
-          as an independent top-level sibling — NOT nested in either the VOD or LIVE branch above
-          — because it must render over BOTH (pure VOD via the VOD branch; a finished-live replay
-          via the LIVE branch — see `showsPlaybackProgressBar`'s doc comment for why RN's current
-          `model.isLive`-only branching already keeps it mutually exclusive with the LIVE overlay
-          chrome). Pinned to the very bottom edge. All interactions forward to
-          `PlayerShellModel`'s EXISTING `togglePlayPause()` / `seek()` forwarders — no new core /
-          view-model API. */}
+          as an independent top-level sibling — NOT nested in either the pure-VOD or
+          usesLiveChrome branch above — because it must render over BOTH (pure VOD via the VOD
+          branch; a finished-live replay via the usesLiveChrome branch, which now ALSO renders
+          `LiveOverlayChrome` — see `showsPlaybackProgressBar`'s doc comment for why the bar
+          itself still never shows for a genuinely-live broadcast). rb-rn-replay-live-chrome-
+          parity: unlike before that change, this transport bar and `LiveOverlayChrome` (pinned
+          card / announce banner) CAN now be simultaneously mounted for a finished-live replay
+          — they don't visually collide (the bar is pinned to `bottom: 0`, the pinned card sits
+          at `bottom: 64`). What this bar IS mutually exclusive with is `LiveBottomBarView`
+          while actively scrubbing — see that component's own `!isScrubbing` gate above,
+          the mechanism that actually prevents the two from visually overlapping. Pinned to the
+          very bottom edge. All interactions forward to `PlayerShellModel`'s EXISTING
+          `togglePlayPause()` / `seek()` forwarders — no new core / view-model API. */}
       {showsProgressBar ? (
         <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0 }}>
           <PlaybackProgressBarView
@@ -1607,19 +1913,27 @@ export function PlayerShellView(props: PlayerShellViewProps): ReactElement {
         </View>
       ) : null}
 
-      {/* VOD CC 字幕 overlay（rb-react-native-subtitle-vtt-caption-display）：純 VOD（非 LIVE、非
-          已結束直播回放）、非開場片頭、非拖曳進度條中、非乾淨模式,且 CC 已開 + 目前 position 命中
-          某筆 cue 時才顯示,gate 見 shouldShowCaptionOverlay。定位比照 iOS/Android 貼底留 8pt 空隙,
-          scrubChromeLift 期間同步上移避開展開的 transport bar。pointerEvents="none" 比照設計稿
-          LBPCaptionOverlay,字幕不吃掉底下影片區的點擊。 */}
+      {/* VOD CC 字幕 overlay（rb-react-native-subtitle-vtt-caption-display，gate 訂正見
+          rb-rn-replay-caption-overlay-fix）：非進行中直播（純 VOD 或已結束直播回放皆可）、非開場
+          片頭、非拖曳進度條中、非乾淨模式,且 CC 已開 + 目前 position 命中某筆 cue 時才顯示,gate 見
+          shouldShowCaptionOverlay。定位比照設計稿 LBPCaptionOverlay(design/templates/minimal/
+          sdk-components.jsx)：置中於一個 left:8、right 依情境（純 VOD / 已結束直播回放）預留右側
+          空間的窄框內(rb-rn-caption-overlay-align-hide-chat,見 captionOverlayRightInset)。貼底
+          間隙依 isFinishedLiveReplay 分流（captionOverlayBottomInset）：純 VOD 固定 92pt
+          （rb-rn-vod-caption-reserve-card-space,對齊設計稿 LBPCaptionOverlay 的
+          safeBottom+92,無條件預留 NowIntroducingCarousel「介紹中」商品卡空間,不論該卡片當下是否
+          實際渲染）；已結束直播回放（rb-rn-caption-overlay-bottom-bar-clearance-fix）清
+          LiveBottomBarView 真實高度 + 安全間隙（該情境下這個底部列會被渲染)。兩分支皆疊加
+          scrubChromeLift,拖曳進度條中則整層由 shouldShowCaptionOverlay 的 isScrubbing 隱藏,兩者
+          皆不受本次修正影響。pointerEvents="none" 比照設計稿,字幕不吃掉底下影片區的點擊。 */}
       {showsCaption ? (
         <View
           pointerEvents="none"
           style={{
             position: 'absolute',
-            left: 0,
-            right: 0,
-            bottom: 8 + scrubChromeLift,
+            left: 8,
+            right: captionOverlayRightInset(model.isFinishedLiveReplay),
+            bottom: captionOverlayBottomInset(model.isFinishedLiveReplay, scrubChromeLift),
             alignItems: 'center',
           }}
         >

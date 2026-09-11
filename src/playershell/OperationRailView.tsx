@@ -36,6 +36,14 @@
 // the structural snapshot). NO network-uri Image. Glyphs are deterministic Text
 // glyphs (react-native-vector-icons is unavailable) so the baseline is stable.
 // NO animation / randomness.
+//
+// CC (Subtitle) pill — R42 always-render redesign (rb-rn-cc-icon-availability-redesign):
+// unlike every OTHER rail kind, the `Subtitle` pill is no longer gated by `items`' `enabled`
+// flag — it ALWAYS renders (see `subtitleAvailableFrom` / `CcRailPill` below), showing one of
+// three `CcGlyph` states (on / off / unavailable) instead of disappearing when captions are
+// unavailable. Tapping it while unavailable shows a local "未提供字幕" tooltip instead of
+// forwarding `onTapItem` (`useCcUnavailableTooltip.ts` / `CcTooltip.tsx`) — this is the ONE
+// exception to the "enabled === false → omit, MUST NOT dim" rule the rest of this rail follows.
 
 import type { ReactElement } from 'react';
 import { View, Pressable } from 'react-native';
@@ -43,11 +51,29 @@ import { Text } from '../TightText';
 
 import type { ReferenceUITheme } from '../theme';
 import { ShareGlyph } from './ShareGlyph';
+import { ContactGlyph } from './ContactGlyph';
 import { CcGlyph } from './CcGlyph';
+import { CcTooltip } from './CcTooltip';
+import { useCcUnavailableTooltip } from './useCcUnavailableTooltip';
 import { BagGlyph } from './BagGlyph';
 import { LBTestIDs } from '../testing/LBTestIDs';
 import { LBSideRailKind } from 'livebuy-react-native-ui';
 import type { LBSideRailItem } from 'livebuy-react-native-ui';
+
+/** Design-literal tooltip text (R42, `LBPTooltip` first call site) — same string at both of the
+ *  two CC entry points this applies to (VOD side rail + LIVE-replay bottom bar). */
+export const CC_UNAVAILABLE_TOOLTIP_TEXT = '未提供字幕/隱藏式輔助字幕';
+
+/**
+ * Whether captions are available for the current video — pure, unit-testable, no rendering.
+ * `items` not containing a `Subtitle` entry, or containing one with `enabled === false`, both
+ * resolve to `false` (unavailable). Shared by `OperationRail` (its own `items` prop) and
+ * `PlayerShellView.tsx`'s `<LiveBottomBarView>` call site (fed `model.railItems`) so both of
+ * R42's two CC entry points read the SAME single source of truth.
+ */
+export function subtitleAvailableFrom(items: readonly LBSideRailItem[]): boolean {
+  return items.some((item) => item.kind === LBSideRailKind.Subtitle && item.enabled);
+}
 
 // MARK: - Secondary design colors (lifted from sdk-components.jsx)
 //
@@ -98,19 +124,41 @@ export interface OperationRailProps {
    */
   readonly onTapItem?: (kind: LBSideRailKind) => void;
   /**
-   * "已結束直播回放" (finished-live-replay) flag (design R32,
+   * "已結束直播回放" (finished-live-replay) flag (element itself added by design R32,
    * rb-rn-live-replay-more-menu-and-video-info-live-copy; source: `PlayerShellModel
-   * .isFinishedLiveReplay`). `true` → this rail is the ONE this state actually renders in RN
-   * (see `LiveBottomBarView.tsx`'s file-header comment: RN routes a finished replay to THIS
-   * side rail, not the LIVE bottom bar — a documented, pre-existing divergence from
-   * iOS/Android) — the rail appends a `LBSideRailKind.More` (`'⋯'`) pill to its presentation
-   * order, opening the collapsed `LiveMoreMenuView` sheet (分享 + 客服) via `onTapItem`. This
-   * REUSES a `More` kind the TEMPLATE layer already models (`react-native-ui`'s `RAIL_ORDER` +
-   * `isEnabled` — always enabled, same as `goods`/`like`/`share`) but reference-ui had never
-   * drawn; NO new view-model. **Default `false`** — every existing call site keeps rendering
-   * the base 3-pill order (CC / share / contact), byte-identical to before this prop existed.
+   * .isFinishedLiveReplay`). `true` → the rail appends a `LBSideRailKind.More` (`'⋯'`) pill to
+   * its presentation order, opening the collapsed `LiveMoreMenuView` sheet (分享 + 客服) via
+   * `onTapItem`. This REUSES a `More` kind the TEMPLATE layer already models
+   * (`react-native-ui`'s `RAIL_ORDER` + `isEnabled` — always enabled, same as
+   * `goods`/`like`/`share`) but reference-ui had never drawn; NO new view-model.
+   *
+   * ⚠️ COMPONENT-LEVEL ONLY (rb-rn-replay-live-chrome-parity): this rail was briefly (between
+   * `rb-rn-live-replay-more-menu-and-video-info-live-copy` and this change) the one place RN
+   * actually rendered a finished-live-replay's chrome, with `PlayerShellView.tsx`'s
+   * `<OperationRail>` call site feeding this prop `model.isFinishedLiveReplay` for real. That is
+   * NO LONGER the case: the side rail is now PURE-VOD-ONLY (`!usesLiveChrome`), a finished-live
+   * replay routes to `LiveBottomBarView`'s `chatClosed` variant instead (see that component's
+   * own doc comment), and the current `PlayerShellView.tsx` call site no longer feeds this prop
+   * at all. This prop and the append logic below remain exactly as implemented — correct,
+   * unit-testable, and available for direct construction (see `OperationRail.test.tsx`) — the
+   * capability just has no real call site driving it today. **Default `false`** — every
+   * existing call site keeps rendering the base 3-pill order (CC / share / contact),
+   * byte-identical to before this prop existed.
    */
   readonly isFinishedLiveReplay?: boolean;
+  /**
+   * VOD CC (字幕) toggle state (`PlayerShellModel.subtitleEnabled`, rb-rn-cc-icon-active-fill-state;
+   * source: `template.subtitleState.enabled`). Only consulted when captions are AVAILABLE (see
+   * `subtitleAvailableFrom(items)`) — `true` → the `Subtitle` rail pill draws {@link CcGlyph}'s
+   * `'on'` state (design `LBPSideRail` `railBtn(icon, active, onClick)`: white background +
+   * `theme.accent`-tinted glyph); `false` (default) → the `'off'` state (base translucent-dark
+   * background + white glyph). When captions are UNAVAILABLE this flag is moot — the pill always
+   * draws `CcGlyph`'s `'unavailable'` state regardless (R42, rb-rn-cc-icon-availability-redesign;
+   * see {@link CcRailPill}). ONLY the `Subtitle` pill is ever affected by this prop — every other
+   * kind (`Share` / `ServiceLink` / `More`) is drawn by the plain {@link PillButton}, which has no
+   * active/inactive concept at all. **Default `false`.**
+   */
+  readonly subtitleEnabled?: boolean;
 }
 
 /**
@@ -140,15 +188,14 @@ const RAIL_PRESENTATION_ORDER: readonly LBSideRailKind[] = [
 ];
 
 /**
- * Per-rail-kind E2E testID (registry-sourced). Only the kinds actually rendered by
- * {@link OperationRail} (the base {@link RAIL_PRESENTATION_ORDER} plus the conditional
- * `LBSideRailKind.More`) have an entry; other reachable kinds are not drawn in the rail so they
- * need no id here. `undefined` → the pill carries no testID (inert).
+ * Per-rail-kind E2E testID (registry-sourced) for the kinds drawn by the generic
+ * {@link PillButton}. `Subtitle` is NOT one of them (R42, rb-rn-cc-icon-availability-redesign):
+ * it has its own dedicated component, {@link CcRailPill}, which assigns `LBTestIDs.railSubtitle`
+ * directly — routing it through this function too would be untestable dead code (`PillButton`
+ * never receives `kind === Subtitle` any more). `undefined` → the pill carries no testID (inert).
  */
 function railTestIDFor(kind: LBSideRailKind): string | undefined {
   switch (kind) {
-    case LBSideRailKind.Subtitle:
-      return LBTestIDs.railSubtitle;
     case LBSideRailKind.Share:
       return LBTestIDs.railShare;
     case LBSideRailKind.ServiceLink:
@@ -161,28 +208,42 @@ function railTestIDFor(kind: LBSideRailKind): string | undefined {
 }
 
 export function OperationRail(props: OperationRailProps): ReactElement {
-  const { theme, items, onTapItem, isFinishedLiveReplay = false } = props;
+  const { theme, items, onTapItem, isFinishedLiveReplay = false, subtitleEnabled = false } = props;
 
   // ACTUAL presentation order for this render: the base order (design LBPSideRail: CC / share /
   // contact) plus, ONLY for a finished-live-replay (design R32's `live_more` trigger), a
   // trailing `More` pill. Computed here (NOT by mutating the module-level `RAIL_PRESENTATION_
   // ORDER` constant) so the base order stays a single, stable, always-correct source for every
   // OTHER call site (isFinishedLiveReplay defaults false → byte-identical to before this prop
-  // existed). Each pill drawn ONLY when its kind is enabled in `items` (parity iOS
-  // presentationOrder + isEnabled). The bag is NOT here — it is the separate FloatingBagButton
-  // composed lower by the shell.
+  // existed). The bag is NOT here — it is the separate FloatingBagButton composed lower by the
+  // shell.
   const presentationOrder = isFinishedLiveReplay
     ? [...RAIL_PRESENTATION_ORDER, LBSideRailKind.More]
     : RAIL_PRESENTATION_ORDER;
-  const visibleKinds = presentationOrder.filter((kind) =>
-    items.some((item) => item.kind === kind && item.enabled),
+  // Each pill is drawn ONLY when its kind is enabled in `items` (parity iOS presentationOrder +
+  // isEnabled) — EXCEPT `Subtitle` (CC), which R42 (rb-rn-cc-icon-availability-redesign) makes
+  // ALWAYS render: unavailable captions now show a distinct `CcGlyph` state instead of omitting
+  // the pill (the ONE exception to this rail's "enabled === false → omit" rule).
+  const visibleKinds = presentationOrder.filter(
+    (kind) =>
+      kind === LBSideRailKind.Subtitle || items.some((item) => item.kind === kind && item.enabled),
   );
+  const subtitleAvailable = subtitleAvailableFrom(items);
 
   return (
     <View testID={LBTestIDs.operationRail} style={{ alignItems: 'center' }}>
       {visibleKinds.map((kind, i) => (
         <View key={kind} style={i > 0 ? { marginTop: RAIL_GAP } : undefined}>
-          <PillButton theme={theme} kind={kind} onTap={() => onTapItem?.(kind)} />
+          {kind === LBSideRailKind.Subtitle ? (
+            <CcRailPill
+              theme={theme}
+              active={subtitleEnabled}
+              subtitleAvailable={subtitleAvailable}
+              onTap={() => onTapItem?.(kind)}
+            />
+          ) : (
+            <PillButton theme={theme} kind={kind} onTap={() => onTapItem?.(kind)} />
+          )}
         </View>
       ))}
     </View>
@@ -205,16 +266,12 @@ export function FloatingBagButton(props: {
 // MARK: - Pill button (`LBPSideRail` railBtn)
 
 /**
- * A standard round pill: 40×40, fully-rounded, translucent dark fill, white
- * glyph. The active (white fill + accent glyph) style is not fed for any kind
- * today, so pills render in the inactive style (parity with iOS / Android /
- * Flutter).
+ * A standard round pill: 40×40, fully-rounded, translucent-dark fill + white glyph. Draws every
+ * rail kind EXCEPT `Subtitle` (CC) — that pill has its own `active`/`unavailable`-aware component,
+ * {@link CcRailPill}, below (R42, rb-rn-cc-icon-availability-redesign moved it out of this
+ * generic button so this one no longer needs an `active` concept at all).
  */
-function PillButton(props: {
-  theme: ReferenceUITheme;
-  kind: LBSideRailKind;
-  onTap: () => void;
-}): ReactElement {
+function PillButton(props: { theme: ReferenceUITheme; kind: LBSideRailKind; onTap: () => void }): ReactElement {
   const { theme, kind, onTap } = props;
   return (
     <Pressable
@@ -230,12 +287,13 @@ function PillButton(props: {
       }}
     >
       {/* 分享 改設計稿自繪三節點 ShareGlyph（rb-rn-share-icon-design-align，問題 8）；
-          CC 字幕 改設計稿自繪圓角徽章+雙 "c" 曲線 CcGlyph（rb-rn-cc-icon-design-align，
-          parity Android CcGlyph）；其餘 kind 維持 Text glyph（railGlyphFor 本身不變）。 */}
+          客服 (ServiceLink) 改設計稿自繪雙泡泡+問號 ContactGlyph（rb-rn-icon-parity-contact-glyph，
+          parity iOS/Android/Flutter ContactGlyph——不再與 Chat 共用 railGlyphFor 的 '💬' 字面文字）；
+          其餘 kind 維持 Text glyph（railGlyphFor 本身不變）。 */}
       {kind === LBSideRailKind.Share ? (
         <ShareGlyph color="#FFFFFF" size={PILL_GLYPH_SIZE * theme.fontScale} />
-      ) : kind === LBSideRailKind.Subtitle ? (
-        <CcGlyph color="#FFFFFF" size={PILL_GLYPH_SIZE * theme.fontScale} />
+      ) : kind === LBSideRailKind.ServiceLink ? (
+        <ContactGlyph color="#FFFFFF" size={PILL_GLYPH_SIZE * theme.fontScale} />
       ) : (
         <Text
           style={{
@@ -248,6 +306,78 @@ function PillButton(props: {
         </Text>
       )}
     </Pressable>
+  );
+}
+
+// MARK: - CC (Subtitle) pill — R42 three-state redesign (rb-rn-cc-icon-availability-redesign)
+
+/**
+ * The `Subtitle` (CC) rail pill. Same 40×40 round shape as {@link PillButton}, but with its own
+ * on/off/unavailable glyph logic (design R42) instead of a plain Text/Share glyph:
+ *
+ *   - `subtitleAvailable === false` → `CcGlyph` `'unavailable'` state (fixed grey, non-square
+ *     18×16), pill stays in the base inactive style (translucent-dark fill), and a tap does NOT
+ *     call `onTap` — it shows a local "未提供字幕" {@link CcTooltip} instead
+ *     ({@link useCcUnavailableTooltip}), auto-dismissing after ~1.8s.
+ *   - `subtitleAvailable === true` → `CcGlyph` `'on'` (white fill + `theme.accent` glyph) or
+ *     `'off'` (translucent-dark fill + white glyph) per `active` (rb-rn-cc-icon-active-fill-state
+ *     — UNCHANGED semantics, just relocated out of the now-generic `PillButton`), and a tap calls
+ *     `onTap` as before (host-wired to the existing `onTapItem(Subtitle)` → `simulateSubtitleToggleTap`
+ *     path — unchanged by this component split).
+ *
+ * This pill ALWAYS renders (see `OperationRail`'s `visibleKinds` — the ONE exception to "enabled
+ * === false → omit" in this rail); it is `OperationRail`'s job to always include it, not this
+ * component's.
+ */
+function CcRailPill(props: {
+  theme: ReferenceUITheme;
+  /** Design `railBtn`'s `active` argument — CC ON/enabled. Ignored when `subtitleAvailable` is
+   *  `false` (unavailable always wins). */
+  active: boolean;
+  /** Whether captions are available for this video (`subtitleAvailableFrom(items)`). */
+  subtitleAvailable: boolean;
+  onTap: () => void;
+}): ReactElement {
+  const { theme, active, subtitleAvailable, onTap } = props;
+  const tooltip = useCcUnavailableTooltip();
+
+  const handlePress = (): void => {
+    if (!subtitleAvailable) {
+      tooltip.show();
+      return;
+    }
+    onTap();
+  };
+
+  return (
+    <View style={{ position: 'relative' }}>
+      <Pressable
+        testID={LBTestIDs.railSubtitle}
+        onPress={handlePress}
+        style={{
+          width: PILL_SIZE,
+          height: PILL_SIZE,
+          borderRadius: PILL_SIZE / 2,
+          backgroundColor: subtitleAvailable && active ? '#FFFFFF' : RAIL_PILL_BACKGROUND,
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        <CcGlyph
+          state={!subtitleAvailable ? 'unavailable' : active ? 'on' : 'off'}
+          color={active ? theme.accent : '#FFFFFF'}
+          size={PILL_GLYPH_SIZE * theme.fontScale}
+          width={!subtitleAvailable ? 18 : undefined}
+          height={!subtitleAvailable ? 16 : undefined}
+        />
+      </Pressable>
+      <CcTooltip
+        testID={LBTestIDs.railSubtitleTooltip}
+        visible={tooltip.visible}
+        text={CC_UNAVAILABLE_TOOLTIP_TEXT}
+        placement="left"
+      />
+    </View>
   );
 }
 
@@ -336,12 +466,25 @@ function CartBadge(props: {
 // mirrors the iOS SF Symbol mapping and the Android text-glyph mapping (same
 // design intent).
 //
-// `Share` and `Subtitle` (CC) now bypass this Text glyph for THEIR OWN rail pill
-// (`PillButton` above renders `ShareGlyph` / `CcGlyph` — self-drawn `Icons.share` /
-// `Icons.cc` shapes — instead, rb-rn-share-icon-design-align / rb-rn-cc-icon-design-align).
-// This function's `'↗'` / `'CC'` cases are UNCHANGED and still the single source for
-// other consumers (`LiveBottomBarView`'s `MORE_GLYPH` reuse pattern reads `More`; its
-// separate `CC_GLYPH` constant reads `Subtitle` for its own, un-rewired CC toggle slot).
+// `Share` bypasses this Text glyph for its OWN rail pill (`PillButton` above renders
+// `ShareGlyph` — self-drawn `Icons.share` shape — instead, rb-rn-share-icon-design-align).
+// `Subtitle` (CC) bypasses BOTH this Text glyph AND `PillButton` entirely: it has its own
+// dedicated component, `CcRailPill` (above), which draws the three-state `CcGlyph` (R42,
+// rb-rn-cc-icon-availability-redesign — supersedes the prior single-glyph `rb-rn-cc-icon-
+// design-align`). This function's `'↗'` / `'CC'` cases are UNCHANGED and still the single
+// source for other consumers (`LiveBottomBarView`'s `MORE_GLYPH` reuse pattern reads `More`;
+// `railGlyphFor(Subtitle)`'s `'CC'` literal is kept solely for the kind→glyph parity test below
+// — no production render path consumes it any more, neither here nor in `LiveBottomBarView`).
+//
+// `ServiceLink` (聯繫商家 / 客服) bypasses this Text glyph for its OWN rail pill too (`PillButton`
+// above renders `ContactGlyph` — self-drawn dual speech-bubble + question-mark `Icons.contact`
+// shape — instead, rb-rn-icon-parity-contact-glyph). Same "kept solely for parity test, no
+// production render path consumes it" precedent as `Subtitle`/`Share` above: this function's
+// `'💬'` case for `ServiceLink` is UNCHANGED in VALUE but no longer reached by any render path.
+// `railGlyphFor(Chat)`'s OWN `'💬'` case is a completely separate, UNCHANGED consumer (the plain
+// chat semantic, not the "聯繫商家" semantic `ServiceLink`/`ContactGlyph` now covers) — the two
+// kinds no longer share a rendered glyph, only this now-inert string literal happens to still
+// match by coincidence of history.
 //
 // `Like`'s case is DEAD CODE for rendering purposes: `Like` is not a member of
 // `RAIL_PRESENTATION_ORDER` (this rail never draws a Like pill — see that constant's own
@@ -372,7 +515,8 @@ export function railGlyphFor(kind: LBSideRailKind): string {
     case LBSideRailKind.Subtitle:
       return 'CC'; // captions.bubble / CC
     case LBSideRailKind.ServiceLink:
-      return '💬'; // bubble.left.fill / Icons.chat（聯繫商家）
+      return '💬'; // kept for kind→glyph parity test only — rendered via ContactGlyph
+                    // (PillButton), see comment block above (rb-rn-icon-parity-contact-glyph)
     case LBSideRailKind.GuestNameEdit:
       return '✎'; // pencil / edit display name
     case LBSideRailKind.More:

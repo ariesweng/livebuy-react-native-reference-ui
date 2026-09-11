@@ -807,6 +807,10 @@ export function ProductSheetsView(props: ProductSheetsViewProps): ReactElement {
               // ProductList 回退 `live` 派生（baseline byte-identical）；live-bound model 供應
               // 真實 mode + 播放秒數。
               mode={model.rowMode}
+              // 限時搶購（flash sale）旗標（rb-rn-flash-sale-live-signal-wiring）：`isLive` /
+              // `isReplay` 正交，`ProductListView` 只在其 effectiveMode 為 `'live'` 時消費，驅動
+              // 名稱前標籤「直播價」→「搶購中」+ 介紹中橫幅文案「介紹中」→「開標中」。
+              isFlashSale={model.isFlashSale}
               playbackPosition={Math.floor(model.position)}
               heightPct={listHeightPct}
               onOpenProduct={handleOpenProduct}

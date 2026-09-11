@@ -40,10 +40,13 @@
 // spec-literal — a logged-in user needs no login gate.
 //
 // RENDER DISCIPLINE (family-1..5 lessons, CRITICAL): plain `View` / `Text` / `Pressable`
-// only — NO ScrollView / FlatList / SectionList / VirtualizedList, NO network-uri
-// `Image`. The lock badge is a deterministic accent circle + a white Text glyph 🔒
-// (react-native-vector-icons is unavailable in this layer). No animation / no
-// randomness so the structural baseline is byte-stable.
+// (plus the self-drawn `react-native-svg` `LockGlyph`) only — NO ScrollView / FlatList /
+// SectionList / VirtualizedList, NO network-uri `Image`. The lock badge is a
+// deterministic accent circle + a self-drawn `LockGlyph` (rb-rn-icon-parity-authgate-lock-glyph
+// — replaces the prior bare emoji `🔒`, whose color was hard-locked by the system emoji
+// font and could not follow theme; react-native-vector-icons is still unavailable in this
+// layer, but `react-native-svg` is a peerDependency used by other reference-ui glyphs).
+// No animation / no randomness so the structural baseline is byte-stable.
 //
 // TRIGGER COPY TABLE (verbatim from the design's `LBP_AUTH_COPY` + iOS / Android /
 // Flutter):
@@ -61,6 +64,7 @@ import { LBTestIDs } from '../testing/LBTestIDs';
 import type { ReferenceUITheme } from '../theme';
 import { LBAuthTriggerAction } from 'livebuy-react-native-ui';
 import type { LBAuthGateState } from 'livebuy-react-native-ui';
+import { LockGlyph } from './LockGlyph';
 
 // MARK: - Decorative design tokens (literal minimal hex — NOT theme-resolved)
 //
@@ -236,9 +240,10 @@ export function AuthGateModal(props: AuthGateModalProps): ReactElement | null {
 
 // MARK: - Overhanging accent lock badge (LBPAuthGate brand badge)
 //
-// accent-filled 60×60 circle + a `theme.background` ring (4pt) + a white lock Text glyph
-// 🔒 + a soft accent glow halo. Reads instantly as "login required" and keeps it
-// on-brand. The glow mirrors the design badge `boxShadow: '0 8px 20px ${accent}55'`
+// accent-filled 60×60 circle + a `theme.background` ring (4pt) + a self-drawn white
+// `LockGlyph` (closed padlock, design `Icons.lock` — rb-rn-icon-parity-authgate-lock-glyph,
+// replaces the prior bare emoji `🔒`) + a soft accent glow halo. Reads instantly as
+// "login required" and keeps it on-brand. The glow mirrors the design badge `boxShadow: '0 8px 20px ${accent}55'`
 // (iOS `.shadow(accent 0.33, r10, y8)` / Android deterministic radial) via RN's
 // shadow* props (iOS) + `elevation` (Android).
 
@@ -263,7 +268,7 @@ function LockBadge(props: { theme: ReferenceUITheme }): ReactElement {
         elevation: 8,
       }}
     >
-      <Text style={{ fontSize: 26 * theme.fontScale, color: ON_ACCENT_TEXT }}>🔒</Text>
+      <LockGlyph size={24 * theme.fontScale} color={ON_ACCENT_TEXT} />
     </View>
   );
 }

@@ -183,6 +183,19 @@ export class MomentsModel {
     return this.template?.endScreenState.endScreenVisible ?? false;
   }
 
+  /**
+   * LIVE/VOD flag (`playerHeaderState.isLive` — `channel.liveStatus == 1`, host-fed via
+   * `handleHeaderChrome`). Feeds the end-screen VOD-結束無-next auto-close gate
+   * (`MomentsView.shouldCloseInsteadOfEndScreen`, rb-rn-endscreen-live-empty-state): design R41
+   * made EndScreen LIVE-only, so `!isLive && next.isEmpty` means there is nothing to show and
+   * the container closes the player instead. This is a SECOND read-only accessor of the SAME
+   * template source `PlayerShellModel.isLive` already reads — NOT a second copy of the value.
+   * For demo instances returns `false` (the VOD default, matching `PlayerShellSeeds.isLive`).
+   */
+  get isLive(): boolean {
+    return this.template?.playerHeaderState.isLive ?? false;
+  }
+
   // -- Surface 3: ErrorScreen ← terminal error snapshot -----------------------
 
   /**

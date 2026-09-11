@@ -158,21 +158,105 @@ export { ActivityEntry } from './ActivityEntryView';
 export { ActivitySheet } from './ActivitySheetView';
 
 // rb-rn-live-announce-chat-clearance (問題4) — the merged chat feed and the bottom-left LBLiveAnnounce
-// 公告橫幅 share the LIVE overlay's bottom space. The base anchor (96) already clears the LIVE bottom
-// bar; when a 公告 is showing the chat lifts by the 公告橫幅's height so its lowest rows don't overlap.
-/** Base chat-feed bottom anchor — clears the LIVE bottom bar (既有值，無公告時不變). */
-const LIVE_CHAT_BASE_CLEARANCE = 96;
-/** Extra bottom inset for the LBLiveAnnounce 公告橫幅 height (parity iOS `liveAnnounceClearance = 44`). */
-const LIVE_ANNOUNCE_CLEARANCE = 44;
+// 公告橫幅 share the LIVE overlay's bottom space; when a 公告 is showing the chat lifts by the
+// 公告橫幅's height so its lowest rows don't overlap.
+// rb-rn-live-chat-clearance-realign — the base anchor was previously 96, which left the no-announce
+// chat feed bottom ~32px off from the LIVE overlay's pinned product card anchor (`bottom: 64` in
+// `LiveOverlayChromeView.tsx`), a visible misalignment (parity to the same fix already landed on
+// Flutter's `flutter-live-chat-clearance-realign`). See {@link LIVE_CHAT_BASE_CLEARANCE}'s own doc
+// comment for the safety derivation (12px clearance above the LIVE bottom bar's visible content,
+// reusing the same margin the pinned card already ships with).
+/**
+ * Base chat-feed bottom anchor (`72`, rb-rn-live-chat-clearance-realign) — precisely aligned with
+ * the LIVE overlay's pinned product card `bottom: LIVE_BOTTOM_BAR_HEIGHT + LIVE_BOTTOM_BAR_CLEARANCE_GAP`
+ * (`= 72`, `LiveOverlayChromeView.tsx`), replacing the prior un-aligned `96`. **Coordination note**:
+ * this value was re-derived a second time from the originally-landed `64` after the sibling
+ * `rb-rn-caption-overlay-bottom-bar-clearance-fix` changed the pinned card's own anchor from the
+ * dead-reckoned literal `64` to the derived `LIVE_BOTTOM_BAR_HEIGHT(60) + LIVE_BOTTOM_BAR_CLEARANCE_GAP(12)
+ * = 72` — both changes were developed in parallel against the same base HEAD and independently
+ * assumed the anchor would stay `64`; this file was updated to track the new value so the "align
+ * with the pinned card" goal still holds. Safety: the LIVE bottom bar's (`LiveBottomBarView`)
+ * visible/interactive content (icon row, `ICON_SIZE = 36`) occupies `bottom:16` to `bottom:52`
+ * (`BAR_BOTTOM_PADDING(16)` to `BAR_BOTTOM_PADDING + ICON_SIZE(52)`,
+ * `LiveBottomBarView.tsx:112-121`; its outer container has no extra static offset, sitting flush
+ * at `bottom:0`), leaving a `20px` clearance between `72` and `52` (even wider than the pinned
+ * card's previous `12px`, since the pinned card itself moved further from the bar). `ChatFeed`'s
+ * own container adds no hidden bottom padding that would eat into this margin.
+ */
+const LIVE_CHAT_BASE_CLEARANCE = 72;
+/**
+ * Extra bottom inset for the LBLiveAnnounce 公告橫幅 height, re-derived alongside
+ * {@link LIVE_CHAT_BASE_CLEARANCE} (rb-rn-live-chat-clearance-realign) to keep the `hasAnnounce ===
+ * true` ABSOLUTE clearance unchanged at `112` (the target `rb-rn-live-announce-two-line-clearance-fix`
+ * already calibrated — the announce banner's own position/size is untouched by this change): `112 -
+ * 72 (new LIVE_CHAT_BASE_CLEARANCE) = 40`, replacing the prior `16` (`112 - 96`). Unlike Flutter's
+ * sibling fix (which ALSO raised its absolute target to `120` because that change's user report
+ * additionally flagged the announce buffer as too thin), this RN change's user report was
+ * alignment-only — the `112` target, and its ~8px buffer above the announce banner's top edge,
+ * stay exactly as calibrated.
+ */
+const LIVE_ANNOUNCE_CLEARANCE = 40;
 
 /**
  * The chat feed's bottom inset on the LIVE overlay. `hasAnnounce === false` → the base
- * {@link LIVE_CHAT_BASE_CLEARANCE} (96, 既有 baseline byte-identical); `true` → base +
- * {@link LIVE_ANNOUNCE_CLEARANCE} (96 + 44 = 140) so the lowest chat rows clear the bottom-left
- * 公告橫幅. Pure — exported for unit tests (parity iOS `liveChatBottomInset(hasAnnounce:)` 68/112).
+ * {@link LIVE_CHAT_BASE_CLEARANCE} (72, rb-rn-live-chat-clearance-realign — aligned with the
+ * pinned product card's `bottom: 72`); `true` → base + {@link LIVE_ANNOUNCE_CLEARANCE}
+ * (72 + 40 = 112, UNCHANGED absolute target) so the lowest chat rows clear the bottom-left
+ * 公告橫幅. Pure — exported for unit tests (parity iOS/Flutter `liveChatBottomInset(hasAnnounce:)` target `112`).
  */
 export function liveChatBottomInset(hasAnnounce: boolean): number {
   return hasAnnounce ? LIVE_CHAT_BASE_CLEARANCE + LIVE_ANNOUNCE_CLEARANCE : LIVE_CHAT_BASE_CLEARANCE;
+}
+
+/**
+ * PURE: total bottom inset for the LIVE chat-feed container — the existing announce-banner
+ * clearance ({@link liveChatBottomInset}) PLUS an independent scrub-hold-window lift
+ * (`scrubBottomInset`, mirrored from `PlayerShellView.onScrubBarExpandedChange` via the container
+ * — rb-rn-scrub-expanded-chrome-lift). Kept as a SEPARATE additive source rather than widening
+ * {@link liveChatBottomInset}'s own signature (unlike iOS's `liveChatBottomInset(hasAnnounce:
+ * scrubHoldLifted:)`, which DID merge the two) — the two clearances are independent (an announce
+ * banner may or may not be showing at the same time the scrub hold window is active) and this
+ * keeps `liveChatBottomInset`'s existing single-parameter signature / existing unit tests
+ * byte-identical. Exported for unit tests.
+ */
+export function chatBottomInsetWithScrubLift(hasAnnounce: boolean, scrubBottomInset: number): number {
+  return liveChatBottomInset(hasAnnounce) + scrubBottomInset;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// rb-rn-caption-overlay-align-hide-chat — the merged chat feed hides on a finished-live replay
+// once CC is on, mirroring design `screens.jsx`'s `isReplay && ccOn` branch (chat hides, the VOD
+// caption overlay takes over the freed area, centered). Extracted as a pure function alongside the
+// file's other judgement helpers (`liveChatBottomInset` above / `legalLinkRoute` below) per this
+// repo's unit-test-discipline (pure functions extracted, independently unit-testable).
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * PURE: whether the merged chat feed (`ChatFeed` + `ActivityToastView`) should render. Mirrors the
+ * existing live-chrome-family gate (`rb-rn-replay-live-chrome-parity`) plus ONE new conjunct
+ * (`rb-rn-caption-overlay-align-hide-chat`): `!(isFinishedLiveReplay && subtitleEnabled)` — a
+ * finished-live replay with CC on hides the chat feed so the VOD caption overlay can take over the
+ * freed area and center within it (design `screens.jsx`'s `isReplay && ccOn` branch). A genuinely
+ * live broadcast (`isLive === true`) is NEVER affected by this new conjunct — `isLive` and
+ * `isFinishedLiveReplay` are mutually exclusive (a video is never both), so `isLive === true`
+ * forces `isFinishedLiveReplay === false`, which makes the new conjunct's inner AND false and the
+ * whole conjunct (negated) `true` — a structural no-op on the live branch, not a runtime check.
+ */
+export function computeChatVisible(
+  isLive: boolean,
+  isFinishedLiveReplay: boolean,
+  infoPanelOpen: boolean,
+  cleanMode: boolean,
+  moreMenuOpen: boolean,
+  subtitleEnabled: boolean,
+): boolean {
+  return (
+    (isLive || isFinishedLiveReplay) &&
+    !infoPanelOpen &&
+    !cleanMode &&
+    !moreMenuOpen &&
+    !(isFinishedLiveReplay && subtitleEnabled)
+  );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -366,6 +450,15 @@ export interface FeedWinViewProps {
    * container) → no gating → baseline byte-identical. Container-internal seam, NOT a host API.
    */
   readonly joinEventGate?: (eid: number, keyword: string) => boolean;
+  /**
+   * Extra bottom inset (px) for the LIVE chat-feed container, mirrored from
+   * `PlayerShellView.onScrubBarExpandedChange` via the container's `scrubBarExpanded` state
+   * (rb-rn-scrub-expanded-chrome-lift) — the playback-progress bar's post-release hold window
+   * lift, ADDITIVE to the existing announce-banner clearance ({@link liveChatBottomInset}), via
+   * {@link chatBottomInsetWithScrubLift}. `undefined` (standalone / snapshot, no container) → `0`
+   * → baseline byte-identical (chat container `bottom` unchanged from before this prop existed).
+   */
+  readonly scrubBottomInset?: number;
 }
 
 /**
@@ -392,6 +485,7 @@ export function FeedWinView(props: FeedWinViewProps): ReactElement {
     cleanMode = false,
     moreMenuOpen = false,
     joinEventGate,
+    scrubBottomInset = 0,
   } = props;
 
   // Coalesced re-read tick. The template's `subscribe()` carries NO diff — on
@@ -433,21 +527,39 @@ export function FeedWinView(props: FeedWinViewProps): ReactElement {
   // `SideEffect { model.joinEventGate = ... }`). `undefined` → no gating → baseline byte-identical.
   model.joinEventGate = joinEventGate;
 
-  // The chat feed is LIVE-only (parity iOS rb-ios-hide-chat-feed-in-vod), hidden while the
-  // info panel is up (parity rb-ios-info-panel-not-covered-by-chat), hidden while clean mode
-  // is on (rb-rn-clean-mode-hide-chat-feed, parity Android / Flutter, design screens.jsx:532
-  // LBLiveChatOverlay `!cleanMode` gate), AND hidden while PlayerShellView's「更多」(⋯) collapsed
-  // menu is presented (rb-rn-live-more-sheet-above-chat — the menu lives inside Surface 1's
-  // render tree and can never paint above this Surface-2 sibling otherwise). VOD, info-panel-
-  // open, clean-mode-on, or more-menu-open → the chat (and its scrollable hit-testing) is dropped
-  // so it neither occludes the info-panel sheet / more menu nor swallows taps on the VOD side
-  // rail nor clutters the clean-mode view. `WinEntry` / `ActivityEntry` (win-claim / activity
-  // entry badges) and their `WinClaimSheetView` / `ActivitySheet` are UNAFFECTED by ANY of these
-  // four gates — in particular they are NOT gated by `cleanMode` or `moreMenuOpen` (design
-  // `screens.jsx`'s `LBWinEntry` carries no such conditional; this boundary is deliberate, see
-  // FeedWinViewProps.cleanMode's / .moreMenuOpen's doc comments).
+  // The chat feed is a **live-chrome family** feature — 真直播 (`isLive`) OR 已結束直播回放
+  // (`isFinishedLiveReplay`, rb-rn-replay-live-chrome-parity, parity Android's pre-existing
+  // `chatVisible = (isLive || isFinishedLiveReplay) && !infoPanelOpen` / Flutter's
+  // `rb-flutter-replay-live-chrome-parity`) — hidden while the info panel is up (parity
+  // rb-ios-info-panel-not-covered-by-chat), hidden while clean mode is on (rb-rn-clean-mode-
+  // hide-chat-feed, parity Android / Flutter, design screens.jsx:532 LBLiveChatOverlay
+  // `!cleanMode` gate), AND hidden while PlayerShellView's「更多」(⋯) collapsed menu is presented
+  // (rb-rn-live-more-sheet-above-chat — the menu lives inside Surface 1's render tree and can
+  // never paint above this Surface-2 sibling otherwise). 純 VOD, info-panel-open, clean-mode-on,
+  // or more-menu-open → the chat (and its scrollable hit-testing) is dropped so it neither
+  // occludes the info-panel sheet / more menu nor swallows taps on the VOD side rail nor
+  // clutters the clean-mode view. `WinEntry` / `ActivityEntry` (win-claim / activity entry
+  // badges) and their `WinClaimSheetView` / `ActivitySheet` are UNAFFECTED by ANY of these gates
+  // — in particular they are NOT gated by `cleanMode` or `moreMenuOpen` (design `screens.jsx`'s
+  // `LBWinEntry` carries no such conditional; this boundary is deliberate, see
+  // FeedWinViewProps.cleanMode's / .moreMenuOpen's doc comments), NOR by this section's
+  // `isLive`/`isFinishedLiveReplay` widening.
+  //
+  // rb-rn-caption-overlay-align-hide-chat: ALSO hidden on a finished-live replay once CC is on
+  // (`subtitleEnabled`, read straight off `template?.subtitleState.enabled` — same direct-off-
+  // template read pattern as `isLive`/`isFinishedLiveReplay` above, no `FeedWinModel` detour) —
+  // see `computeChatVisible`'s doc comment for why this never affects a genuinely live broadcast.
   const isLive = template?.playerHeaderState.isLive ?? false;
-  const chatVisible = isLive && !infoPanelOpen && !cleanMode && !moreMenuOpen;
+  const isFinishedLiveReplay = template?.playerHeaderState.isFinishedLiveReplay ?? false;
+  const subtitleEnabled = template?.subtitleState.enabled ?? false;
+  const chatVisible = computeChatVisible(
+    isLive,
+    isFinishedLiveReplay,
+    infoPanelOpen,
+    cleanMode,
+    moreMenuOpen,
+    subtitleEnabled,
+  );
 
   // Forward an event-join「加入」tap. The container owns NO core action — the join exits through the
   // read-only model forwarder (`model.joinEvent` → template `joinEvent` → core `requestEventJoin` +
@@ -580,9 +692,19 @@ export function FeedWinView(props: FeedWinViewProps): ReactElement {
         // (parity iOS chatTrailingInset=liveChatTrailingClearance). LIVE-only (chatVisible gate).
         // left:10 aligns the feed's left edge with LiveBottomBarView's bag-icon left edge
         // (BAR_H_PADDING=10) — rb-rn-live-chat-card-edge-align (parity iOS liveChatLeadingClearance).
-        // bottom: 動態避讓 — 有公告（model.hasAnnounce）時往上讓出 LBLiveAnnounce 橫幅高度（96→140，
-        // rb-rn-live-announce-chat-clearance 問題4）；無公告 → 96（既有 baseline）。
-        <View style={{ position: 'absolute', left: 10, right: 120, bottom: liveChatBottomInset(model.hasAnnounce) }}>
+        // bottom: 動態避讓 — 有公告（model.hasAnnounce）時往上讓出 LBLiveAnnounce 橫幅高度（72→112，
+        // rb-rn-live-announce-chat-clearance 問題4）；無公告 → 72（rb-rn-live-chat-clearance-realign
+        // 校正後的新基準，對齊置頂商品卡 bottom:72）。
+        <View
+          style={{
+            position: 'absolute',
+            left: 10,
+            right: 120,
+            // rb-rn-scrub-expanded-chrome-lift: 疊加進度條展開暫留期間的額外上移量（scrubBottomInset），
+            // 與既有公告避讓量（liveChatBottomInset）獨立相加，見 chatBottomInsetWithScrubLift。
+            bottom: chatBottomInsetWithScrubLift(model.hasAnnounce, scrubBottomInset),
+          }}
+        >
           {/* rb-rn-activity-toast — 群組②「炒氣氛提示」(進場/選購/搶購/中獎) now surfaces HERE,
               above the merged feed, as a transient latest-only toast (moments.jsx `LBActivityToast`
               2026-07-03 呈現位置改版) — ChatFeed itself no longer dispatches 'activity' rows

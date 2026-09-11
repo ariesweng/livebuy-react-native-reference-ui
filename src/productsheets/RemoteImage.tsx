@@ -17,9 +17,18 @@
 //
 // Pure presentation — no animation / randomness. jsx automatic runtime (no React import).
 
-import { useEffect, useState, type ReactElement } from 'react';
-import { Image, StyleSheet, type StyleProp, type ImageStyle, type ImageLoadEvent } from 'react-native';
+import { useEffect, useRef, useState, type ReactElement } from 'react';
+import { Animated, StyleSheet, type StyleProp, type ImageStyle, type ImageLoadEvent } from 'react-native';
 import { referenceUiHttpsUpgraded } from '../referenceUiImageUrl';
+
+/**
+ * Fade-in duration (ms) applied once a loaded image is ready to show
+ * (rb-rn-product-image-loading-polish) — replaces the prior hard cut. RN cannot reliably
+ * distinguish a real network load from a framework-cache hit on `onLoad`, so this fade applies
+ * on EVERY `onLoad` (a cache-hit still gets a brief 180ms fade-in; deliberately relaxed vs.
+ * iOS / Android / Flutter, which can tell the two apart).
+ */
+const FADE_IN_DURATION_MS = 180;
 
 /** Props for the {@link RemoteImage} overlay. */
 export interface RemoteImageProps {
@@ -58,43 +67,59 @@ export interface RemoteImageProps {
 }
 
 /**
- * The real-product-image overlay. Renders an absolutely-filled network `<Image>` over
+ * The real-product-image overlay. Renders an absolutely-filled network `<Animated.Image>` over
  * the caller's deterministic placeholder ONLY when `live === true` and `uri` is a
  * non-empty string; otherwise renders `null` (the placeholder shows through). On a load
- * error the Image self-hides (fall back to the placeholder). Gated so the default
- * (snapshot / demo) path adds NO `<Image>` to the structural tree.
+ * error the Image self-hides (fall back to the placeholder). A successful load fades in over
+ * {@link FADE_IN_DURATION_MS} (rb-rn-product-image-loading-polish) rather than cutting in
+ * instantly. Gated so the default (snapshot / demo) path adds NO `<Animated.Image>` to the
+ * structural tree.
  */
 export function RemoteImage(props: RemoteImageProps): ReactElement | null {
   const { live = false, uri, borderRadius = 0, style, resizeMode = 'cover', intrinsicSize, onLoad } = props;
   const [failed, setFailed] = useState(false);
+  // Stable across renders (not re-created), so the SAME Animated.Value drives every fade-in for
+  // this component instance's lifetime — a fresh `Animated.Value` on every render would reset
+  // mid-animation and never settle.
+  const opacity = useRef(new Animated.Value(0)).current;
   const trimmed = typeof uri === 'string' ? uri.trim() : '';
-  // Reset the failure latch whenever the bound uri changes — a single `onError` on one URL
-  // must NOT permanently blank out a later, valid URL fed to the SAME (non-remounted)
-  // instance (PlayerHeaderBarView shopLogo across in-place switches, MiniCartPeekView
-  // peek.pic as the cart changes, position-keyed CarouselCardView covers). Parity with iOS
-  // `RemoteStillImageView` (per-URL `loadedURL` reload, no failure latch) + Android
-  // `RemoteStillImage` (reload on URL change). A new URL that also fails re-latches via onError.
+  // Reset the failure latch AND the fade-in opacity whenever the bound uri changes — a single
+  // `onError` on one URL must NOT permanently blank out a later, valid URL fed to the SAME
+  // (non-remounted) instance (PlayerHeaderBarView shopLogo across in-place switches,
+  // MiniCartPeekView peek.pic as the cart changes, position-keyed CarouselCardView covers).
+  // Parity with iOS `RemoteStillImageView` (per-URL `loadedURL` reload, no failure latch) +
+  // Android `RemoteStillImage` (reload on URL change). A new URL that also fails re-latches via
+  // onError. The opacity reset (rb-rn-product-image-loading-polish) rides the SAME effect —
+  // a newly-bound URL always starts invisible and fades in on its own `onLoad`, it never
+  // inherits the previous URL's already-settled opacity of 1.
   useEffect(() => {
     setFailed(false);
-  }, [trimmed]);
+    opacity.setValue(0);
+  }, [trimmed, opacity]);
   if (!live || trimmed.length === 0 || failed) return null;
+  // Fade opacity 0 → 1 on every load completion (rb-rn-product-image-loading-polish). RN cannot
+  // reliably tell a real network load apart from a framework-cache hit here, so this fires on
+  // EVERY `onLoad` — see FADE_IN_DURATION_MS's doc comment.
+  const handleLoad = (e: ImageLoadEvent): void => {
+    Animated.timing(opacity, {
+      toValue: 1,
+      duration: FADE_IN_DURATION_MS,
+      useNativeDriver: true,
+    }).start();
+    onLoad?.({ width: e.nativeEvent.source.width, height: e.nativeEvent.source.height });
+  };
   // Upgrade a cleartext http:// pic to https:// before handing it to <Image> — RN iOS ATS
   // blocks cleartext so the image would never load → placeholder. https / non-http unchanged.
   return (
-    <Image
+    <Animated.Image
       source={{ uri: referenceUiHttpsUpgraded(trimmed) }}
       onError={() => setFailed(true)}
-      onLoad={
-        onLoad == null
-          ? undefined
-          : (e: ImageLoadEvent) =>
-              onLoad({ width: e.nativeEvent.source.width, height: e.nativeEvent.source.height })
-      }
+      onLoad={handleLoad}
       resizeMode={resizeMode}
       style={
         intrinsicSize == null
-          ? [StyleSheet.absoluteFill, { borderRadius }, style]
-          : [{ width: intrinsicSize.width, height: intrinsicSize.height, borderRadius }, style]
+          ? [StyleSheet.absoluteFill, { borderRadius, opacity }, style]
+          : [{ width: intrinsicSize.width, height: intrinsicSize.height, borderRadius, opacity }, style]
       }
     />
   );

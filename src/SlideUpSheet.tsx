@@ -16,8 +16,11 @@
 import { useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import { Animated, Easing, type LayoutChangeEvent, type StyleProp, type ViewStyle } from 'react-native';
 
-/** Shared sheet slide duration (design `lbp-sheet-in`, 0.32s). */
-const DURATION = 320;
+/** Shared sheet slide duration (design `lbp-sheet-in`, 0.32s). Exported so callers that need to
+ *  time a dependent effect to this animation's completion (e.g. `PlayerShellView`'s deferred
+ *  dismiss-bubble, rb-rn-chat-reveal-sheet-dismiss-timing) can reuse the same constant instead of
+ *  duplicating the magic number. */
+export const DURATION = 320;
 /** Fallback slide distance until the sheet height is measured (one tall sheet's worth). */
 const FALLBACK_HEIGHT = 600;
 

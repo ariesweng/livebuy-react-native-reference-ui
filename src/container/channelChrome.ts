@@ -21,6 +21,7 @@
 // host-fed equivalent trigger point (RN has no automatic view-model-layer path).
 
 import { isFinishedLiveReplay } from 'livebuy-react-native-ui';
+import type { EndScreenNavRow } from 'livebuy-react-native-ui';
 
 /**
  * Shape of the fields this module reads off `LBPlayerChannelInfo`. A structural
@@ -41,6 +42,14 @@ export interface PlayerChannelChromeSource {
    * liveStatus)` below — carries no rendering meaning on its own.
    */
   readonly type: number;
+  /**
+   * Whether the channel is a flash sale (`channel.isFlashSale`, parity
+   * `LBPlayerChannelInfo.isFlashSale`) — `= upstream sale_type==2`, always
+   * present on the wire, independent of `type` / `liveStatus`. Passed straight
+   * through to {@link DerivedHeaderChromeFields.isFlashSale} below (no
+   * derivation — rb-rn-flash-sale-live-signal-wiring).
+   */
+  readonly isFlashSale: boolean;
 }
 
 /**
@@ -49,7 +58,9 @@ export interface PlayerChannelChromeSource {
  * IS derived here (isfinishedlivereplay-wiring-reference-ui-rn) now that
  * `channel-type-bridge-core-rn` has bridged `channel.type` onto
  * `LBPlayerChannelInfo` — the data-source gap that previously blocked this is
- * closed.
+ * closed. `isFlashSale` is passed straight through (no derivation) now that
+ * `channel-flash-sale-flag-core-rn` has bridged `channel.isFlashSale` onto
+ * `LBPlayerChannelInfo` (rb-rn-flash-sale-live-signal-wiring).
  */
 export interface DerivedHeaderChromeFields {
   readonly title: string;
@@ -58,6 +69,7 @@ export interface DerivedHeaderChromeFields {
   readonly shareUrl: string;
   readonly isLive: boolean;
   readonly isFinishedLiveReplay: boolean;
+  readonly isFlashSale: boolean;
 }
 
 /**
@@ -67,7 +79,10 @@ export interface DerivedHeaderChromeFields {
  * the `-1` unknown sentinel are all NOT live); `isFinishedLiveReplay` ←
  * `isFinishedLiveReplay(type, liveStatus)` (`livebuy-react-native-ui` pure
  * function — `type === 3 || (type === 2 && liveStatus === 3)`, mutually
- * exclusive with `isLive`).
+ * exclusive with `isLive`); `isFlashSale` ← `info.isFlashSale` straight
+ * pass-through (no derivation — `rb-rn-flash-sale-live-signal-wiring`, the data
+ * source `channel-flash-sale-flag-core-rn` had already bridged onto
+ * `LBPlayerChannelInfo` but no caller fed it into `handleHeaderChrome` until now).
  */
 export function deriveHeaderChromeFields(
   info: PlayerChannelChromeSource,
@@ -79,6 +94,7 @@ export function deriveHeaderChromeFields(
     shareUrl: info.shareUrl,
     isLive: info.liveStatus === 1,
     isFinishedLiveReplay: isFinishedLiveReplay(info.type, info.liveStatus),
+    isFlashSale: info.isFlashSale,
   };
 }
 
@@ -89,4 +105,42 @@ export function deriveHeaderChromeFields(
  */
 export function deriveServiceLinkAvailable(serviceLink: string): boolean {
   return serviceLink !== '';
+}
+
+/**
+ * Shape of a single `LBPlayerChannelInfo.next[]` entry this module reads (rb-rn-endscreen-live-
+ * empty-state) — a structural subset of the core `LBNavItem`, mirroring
+ * {@link PlayerChannelChromeSource}'s own decoupling convention (no `livebuy-react-native` type
+ * import here either).
+ */
+export interface PlayerChannelNavItem {
+  readonly id: string;
+  readonly cover: string;
+  readonly title: string | null;
+  readonly duration: number;
+  readonly shopName: string;
+}
+
+/**
+ * Fold the channel's `next[]` navigation rows (rn-endscreen-next-bridge-core) into the
+ * template's `EndScreenNavRow` shape for `handleMomentSnapshot({ next })` — the EndScreen
+ * 「倒數播放下一支」variant's data source (rb-rn-endscreen-live-empty-state). `title: string |
+ * null` on the core row folds to `''` (the template's own `EndScreenNavRow` requires `title:
+ * string`) — a genuinely title-less entry then renders the surface's own「下一支影片」fallback,
+ * the SAME as an already-empty string does downstream in `EndScreenView`. `cover` / `duration` /
+ * `shopName` pass straight through — the core row already defaults them (`''` / `0` / `''`), and
+ * `EndScreenNavRow`'s `duration` / `shopName` are optional, so a `0` / `''` value renders the
+ * surface's own absent-field fallback (`metaLine` already omits an empty/zero side — unchanged
+ * by this function). Pure / deterministic.
+ */
+export function deriveEndScreenNavRows(
+  next: readonly PlayerChannelNavItem[],
+): EndScreenNavRow[] {
+  return next.map((item) => ({
+    id: item.id,
+    title: item.title ?? '',
+    cover: item.cover,
+    shopName: item.shopName,
+    duration: item.duration,
+  }));
 }

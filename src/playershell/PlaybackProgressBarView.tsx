@@ -38,6 +38,19 @@
 // One-way data flow: this view reads ONLY its passed-in snapshot values and calls ONLY the
 // action closures it is given (which `PlayerShellView` wires to `PlayerShellModel`'s EXISTING
 // `togglePlayPause()` / `seek()` forwarders — no new core / view-model API).
+//
+// DRAG-SEEK THROTTLE (rb-rn-progress-bar-drag-seek-throttle): the `onScrub` prop's default wiring
+// (`PlayerShellView.handleScrub`) forwards straight to `model.seek(...)`, which ultimately calls
+// `UIManager.dispatchViewManagerCommand` — a REAL cross JS/native bridge dispatch, not a cheap
+// local call (parity with the same root cause already fixed on Flutter's `MethodChannel`
+// equivalent, `rb-flutter-progress-bar-drag-seek-throttle`). Calling `onScrub` on every single
+// `onPanResponderMove` therefore means one bridge dispatch per dragged pixel, which is what causes
+// visible jank. The VISUAL drag ratio (`dragRatio` state, driving the handle position / fill)
+// still updates on every move — only the actual `onScrub` CALL is throttled to at most once per
+// {@link DRAG_SEEK_THROTTLE_MS} via the pure {@link shouldEmitDragSeek}. Touch-down
+// (`onPanResponderGrant`) and release/cancel (`onPanResponderRelease` /
+// `onPanResponderTerminate`) are exempt from the throttle — they always force-emit, so the
+// gesture's start and end are never dropped (see `emitSeek` below).
 
 import { useEffect, useRef, useState } from 'react';
 import type { ReactElement } from 'react';
@@ -142,6 +155,27 @@ export function PlaybackProgressBarView(props: PlaybackProgressBarProps): ReactE
   const onScrubEndedRef = useRef(onScrubEnded);
   onScrubEndedRef.current = onScrubEnded;
 
+  // Mirrors `dragRatio` state so `onPanResponderRelease` / `onPanResponderTerminate` (which don't
+  // recompute a fresh ratio from the event — a terminate in particular isn't guaranteed to carry a
+  // meaningful touch coordinate for THIS gesture) can force-emit "the last ratio this drag actually
+  // computed". Updated in lockstep with every `setDragRatio` call below — never read as a stale
+  // value since PanResponder callbacks always read `.current`.
+  const dragRatioRef = useRef<number | null>(null);
+  // Timestamp (ms) of the last `onScrub` call THIS view actually emitted — `null` before the first
+  // one. Feeds {@link shouldEmitDragSeek} (see the DRAG-SEEK THROTTLE file-header note).
+  const lastSeekEmitMsRef = useRef<number | null>(null);
+
+  // Gates the actual `onScrub` call through {@link shouldEmitDragSeek}. `force: true` (touch-down /
+  // release / terminate) always emits and always updates `lastSeekEmitMsRef`; `force: false` (move)
+  // only emits — and only advances the throttle clock — when enough time has passed since the last
+  // REAL emission (a dropped move does NOT reset the window).
+  const emitSeek = (ratio: number, options: { force: boolean }): void => {
+    const nowMs = Date.now();
+    if (!shouldEmitDragSeek(lastSeekEmitMsRef.current, nowMs, options)) return;
+    lastSeekEmitMsRef.current = nowMs;
+    onScrubRef.current?.(ratio);
+  };
+
   // Reset the local drag ratio once the bar is fully back to idle so the NEXT scrub starts clean
   // rather than briefly flashing a stale ratio before the first touch lands (parity iOS
   // `.onChange(of: isExpanded)`).
@@ -157,24 +191,33 @@ export function PlaybackProgressBarView(props: PlaybackProgressBarProps): ReactE
         // `DragGesture(minimumDistance: 0)` — even a stationary touch-down fires the first
         // change). The touch's own location seeds BOTH the visual jump-to-touch AND the first
         // `onScrub` call, exactly like iOS's `beginScrub()` followed immediately by the first
-        // `dragRatio(offsetX:trackWidth:)` computation in the same gesture callback.
+        // `dragRatio(offsetX:trackWidth:)` computation in the same gesture callback. Touch-down
+        // always force-emits (exempt from the drag-seek throttle) — see file-header note.
         const ratio = dragRatioFromOffset(evt.nativeEvent.locationX, trackWidthRef.current);
+        dragRatioRef.current = ratio;
         setDragRatio(ratio);
         onScrubStartedRef.current?.();
-        onScrubRef.current?.(ratio);
+        emitSeek(ratio, { force: true });
       },
       onPanResponderMove: (evt: GestureResponderEvent) => {
+        // Visual feedback (handle position / fill) updates on EVERY move, unthrottled — only the
+        // actual `onScrub` call (→ real cross-bridge seek dispatch) is throttled via `emitSeek`.
         const ratio = dragRatioFromOffset(evt.nativeEvent.locationX, trackWidthRef.current);
+        dragRatioRef.current = ratio;
         setDragRatio(ratio);
-        onScrubRef.current?.(ratio);
+        emitSeek(ratio, { force: false });
       },
       onPanResponderRelease: () => {
+        // Force-emit the final ratio even if the last move was throttled away — the throttle must
+        // never cause the actually-released position to diverge from what native ends up seeked to.
+        if (dragRatioRef.current != null) emitSeek(dragRatioRef.current, { force: true });
         onScrubEndedRef.current?.();
       },
       // Defensive: a terminated gesture (e.g. an OS-level interruption) is still a "finger lifted"
       // from this view's perspective — the caller's 2.8s hold timer must still fire, mirroring
-      // `onPanResponderRelease`.
+      // `onPanResponderRelease` (including the same force-emit-final-ratio behavior).
       onPanResponderTerminate: () => {
+        if (dragRatioRef.current != null) emitSeek(dragRatioRef.current, { force: true });
         onScrubEndedRef.current?.();
       },
     }),
@@ -365,6 +408,31 @@ export function progressRatio(position: number, duration: number): number {
 export function dragRatioFromOffset(offsetX: number, trackWidth: number): number {
   if (trackWidth <= 0) return 0;
   return Math.min(Math.max(offsetX / trackWidth, 0), 1);
+}
+
+/** Default minimum spacing (ms) between two THROTTLED (non-`force`) `onScrub` emissions — see the
+ *  DRAG-SEEK THROTTLE file-header note and {@link shouldEmitDragSeek}. Named so a future tune
+ *  doesn't require touching the decision logic itself. Parity Flutter `_dragSeekThrottleMs`
+ *  (`rb-flutter-progress-bar-drag-seek-throttle`). */
+export const DRAG_SEEK_THROTTLE_MS = 120;
+
+/**
+ * Decides whether THIS `onScrub` call should actually be emitted (rb-rn-progress-bar-drag-seek-
+ * throttle). `force` (touch-down / release / terminate) ALWAYS emits, regardless of timing.
+ * Otherwise (a plain `onPanResponderMove`): `lastEmitMs == null` (nothing emitted yet this drag)
+ * ALWAYS emits; else emits only once at least `minIntervalMs` has elapsed since `lastEmitMs`. Pure
+ * — takes plain millisecond timestamps, no clock/timer dependency, so every branch is directly
+ * `expect()`-able. Parity Flutter `shouldEmitDragSeek(lastEmitMs, nowMs, {force, minIntervalMs})`.
+ */
+export function shouldEmitDragSeek(
+  lastEmitMs: number | null,
+  nowMs: number,
+  options: { force: boolean; minIntervalMs?: number },
+): boolean {
+  if (options.force) return true;
+  if (lastEmitMs == null) return true;
+  const minIntervalMs = options.minIntervalMs ?? DRAG_SEEK_THROTTLE_MS;
+  return nowMs - lastEmitMs >= minIntervalMs;
 }
 
 /**

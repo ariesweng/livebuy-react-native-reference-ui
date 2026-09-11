@@ -31,6 +31,7 @@ import { Text } from '../TightText';
 import { LBTestIDs } from '../testing/LBTestIDs';
 import type { ReferenceUITheme } from '../theme';
 import { LBAuthTriggerAction } from 'livebuy-react-native-ui';
+import { ArrowUpCircleFillGlyph } from './ArrowUpCircleFillGlyph';
 
 /**
  * Presentation + focus state for the on-demand chat composer. `open()` shows the
@@ -485,14 +486,10 @@ export function ChatComposerBar(props: ChatComposerBarProps): ReactElement | nul
         accessibilityRole="button"
         accessibilityLabel="送出留言"
       >
-        <Text
-          style={{
-            fontSize: 26,
-            color: canSend ? theme.accent : 'rgba(255,255,255,0.35)',
-          }}
-        >
-          ⬆
-        </Text>
+        <ArrowUpCircleFillGlyph
+          color={canSend ? theme.accent : 'rgba(255,255,255,0.35)'}
+          size={26}
+        />
       </Pressable>
       </View>
     </>

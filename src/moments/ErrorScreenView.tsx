@@ -46,10 +46,15 @@
 // RENDER DISCIPLINE (inherited from family-1/2/3 / iOS / Android / Flutter): plain
 // `View` / `Text` / `Pressable` only — NO ScrollView / FlatList / SectionList /
 // VirtualizedList, NO network-uri Image, NO Canvas / react-native-svg / Animated.
-// Glyphs are deterministic Text glyphs (react-native-vector-icons is unavailable in
-// this layer). The error moment is a dark full-bleed scrim regardless of the light
-// surface theme (design-literal). No animation / no randomness so the structural
-// baseline is stable.
+// The `stream` / `outdated` icon disc and the `stream` retry button's leading glyph
+// are self-drawn `View` glyphs (`WifiSlashGlyph` / `ArrowUpCircleGlyph` /
+// `ArrowClockwiseGlyph`, rb-rn-icon-parity-errorscreen-icons — plain positioned +
+// rotated `View`s, NOT react-native-svg); `notFound`'s icon stays a deterministic
+// Text glyph (react-native-vector-icons is unavailable in this layer, and iOS /
+// Flutter also keep `notFound` at system-icon level rather than a self-drawn
+// vector — see that change's design.md D-notFound). The error moment is a dark
+// full-bleed scrim regardless of the light surface theme (design-literal). No
+// animation / no randomness so the structural baseline is stable.
 
 import type { ReactElement } from 'react';
 import { View, Pressable } from 'react-native';
@@ -59,6 +64,9 @@ import type { ReferenceUITheme } from '../theme';
 import { LBTestIDs } from '../testing/LBTestIDs';
 import { PlayerErrorKind } from 'livebuy-react-native-ui';
 import type { PlayerErrorState } from 'livebuy-react-native-ui';
+import { WifiSlashGlyph } from './WifiSlashGlyph';
+import { ArrowUpCircleGlyph } from './ArrowUpCircleGlyph';
+import { ArrowClockwiseGlyph } from './ArrowClockwiseGlyph';
 
 // MARK: - Decorative design tokens (literal — lifted verbatim from LBPErrorScreen)
 //
@@ -104,12 +112,24 @@ const DISMISS_LABEL = '返回';
 interface ErrorCopy {
   readonly title: string;
   readonly body: string;
-  /** Deterministic Text glyph for the kind's icon disc. */
-  readonly glyph: string;
+  /**
+   * Builder for the kind's icon-disc glyph. Receives the resolved tint color and a
+   * pre-scaled size (the caller — `IconBadge` — already applied `theme.fontScale`,
+   * since this pure function takes no `theme`) and returns the rendered element.
+   * `stream` / `outdated` render self-drawn `View` glyphs (`WifiSlashGlyph` /
+   * `ArrowUpCircleGlyph`); `notFound` still renders a deterministic Text glyph
+   * (`'🔍'`), just wrapped in the same builder shape (rb-rn-icon-parity-errorscreen-icons,
+   * mirrors Flutter's `_ErrorCopy.icon: Widget Function(Color)`).
+   */
+  readonly glyph: (color: string, size: number) => ReactElement;
   /** The primary CTA label (重試 / 前往更新), or `null` when retry won't help. */
   readonly primaryLabel: string | null;
-  /** Optional leading glyph on the primary CTA (重試 → refresh; 前往更新 → none). */
-  readonly primaryGlyph: string | null;
+  /**
+   * Optional leading glyph builder on the primary CTA (重試 → self-drawn
+   * `ArrowClockwiseGlyph`; 前往更新 → `null`, no leading glyph). Same
+   * `(color, size) => ReactElement` shape as {@link glyph}.
+   */
+  readonly primaryGlyph: ((color: string, size: number) => ReactElement) | null;
   /**
    * `outdated` tints the icon disc with the brand accent (update affordance);
    * `stream` / `notFound` tint with the design's danger color.
@@ -142,7 +162,12 @@ export function errorCopyFor(kind: PlayerErrorKind): ErrorCopy {
       return {
         title: NOT_FOUND_TITLE,
         body: NOT_FOUND_BODY,
-        glyph: '🔍', // magnifier — search-off (the video is gone)
+        // magnifier — search-off (the video is gone). Kept as a deterministic Text
+        // glyph (not self-drawn) — see design.md D-notFound: iOS / Flutter also
+        // keep `notFound` at system-icon level (SF Symbol / Material Icon) rather
+        // than a self-drawn vector, so there is no cross-platform target shape to
+        // converge RN onto here.
+        glyph: (color, size) => <Text style={{ fontSize: size, color }}>{'🔍'}</Text>,
         primaryLabel: null, // retry won't help → 返回 only
         primaryGlyph: null,
         accentTinted: false,
@@ -156,7 +181,8 @@ export function errorCopyFor(kind: PlayerErrorKind): ErrorCopy {
       return {
         title: OUTDATED_TITLE,
         body: OUTDATED_BODY,
-        glyph: '⬆', // up-arrow — update affordance
+        // up-arrow-in-circle — update affordance (self-drawn, `Icons.arrowUpCircle`).
+        glyph: (color, size) => <ArrowUpCircleGlyph color={color} size={size} />,
         primaryLabel: UPDATE_LABEL,
         primaryGlyph: null,
         accentTinted: true,
@@ -169,9 +195,11 @@ export function errorCopyFor(kind: PlayerErrorKind): ErrorCopy {
       return {
         title: STREAM_TITLE,
         body: STREAM_BODY,
-        glyph: '⚠', // struck-through wifi intent — connection / stream problem
+        // struck-through wifi — connection / stream problem (self-drawn, `Icons.wifiSlash`).
+        glyph: (color, size) => <WifiSlashGlyph color={color} size={size} />,
         primaryLabel: RETRY_LABEL,
-        primaryGlyph: '↻', // refresh — retry
+        // refresh — retry (self-drawn, `Icons.arrowClockwise`).
+        primaryGlyph: (color, size) => <ArrowClockwiseGlyph color={color} size={size} />,
         accentTinted: false,
         primaryForwardsDismiss: false,
         showBack: true,
@@ -260,7 +288,7 @@ export function ErrorScreen(props: ErrorScreenProps): ReactElement {
 
 function IconBadge(props: {
   theme: ReferenceUITheme;
-  glyph: string;
+  glyph: (color: string, size: number) => ReactElement;
   tint: string;
 }): ReactElement {
   const { theme, glyph, tint } = props;
@@ -277,7 +305,7 @@ function IconBadge(props: {
         justifyContent: 'center',
       }}
     >
-      <Text style={{ fontSize: 28 * theme.fontScale, color: tint }}>{glyph}</Text>
+      {glyph(tint, 28 * theme.fontScale)}
     </View>
   );
 }
@@ -385,7 +413,7 @@ function Actions(props: {
 function FilledButton(props: {
   theme: ReferenceUITheme;
   label: string;
-  leadingGlyph?: string | null;
+  leadingGlyph?: ((color: string, size: number) => ReactElement) | null;
   fill?: string;
   testID?: string;
   onTap: () => void;
@@ -406,9 +434,7 @@ function FilledButton(props: {
     >
       {leadingGlyph != null ? (
         <>
-          <Text style={{ fontSize: 16 * theme.fontScale, color: ON_SCRIM_TEXT }}>
-            {leadingGlyph}
-          </Text>
+          {leadingGlyph(ON_SCRIM_TEXT, 16 * theme.fontScale)}
           <View style={{ width: 7 }} />
         </>
       ) : null}

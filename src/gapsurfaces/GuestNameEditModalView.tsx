@@ -48,8 +48,13 @@
 //
 // RENDER DISCIPLINE (family-1..5 lessons): plain `View` / `Text` / `Pressable` /
 // `TextInput` (runtime only) — NO ScrollView / FlatList / SectionList /
-// VirtualizedList, NO network-uri `Image` (the logo 徽章 is a deterministic accent
-// circle + a person Text glyph 👤). No animation / randomness so the structural
+// VirtualizedList, NO network-uri `Image` (the logo 徽章 is a deterministic white
+// circle + a self-drawn accent-colored vector person glyph, `GuestNamePersonGlyph` —
+// rb-rn-icon-parity-guestname-person-glyph replaced the earlier bare emoji `👤`;
+// rb-rn-icon-parity-guestname-badge-color-role-fix corrected the badge's color roles
+// to match iOS/Android/Flutter, white circle + accent glyph, not the reverse). No
+// animation / randomness
+// so the structural
 // baseline is byte-stable. CRITICAL golden lesson (iOS / Android / Flutter family-6): a
 // LIVE `TextInput` renders as a yellow/red unsupported-control box under the structural
 // renderer (and the in-package `react-native` mock provides no `TextInput`) — so when
@@ -65,6 +70,7 @@ import { Text } from '../TightText';
 import { LBTestIDs } from '../testing/LBTestIDs';
 import type { ReferenceUITheme } from '../theme';
 import type { NicknameSubmitFailureKind } from '../container/ChatComposerBar';
+import { GuestNamePersonGlyph } from './GuestNamePersonGlyph';
 
 // MARK: - Max nickname length (design `slice(0, 10)`).
 
@@ -355,12 +361,16 @@ export function GuestNameEditModal(props: GuestNameEditModalProps): ReactElement
   );
 }
 
-// MARK: - Floating logo 徽章 (44×44 accent circle, white person glyph)
+// MARK: - Floating logo 徽章 (44×44 white circle, accent person glyph)
 //
-// A 44×44 accent circle with a hairline ring, holding a person Text glyph 👤 in white.
-// Mirrors the design's floating brand-mark badge (the design uses the LB logo image;
-// reference-ui keeps the structural baseline deterministic with an accent circle +
-// person glyph instead of a network image).
+// A 44×44 white circle (`theme.background`) with a hairline ring, holding a self-drawn
+// vector person glyph (`GuestNamePersonGlyph`, react-native-svg) in the theme accent
+// color. Mirrors the design's floating brand-mark badge (the design uses the LB logo
+// image and a `#fff` badge background; reference-ui keeps the structural baseline
+// deterministic with a white circle + accent-colored person glyph instead of a network
+// image) and iOS / Android / Flutter's white-circle-plus-accent-glyph color roles
+// (rb-rn-icon-parity-guestname-badge-color-role-fix corrected an earlier reversed
+// color-role bug — accent circle + fixed white glyph).
 
 function LogoBadge(props: { theme: ReferenceUITheme }): ReactElement {
   const { theme } = props;
@@ -370,14 +380,14 @@ function LogoBadge(props: { theme: ReferenceUITheme }): ReactElement {
         width: BADGE_SIZE,
         height: BADGE_SIZE,
         borderRadius: BADGE_SIZE / 2,
-        backgroundColor: theme.accent,
+        backgroundColor: theme.background,
         borderWidth: 1,
         borderColor: STROKE,
         alignItems: 'center',
         justifyContent: 'center',
       }}
     >
-      <Text style={{ fontSize: 24 * theme.fontScale, color: ON_ACCENT_TEXT }}>👤</Text>
+      <GuestNamePersonGlyph size={26 * theme.fontScale} color={theme.accent} />
     </View>
   );
 }
@@ -411,7 +421,7 @@ function InputRow(props: {
         alignItems: 'center',
       }}
     >
-      <Text style={{ fontSize: 16 * theme.fontScale, color: TEXT_DIM }}>👤</Text>
+      <GuestNamePersonGlyph size={16 * theme.fontScale} color={TEXT_DIM} />
       <View style={{ width: 10 }} />
       <View style={{ flex: 1 }}>
         {editable ? (

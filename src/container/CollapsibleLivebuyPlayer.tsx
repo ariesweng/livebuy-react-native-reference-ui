@@ -9,7 +9,17 @@
 // COMPOSITION: an OVERLAY component the host stacks ABOVE its app shell (so the floating preview
 // survives tab switches — issue 3). `video != null` → the turnkey `LivebuyPlayer` is composed
 // FULL-SCREEN; the minimize seam (`config.onMinimize`, taken over here) COLLAPSES it to a
-// bottom-right `FloatingWidget` preview card.
+// `FloatingWidget` preview card resting at a bottom corner.
+//
+// FLOATING CARD POSITION (rb-rn-collapsible-player-floating-position-inset): the resting corner
+// (`LivebuyPlayerConfig.position`, raw `'left_bottom'` / `'right_bottom'` wire value) and the
+// resting inset (`LivebuyPlayerConfig.inset`) are host-overridable, defaulting to `'right_bottom'`
+// + `{x:12,y:24}` — the values this container hardcoded before this field existed. Resolved via the
+// SAME pure entry points the sibling `LivebuyLiveEntry` container already uses
+// (`normalizeFloatingPosition` / `lbLiveEntryRestingInset` / `LIVE_ENTRY_DEFAULT_INSET`, all in
+// `./liveEntryLogic`), so both floating surfaces in this package share one fallback boundary and one
+// default-inset constant instead of maintaining two. The drag-clamp (`clampFloatingOffset`) receives
+// the same resolved `position` so its bound mirrors which corner the card rests in.
 //
 // KEEP-ALIVE (issue 5, iOS / Flutter / Android parity): the `LivebuyPlayer` stays MOUNTED the
 // whole time a session exists — minimize only HIDES it (an outer `View` with `opacity: 0` +
@@ -49,9 +59,11 @@ import {
 import type { Point, Sizing } from './collapsibleLogic';
 import { LivebuyWidgetVisibility } from '../widget/livebuyWidgetVisibility';
 import { markPlayerClosed } from './liveEntryCloseGate';
-
-/** Resting bottom-right padding of the floating card (parity iOS `floatingInset`). */
-const FLOATING_INSET: Point = { x: 12, y: 24 };
+import {
+  LIVE_ENTRY_DEFAULT_INSET,
+  lbLiveEntryRestingInset,
+  normalizeFloatingPosition,
+} from './liveEntryLogic';
 
 /** Props for the turnkey collapsible player {@link CollapsibleLivebuyPlayer}. */
 export interface CollapsibleLivebuyPlayerProps {
@@ -78,13 +90,27 @@ export interface CollapsibleLivebuyPlayerProps {
 
 /**
  * The turnkey collapsible player OVERLAY: full-screen {@link LivebuyPlayer} for the bound `video`,
- * with a built-in minimize → bottom-right floating preview. Place it ABOVE the host's app shell so
+ * with a built-in minimize → floating preview resting at a bottom corner (default bottom-right,
+ * host-overridable via `config.position` / `config.inset`). Place it ABOVE the host's app shell so
  * the floating preview survives navigation (issue 3). `video == null` → renders nothing.
  */
 export function CollapsibleLivebuyPlayer(props: CollapsibleLivebuyPlayerProps): ReactElement | null {
   const { video, onVideoChanged, theme } = props;
   const config = props.config ?? {};
   const openSignal = props.openSignal ?? 0;
+
+  // rb-rn-collapsible-player-floating-position-inset — the floating card's resting corner + inset,
+  // resolved via the SAME pure entry points the sibling `LivebuyLiveEntry` container already uses
+  // (`liveEntryLogic.ts`), so both floating surfaces in this package share one fallback boundary and
+  // one default-inset constant. `config.position` / `config.inset` are raw wire values the host reads
+  // out of `sdkConfig.extensions.floating_setting`; this presenter never reads `sdkConfig.extensions`
+  // itself. Omitting either field reproduces the pre-existing hardcoded `right_bottom` / `{x:12,y:24}`.
+  const position = normalizeFloatingPosition(config.position);
+  const insetX = config.inset?.x ?? LIVE_ENTRY_DEFAULT_INSET.x;
+  const insetY = config.inset?.y ?? LIVE_ENTRY_DEFAULT_INSET.y;
+  // THE ONLY place the resolved corner becomes style — same helper + call shape `LivebuyLiveEntry`
+  // uses for its own resting card, source-pinned by collapsibleFloatingPositionInset.test.ts.
+  const restingInset = lbLiveEntryRestingInset(position, { x: insetX, y: insetY });
 
   // rb-rn-player-direct-close-button — resolved the SAME way `LivebuyPlayerOverlays` resolves the
   // header icon (shared pure function), so the icon and this presenter's actual `onMinimize`
@@ -122,7 +148,8 @@ export function CollapsibleLivebuyPlayer(props: CollapsibleLivebuyPlayerProps): 
   shownVideoIdRef.current = shownVideo?.id ?? null;
 
   // Drag state: `pan` is the live Animated offset; `committedRef` is the resting (clamped) offset;
-  // the size refs feed the clamp. All bottom-right-anchored → resting offset is {0,0}.
+  // the size refs feed the clamp. Anchored at whichever corner `position` resolves to (default
+  // bottom-right) → resting offset is {0,0} regardless of corner.
   const pan = useRef(new Animated.ValueXY({ x: 0, y: 0 })).current;
   const containerSizeRef = useRef<Sizing>({ width: 0, height: 0 });
   const cardSizeRef = useRef<Sizing>({ width: 0, height: 0 });
@@ -130,9 +157,9 @@ export function CollapsibleLivebuyPlayer(props: CollapsibleLivebuyPlayerProps): 
 
   // Resets only the floating card's drag offset (committed + live Animated value) — NOT
   // `isMinimized`. Split out (rb-rn-collapsible-player-close-no-reflash) so `close()` below can
-  // reset the drag offset (so a FUTURE new session's floating card starts from the default
-  // bottom-right corner, not wherever the previous card was dragged to) WITHOUT touching
-  // `isMinimized`. See `resetFloating` just below for why that distinction matters.
+  // reset the drag offset (so a FUTURE new session's floating card starts from its resolved resting
+  // corner, not wherever the previous card was dragged to) WITHOUT touching `isMinimized`. See
+  // `resetFloating` just below for why that distinction matters.
   const resetFloatingOffset = (): void => {
     committedRef.current = { x: 0, y: 0 };
     pan.setOffset({ x: 0, y: 0 });
@@ -247,14 +274,15 @@ export function CollapsibleLivebuyPlayer(props: CollapsibleLivebuyPlayerProps): 
             translation: { x: g.dx, y: g.dy },
             cardSize: cardSizeRef.current,
             containerSize: containerSizeRef.current,
-            inset: FLOATING_INSET,
+            inset: { x: insetX, y: insetY },
+            position, // rb-rn-collapsible-player-floating-position-inset — clamp bound follows the corner
           });
           committedRef.current = clamped;
           pan.setOffset({ x: 0, y: 0 });
           pan.setValue(clamped);
         },
       }),
-    [pan],
+    [pan, insetX, insetY, position],
   );
 
   if (video == null) return null;
@@ -313,11 +341,16 @@ export function CollapsibleLivebuyPlayer(props: CollapsibleLivebuyPlayerProps): 
         <LivebuyPlayer videoId={video.id} config={composedConfig} />
       </View>
 
-      {/* Bottom-right floating preview while minimized. Draggable (clamped on release); a tap on
-          the card restores, the close button clears. */}
+      {/* Floating preview while minimized, resting at `restingInset`'s resolved corner (default
+          bottom-right). Draggable (clamped on release); a tap on the card restores, the close
+          button clears. */}
       {isMinimized ? (
         <Animated.View
-          style={[styles.floating, { transform: [{ translateX: pan.x }, { translateY: pan.y }] }]}
+          style={[
+            styles.floating,
+            restingInset,
+            { transform: [{ translateX: pan.x }, { translateY: pan.y }] },
+          ]}
           onLayout={(e: LayoutChangeEvent): void => {
             const { width, height } = e.nativeEvent.layout;
             cardSizeRef.current = { width, height };
@@ -347,9 +380,12 @@ export function CollapsibleLivebuyPlayer(props: CollapsibleLivebuyPlayerProps): 
 
 const styles = StyleSheet.create({
   hidden: { opacity: 0 },
+  // rb-rn-collapsible-player-floating-position-inset: the resting corner + inset (`right`/`left` +
+  // `bottom`) is no longer hardcoded here — it is computed inline per-render from the resolved
+  // `position`/`inset` via `lbLiveEntryRestingInset` (see the `restingInset` call site below), the
+  // SAME pure function the sibling `LivebuyLiveEntry` container already uses. `position: 'absolute'`
+  // is the only part that never changes, so it stays a static style.
   floating: {
     position: 'absolute',
-    right: FLOATING_INSET.x,
-    bottom: FLOATING_INSET.y,
   },
 });

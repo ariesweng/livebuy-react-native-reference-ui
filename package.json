@@ -1,6 +1,6 @@
 {
   "name": "livebuy-react-native-reference-ui",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "description": "Reference-UI pixel-rendering layer for the Livebuy React Native SDK (binds the livebuy-react-native-ui Default template view-models)",
   "main": "src/index.ts",
   "types": "src/index.ts",
@@ -17,7 +17,7 @@
     "test:harness": "jest harness"
   },
   "peerDependencies": {
-    "livebuy-react-native-ui": "^1.6.0",
+    "livebuy-react-native-ui": "^1.7.0",
     "react": "*",
     "react-native": "*",
     "react-native-svg": "15.15.5",

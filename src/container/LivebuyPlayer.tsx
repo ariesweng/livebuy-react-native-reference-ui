@@ -265,7 +265,14 @@ function useLiveNowPoll(shopId: string | null | undefined): LBVideoItem | null {
           if (cancelled) return;
           setLiveNow(liveEntryGate(video));
           await wait(LIVE_NOW_POLL_INTERVAL_SECONDS * 1000);
-        } catch {
+        } catch (error) {
+          // Retry behavior unchanged — but a totally silent catch here turned a real
+          // host-QA-reported failure into "nothing shows, no error, nothing" for a
+          // full four-platform pass (rn-widget-live-entry-fetch-error-visibility).
+          // __DEV__-gated so no console noise in release builds.
+          if (__DEV__) {
+            console.warn('[Livebuy] fetchLatestLive failed; retrying in 3s.', error);
+          }
           await wait(3000); // NOT_CONFIGURED / network → keep state, retry soon
         }
       }
@@ -662,12 +669,18 @@ export function LivebuyPlayer(props: LivebuyPlayerProps): ReactElement {
           // rb-rn-endscreen-live-empty-state — same call, now ALSO forwarding the channel's
           // EndScreen watch-next targets (`channel.next`, rn-endscreen-next-bridge-core) via the
           // pure `deriveEndScreenNavRows` fold (`channelChrome.ts`). Scope otherwise kept narrow
-          // on purpose: `handleMomentSnapshot`'s remaining fields (`isSubscribed`/`viewerCount`/
-          // `hasStart`/`hot`) are untouched here — each is either already wired elsewhere in this
-          // file, or (for `hot`) a retired reference-ui rendering path with no consumer left.
+          // on purpose: `handleMomentSnapshot`'s remaining fields (`isSubscribed`/`hasStart`/
+          // `hot`) are untouched here — each is either already wired elsewhere in this file, or
+          // (for `hot`) a retired reference-ui rendering path with no consumer left.
+          // rn-viewer-count-bridge-reference-ui — same call, now ALSO forwarding
+          // `info.viewerCount` (moment-state-sourced, same data path as `products`/
+          // `narratingProduct` above — read off the native `onMomentStateChange` callback's own
+          // argument, NOT `channel`; see `rn-viewer-count-bridge-core`). Pure pass-through, no
+          // derivation.
           attachmentRef.current?.template.handleMomentSnapshot({
             products: info.products,
             activeProduct: info.narratingProduct,
+            viewerCount: info.viewerCount,
             next: deriveEndScreenNavRows(info.next),
           });
           // VOD CC 字幕（rb-react-native-subtitle-vtt-caption-display）：抓取 + 解析

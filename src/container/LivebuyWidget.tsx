@@ -201,8 +201,14 @@ export function LivebuyWidget(props: LivebuyWidgetProps): ReactElement {
           setUsingDemo(true);
         }
         config.onVideosChanged?.(accumulatedRef.current);
-      } catch {
-        /* keep the list empty on fetch failure */
+      } catch (error) {
+        // Keep the list empty on fetch failure (unchanged) — but a totally silent
+        // catch here turned a real host-QA-reported failure into "nothing shows, no
+        // error, nothing" for a full four-platform pass (rn-widget-live-entry-fetch-
+        // error-visibility). __DEV__-gated so no console noise in release builds.
+        if (__DEV__) {
+          console.warn('[Livebuy] LivebuyWidget fetch failed; keeping list empty.', error);
+        }
       } finally {
         loadingRef.current = false;
       }

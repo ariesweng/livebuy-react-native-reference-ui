@@ -68,6 +68,27 @@ const TOOLTIP_RADIUS = 5;
 const TOOLTIP_FONT_SIZE = 12.5;
 const ARROW_SIZE = 6;
 
+/**
+ * Explicit text width (rb-rn-cc-tooltip-text-wrap-fix) — WITHOUT this, the bubble's `Text` wraps
+ * one CJK character per line. Root cause: Yoga measures an absolutely-positioned node's intrinsic
+ * (shrink-to-fit) content using an "at most" bound equal to the nearest `position: 'relative'`
+ * ancestor's OWN resolved width — even though only one inset (`right`/`left`) is set here, not
+ * both, so per CSS semantics this node should shrink-wrap to ITS OWN content instead. The anchor
+ * pill this tooltip attaches to is a `PILL_SIZE` (40px) circle (`OperationRailView.tsx` /
+ * `LiveBottomBarView.tsx`), so Yoga's (incorrect) cap collapses the text's available width to
+ * ~40px — or less for `placement='left'`, whose `flexDirection: 'row'` container further splits
+ * that budget between the bubble and the arrow flex siblings — leaving only enough room for a
+ * single glyph per line. An explicit numeric `width` puts Yoga in "exactly" measure mode for this
+ * node, which is independent of the small ancestor's box, bypassing the bug entirely. Sized with
+ * headroom over the current (hardcoded, non-i18n — reference-ui copy has no locale variants, see
+ * `docs/reference-ui/`) design string's natural width (~175px at this font) so minor cross-device
+ * font-metric variance can't tip it back into wrapping. Exported for tests (`CcTooltip.test.tsx`
+ * asserts the bubble's `Text` node carries this style — a direct regression guard against the
+ * fix being dropped, since the jest `react-native` mock cannot itself reproduce the real Yoga
+ * text-measurement bug this exists to bypass).
+ */
+export const TOOLTIP_TEXT_WIDTH = 200;
+
 /** Pre-measurement fallback offsets — best-effort static estimates for the current design text,
  *  used only for the single frame before `onLayout` reports the bubble's real rendered size (see
  *  {@link ccTooltipCenteringOffset}). Named constants (not magic numbers scattered at call sites)
@@ -178,7 +199,14 @@ function TooltipBubble(props: { text: string }): ReactElement {
         paddingHorizontal: 9,
       }}
     >
-      <Text style={{ color: '#FFFFFF', fontWeight: '600', fontSize: TOOLTIP_FONT_SIZE }}>
+      <Text
+        style={{
+          color: '#FFFFFF',
+          fontWeight: '600',
+          fontSize: TOOLTIP_FONT_SIZE,
+          width: TOOLTIP_TEXT_WIDTH,
+        }}
+      >
         {props.text}
       </Text>
     </View>

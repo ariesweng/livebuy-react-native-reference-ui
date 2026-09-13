@@ -236,8 +236,19 @@ export function EndScreen(props: EndScreenProps): ReactElement {
   return (
     // Full-bleed dark-scrim base (`absolute inset:0`). The moment composites over the
     // ended video — a fixed design color, not the theme background.
+    //
+    // rb-rn-endscreen-close-button-blocked — `pointerEvents="box-none"`: this root View itself
+    // must NEVER be a touch target (it is full-screen, so ANY touch on the video area — including
+    // the header's minimize/close button rendered by the LOWER PlayerShellView surface — would
+    // otherwise be swallowed by it, since RN hit-testing resolves to the deepest node under the
+    // touch point and this node is that deepest node while EndScreen is up). The container's OWN
+    // `pointerEvents="box-none"` wrapper (`LivebuyPlayerOverlays.tsx`) does not help here — it
+    // only affects itself, not this descendant. `"box-none"` (NOT `"none"`) keeps this node
+    // itself untouchable while its CHILDREN (the countdown 取消/立即觀看 or 空狀態 查看購物車
+    // Pressables below) still receive touches normally.
     <View
       testID={LBTestIDs.momentEnd}
+      pointerEvents="box-none"
       style={{
         position: 'absolute',
         top: 0,

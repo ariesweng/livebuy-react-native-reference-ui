@@ -765,6 +765,42 @@ export function captionOverlayBottomInset(isFinishedLiveReplay: boolean, lift: n
   return isFinishedLiveReplay ? LIVE_BOTTOM_BAR_HEIGHT + LIVE_BOTTOM_BAR_CLEARANCE_GAP + lift : 92 + lift;
 }
 
+/** The effective `showCloseIcon` / `onMinimize` pair {@link resolveEndScreenHeaderOverride}
+ *  hands to BOTH `<PlayerHeaderBar>` call sites below. */
+export interface EndScreenHeaderOverride {
+  readonly showCloseIcon: boolean | undefined;
+  readonly onMinimize: (() => void) | undefined;
+}
+
+/**
+ * rb-rn-endscreen-close-button-blocked — while the family-4 EndScreen moment (倒數變體 or 空狀態)
+ * is active, the header's top-right button MUST always show the close (✕) icon and MUST close
+ * the whole player directly on tap, REGARDLESS of the resolved `showCloseIcon` /
+ * `enableDirectCloseButton` preference the container otherwise passes in — there is no meaningful
+ * "collapse to floating" destination once the video has ended. `endScreenActive` mirrors
+ * `MomentsView.tsx`'s own `endable` gate (`countdown != null || endScreenVisible`) literally, not
+ * its full mutually-exclusive priority chain (error / VOD-no-next-close take priority THERE, but
+ * this view has no visibility into those — out of scope for this fix, see design.md Risks).
+ *
+ * `endScreenActive === false` → passes `showCloseIcon` / `onMinimize` through UNCHANGED (byte-
+ * identical to before this override existed). `endScreenActive === true` → forces
+ * `showCloseIcon = true` and reroutes `onMinimize` to `onCloseRequest` (the SAME "close the whole
+ * player" exit `swipe-nav-close-on-empty` already uses — no new close semantics are introduced).
+ * Pure — parity iOS `resolveHeaderCloseOverride` / Flutter `resolveHeaderCloseButton`, and follows
+ * this file's own existing pure-helper convention (`resolveSwipeNavFallback` / `allowsSwipeNav` /
+ * `isScrubChromeLifted`).
+ */
+export function resolveEndScreenHeaderOverride(args: {
+  endScreenActive: boolean;
+  showCloseIcon: boolean | undefined;
+  onMinimize: (() => void) | undefined;
+  onCloseRequest: (() => void) | undefined;
+}): EndScreenHeaderOverride {
+  const { endScreenActive, showCloseIcon, onMinimize, onCloseRequest } = args;
+  if (!endScreenActive) return { showCloseIcon, onMinimize };
+  return { showCloseIcon: true, onMinimize: onCloseRequest };
+}
+
 /**
  * rb-rn-chat-reveal-sheet-dismiss-timing — bubble a sheet's `open` boolean up to `onChange`, but
  * DEFER the CLOSE-direction bubble by `delayMs` (the shared `BottomSheetPresenter`/`SlideUpSheet`
@@ -1109,6 +1145,20 @@ export function PlayerShellView(props: PlayerShellViewProps): ReactElement {
 
   const model = new PlayerShellModel(template);
 
+  // rb-rn-endscreen-close-button-blocked — mirror `MomentsView.tsx`'s `endable` gate directly off
+  // `template.endScreenState` (already typed on this view's own `template` prop — no need to
+  // import family-4's `MomentsModel` for a two-field read, see design.md Decision 2). Computed
+  // BEFORE the `model.isUpcoming` early-return branch below so BOTH `<PlayerHeaderBar>` call
+  // sites can read the SAME override.
+  const endScreenActive =
+    template?.endScreenState.countdown != null || template?.endScreenState.endScreenVisible === true;
+  const headerCloseOverride = resolveEndScreenHeaderOverride({
+    endScreenActive,
+    showCloseIcon,
+    onMinimize,
+    onCloseRequest,
+  });
+
   // PREFETCH (rb-rn-product-image-loading-polish): warm RN's own <Image> cache for every
   // product's primary photo as soon as the FULL (unfiltered) product list arrives
   // (`model.products`) — well before any one product's [beginTime,endTime) window
@@ -1358,7 +1408,10 @@ export function PlayerShellView(props: PlayerShellViewProps): ReactElement {
             isLive={false}
             isReplay={false}
             live={live}
-            onMinimize={onMinimize}
+            // rb-rn-endscreen-close-button-blocked — effective (possibly overridden) value; see
+            // `headerCloseOverride` above. Byte-identical to the raw `onMinimize` prop while
+            // EndScreen is not active.
+            onMinimize={headerCloseOverride.onMinimize}
             onToggleSubscribe={onToggleSubscribe}
             showSubscribe={showSubscribe}
             // rb-rn-viewer-count-visibility-toggle — raw forward, same reasoning as showSubscribe
@@ -1371,7 +1424,10 @@ export function PlayerShellView(props: PlayerShellViewProps): ReactElement {
             // rb-rn-player-direct-close-button — raw forward, same reasoning as showSubscribe
             // above: the upcoming header's trailing button is the SAME single button as the main
             // branch, so it must reflect the same resolved icon.
-            showCloseIcon={showCloseIcon}
+            // rb-rn-endscreen-close-button-blocked — effective (possibly overridden) value; see
+            // `headerCloseOverride` above. Byte-identical to the raw `showCloseIcon` prop while
+            // EndScreen is not active.
+            showCloseIcon={headerCloseOverride.showCloseIcon}
             // rb-rn-marquee-title-scroll — the upcoming header draws / measures / scrolls its
             // title exactly like the main branch, so this forward is LOAD-BEARING, not
             // defensive: omitting it would let the header fall back to「may scroll」and ignore
@@ -1680,7 +1736,10 @@ export function PlayerShellView(props: PlayerShellViewProps): ReactElement {
           isLive={usesLiveChrome}
           isReplay={model.isReplay || model.isFinishedLiveReplay}
           live={live}
-          onMinimize={onMinimize}
+          // rb-rn-endscreen-close-button-blocked — effective (possibly overridden) value; see
+          // `headerCloseOverride` above. Byte-identical to the raw `onMinimize` prop while
+          // EndScreen is not active.
+          onMinimize={headerCloseOverride.onMinimize}
           onToggleSubscribe={onToggleSubscribe}
           showSubscribe={showSubscribe}
           // rb-rn-viewer-count-visibility-toggle — raw forward (leaf owns the `true` default,
@@ -1689,7 +1748,10 @@ export function PlayerShellView(props: PlayerShellViewProps): ReactElement {
           showViewerCount={showViewerCount}
           // rb-rn-player-direct-close-button — raw forward (leaf owns the `false` default);
           // resolved by the container from `LivebuyPlayerConfig.enableDirectCloseButton`.
-          showCloseIcon={showCloseIcon}
+          // rb-rn-endscreen-close-button-blocked — effective (possibly overridden) value; see
+          // `headerCloseOverride` above. Byte-identical to the raw `showCloseIcon` prop while
+          // EndScreen is not active.
+          showCloseIcon={headerCloseOverride.showCloseIcon}
           // rb-rn-marquee-title-scroll — raw merchant gate for the title marquee (the leaf
           // slot owns the fallback). The sibling `isUpcoming` branch above forwards the same
           // value; both call sites must stay wired.

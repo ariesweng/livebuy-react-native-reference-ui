@@ -110,6 +110,11 @@ export const LBTestIDs = {
   // Retained (component kept, retired-but-not-deleted) though no longer composed by
   // `PlayerShellView` as of rb-rn-gesture-clean-mode-v2.
   gestureMuteToast: 'lb_gesture_mute_toast',
+  // rb-rn-double-tap-seek-feedback — 雙擊 seek ±10s 的半螢幕手勢回饋 toast（GestureSeekToastView）.
+  // 命中雙擊 seek 那一刻由 `PlayerShellView` 顯示 ~0.7s 後自動消失；`zone` prop（'forward'/'rewind'）
+  // 區分快進/倒退方向，測試以此 prop 辨別，不另開兩個 testID（parity `gestureMuteToast` 用
+  // rendered label 辨別 muted/unmuted 的既有慣例）。
+  gestureSeekToast: 'lb_gesture_seek_toast',
   // rb-rn-gesture-clean-mode-v2 — 頂列乾淨模式限定靜音鈕 + 退出乾淨模式鈕. Values are 1:1 identical
   // to iOS `LBAccessibilityID.playerHeaderMuteButton` / `.cleanModeExitButton` (cross-platform
   // E2E id contract).

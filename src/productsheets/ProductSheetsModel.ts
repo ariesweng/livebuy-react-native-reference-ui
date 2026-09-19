@@ -859,13 +859,18 @@ export const ProductSheetsSeeds = {
 
   // -- Surface 3: in-stock mini-cart peek -------------------------------------
 
-  /** The in-stock mini-cart peek: a just-added in-stock product (`soldOut == 0`). */
+  /** The in-stock mini-cart peek: a just-added in-stock product (`soldOut == 0`). No original
+   *  price (`originalPriceShow: ''`, vod-now-introducing-original-price-reference-ui-rn) — this
+   *  demo/preview seed intentionally keeps the existing no-strikethrough baseline unchanged;
+   *  explicit `''` (rather than the previously-omitted key) avoids the render logic reading
+   *  `undefined` at runtime now that `LBMiniCartPeek.originalPriceShow` is non-optional. */
   miniCart: {
     productId: VARIANT_PRODUCT_ID,
     name: '絲絨霧面唇釉 #04 焦糖',
     priceShow: 'NT$380',
     soldOut: 0,
     pic: '',
+    originalPriceShow: '',
   } as LBMiniCartPeek,
 
   // -- Surface 4: sold-out detail for the restock-notify sheet ----------------

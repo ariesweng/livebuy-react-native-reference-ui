@@ -106,13 +106,13 @@ const MONOGRAM_BG = '#EBA279'; // mid of #FFD7A8 → #E27D5A (deterministic soli
 
 // MARK: - Fixed localized copy (static presentation strings — parity to iOS/Android/Flutter)
 
-const PANEL_TITLE = '點播間說明';
-/** `isLiveBroadcast === true` panel title (design R32). */
-const LIVE_PANEL_TITLE = '直播間說明';
+const PANEL_TITLE = '影片資訊';
+/** `isLiveBroadcast === true` panel title (design R44). */
+const LIVE_PANEL_TITLE = '直播資訊';
 const INFO_TAB_TITLE = '影片詳情';
 /** `isLiveBroadcast === true` info-tab label (design R32). */
 const LIVE_INFO_TAB_TITLE = '直播詳情';
-const NOTICE_TAB_TITLE = '公告';
+const NOTICE_TAB_TITLE = '公告訊息';
 const SYSTEM_NOTICE_LABEL = '系統公告';
 const MALL_NOTICE_LABEL = '商城公告';
 const SUBSCRIBE_LABEL = '訂閱通知';
@@ -124,6 +124,12 @@ const CONTACT_LABEL = '與商家一對一對話';
  *  (matches the LIVE tag color used elsewhere, e.g. `LiveOverlayChromeView`'s pinned-card tag). */
 const LIVE_BADGE_BG = '#F03246';
 const LIVE_BADGE_LABEL = '直播中';
+/** `isLiveBroadcast === false && isFinishedLiveReplay === false` publishAt-row status text
+ *  (design R44, rb-rn-video-info-panel-replay-copy) — replaces the raw `publishAt` date text. */
+const VOD_STATUS_LABEL = '點播影片';
+/** `isLiveBroadcast === false && isFinishedLiveReplay === true` publishAt-row status text
+ *  (design R44, rb-rn-video-info-panel-replay-copy). */
+const REPLAY_STATUS_LABEL = '直播回放';
 
 /**
  * Up-to-3-char monogram from the shop name (deterministic, pure). Mirrors iOS /
@@ -240,9 +246,10 @@ export interface VideoInfoPanelProps {
 
   /**
    * Whether this video is a genuine live broadcast right now (design R32, `PlayerShellModel
-   * .isLive`, `liveStatus == 1`) — `true` swaps the panel title「點播間說明」→「直播間說明」,
-   * the info-tab label「影片詳情」→「直播詳情」, and prefixes the `publishAt` line with a red
-   * "直播中" badge (see {@link InfoContent}). **Default `false`** (existing VOD copy,
+   * .isLive`, `liveStatus == 1`) — `true` swaps the panel title「影片資訊」→「直播資訊」,
+   * the info-tab label「影片詳情」→「直播詳情」, and makes the publishAt-row draw ONLY a red
+   * "直播中" badge (see {@link InfoContent}; design R44, `rb-rn-video-info-panel-replay-copy` —
+   * the badge no longer trails a "|" separator + date). **Default `false`** (existing VOD copy,
    * byte-identical to before this prop existed).
    *
    * ⚠️ DELIBERATELY named `isLiveBroadcast`, NOT `live` / `isLive` — this panel already has a
@@ -257,9 +264,36 @@ export interface VideoInfoPanelProps {
    * The container `PlayerShellView.tsx` SHALL feed `model.isLive` (narrow `liveStatus == 1`
    * semantics), NOT the broader `usesLiveChrome` (`isLive || isFinishedLiveReplay`) concept
    * used elsewhere in this package — a finished replay is no longer "直播中", so the badge
-   * correctly stays off for it.
+   * correctly stays off for it. Takes priority over {@link isFinishedLiveReplay} when (legally
+   * but never in production) both are `true`.
    */
   readonly isLiveBroadcast?: boolean;
+
+  /**
+   * Whether this video is a replay of a live broadcast that has already ended (design R44,
+   * `rb-rn-video-info-panel-replay-copy`, `PlayerShellModel.isFinishedLiveReplay`) — when
+   * {@link isLiveBroadcast} is `false`, this swaps the publishAt-row's status text between
+   * 「直播回放」(`true`) and 「點播影片」(`false`, default) — see {@link InfoContent}. Neither
+   * state shows a date; `fields.publishAt` itself is unaffected, only this row's presentation.
+   * **Default `false`**.
+   *
+   * ⚠️ DELIBERATELY named `isFinishedLiveReplay`, NOT `isReplay` — this package already has at
+   * least four differently-scoped uses of `isReplay`: `LBPlaybackProgress.isReplay` (core wire
+   * type, DVR live-edge-behind, unrelated to whether a broadcast has ENDED),
+   * `LiveBottomBarProps.isReplay` (retained-but-unused), `PlayerShellView.tsx`'s several pure
+   * functions that use `isReplay` as a local parameter name, and `PlayerShellModel.isReplay`
+   * itself (a narrower DVR getter). Reusing `isFinishedLiveReplay` — the existing
+   * `PlayerShellModel` concept name already read by `isSeekable` / `captionOverlayRightInset` /
+   * `showsLiveNowPill` etc. in `PlayerShellView.tsx` — avoids adding a fifth, differently-scoped
+   * meaning of "replay" to an already-crowded vocabulary.
+   *
+   * The container `PlayerShellView.tsx` SHALL feed `model.isFinishedLiveReplay` — `isLive` and
+   * `isFinishedLiveReplay` are a documented mutual-exclusion invariant on `PlayerShellModel`, so
+   * this flag is only ever consulted when {@link isLiveBroadcast} is `false` in production; this
+   * component's own prop types do not enforce that exclusion (see {@link isLiveBroadcast}'s
+   * priority note for the defensive fallback when both are `true`).
+   */
+  readonly isFinishedLiveReplay?: boolean;
 
   /**
    * The panel's cap height, a fraction of screen height, forwarded VERBATIM to
@@ -314,6 +348,7 @@ export function VideoInfoPanel(props: VideoInfoPanelProps): ReactElement {
     onClose,
     live = false,
     isLiveBroadcast = false,
+    isFinishedLiveReplay = false,
     heightPct,
     showSubscribe = true,
   } = props;
@@ -403,6 +438,7 @@ export function VideoInfoPanel(props: VideoInfoPanelProps): ReactElement {
         isSubscribed={isSubscribed}
         live={live}
         isLiveBroadcast={isLiveBroadcast}
+        isFinishedLiveReplay={isFinishedLiveReplay}
         showSubscribe={showSubscribe}
       />
     ) : (
@@ -577,47 +613,53 @@ function InfoContent(props: {
   /** Shop-logo image gate — forwarded verbatim to {@link ShopRow}; NO decision is made here. */
   live: boolean;
   /** Live-broadcast copy flag (design R32) — see {@link VideoInfoPanelProps.isLiveBroadcast}.
-   *  `true` prefixes the `publishAt` line with a red "直播中" badge + "｜" separator; `false`
-   *  (default) keeps the existing single-line `publishAt` text, byte-identical. */
+   *  `true` draws ONLY a red "直播中" badge on the publishAt-row (design R44 —
+   *  `rb-rn-video-info-panel-replay-copy` removed the trailing "｜" separator + date); `false`
+   *  (default) falls through to {@link isFinishedLiveReplay}'s status text. */
   isLiveBroadcast: boolean;
+  /** Finished-live-replay copy flag (design R44) — see
+   *  {@link VideoInfoPanelProps.isFinishedLiveReplay}. Only consulted when `isLiveBroadcast` is
+   *  `false`: `true` → "直播回放"; `false` (default) → "點播影片". Neither shows a date. */
+  isFinishedLiveReplay: boolean;
   /** Subscribe-pill visibility — forwarded verbatim to {@link ShopRow}; NO decision is made
    *  here (the ONE default lives on {@link VideoInfoPanelProps.showSubscribe}). */
   showSubscribe: boolean;
 }): ReactElement {
-  const { theme, fields, isSubscribed, live, isLiveBroadcast, showSubscribe } = props;
-  const { publishAt, title, shopIntro } = fields;
+  const { theme, fields, isSubscribed, live, isLiveBroadcast, isFinishedLiveReplay, showSubscribe } =
+    props;
+  const { title, shopIntro } = fields;
 
   return (
     <View
       style={{ paddingLeft: 18, paddingRight: 18, paddingTop: 14, paddingBottom: 18 }}
     >
-      {/* publishAt — small dim caption, OR (design R32, isLiveBroadcast) a red "直播中" badge +
-          "｜" separator + the SAME publishAt text (date data source unchanged, never a literal
-          string — only the leading label/badge differs). */}
-      {publishAt.length > 0 ? (
-        isLiveBroadcast ? (
-          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-            <View
-              style={{
-                paddingHorizontal: 6,
-                paddingVertical: 1,
-                borderRadius: 4,
-                backgroundColor: LIVE_BADGE_BG,
-              }}
-            >
-              <Text style={{ color: '#FFFFFF', fontSize: 10 * theme.fontScale, fontWeight: '800' }}>
-                {LIVE_BADGE_LABEL}
-              </Text>
-            </View>
-            <View style={{ width: 8 }} />
-            <Text style={{ color: TEXT_DIM, fontSize: 12 * theme.fontScale }}>{'|'}</Text>
-            <View style={{ width: 8 }} />
-            <Text style={{ color: TEXT_DIM, fontSize: 12 * theme.fontScale }}>{publishAt}</Text>
-          </View>
-        ) : (
-          <Text style={{ color: TEXT_DIM, fontSize: 12 * theme.fontScale }}>{publishAt}</Text>
-        )
-      ) : null}
+      {/* publishAt-row — three mutually-exclusive states (design R44,
+          rb-rn-video-info-panel-replay-copy), NONE of which show a date any more:
+            isLiveBroadcast === true                          → "直播中" badge only
+            isLiveBroadcast === false && isFinishedLiveReplay  → "直播回放" (dim text)
+            isLiveBroadcast === false && !isFinishedLiveReplay → "點播影片" (dim text, default)
+          isLiveBroadcast takes priority when (legally but never in production) both flags are
+          true. Always renders exactly one of the three — no longer gated on
+          `publishAt.length > 0` (none of the branches read `publishAt` any more). */}
+      {isLiveBroadcast ? (
+        <View
+          style={{
+            paddingHorizontal: 6,
+            paddingVertical: 1,
+            borderRadius: 4,
+            backgroundColor: LIVE_BADGE_BG,
+            alignSelf: 'flex-start',
+          }}
+        >
+          <Text style={{ color: '#FFFFFF', fontSize: 10 * theme.fontScale, fontWeight: '800' }}>
+            {LIVE_BADGE_LABEL}
+          </Text>
+        </View>
+      ) : (
+        <Text style={{ color: TEXT_DIM, fontSize: 12 * theme.fontScale }}>
+          {isFinishedLiveReplay ? REPLAY_STATUS_LABEL : VOD_STATUS_LABEL}
+        </Text>
+      )}
       {/* title — primary heading. */}
       {title.length > 0 ? (
         <Text

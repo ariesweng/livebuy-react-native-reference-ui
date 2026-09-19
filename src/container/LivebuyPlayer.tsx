@@ -177,6 +177,21 @@ function useTemplateAttachment(
       // 🔴 FULL 2-arity — the user-entered email MUST reach core (see
       // `buildAwardClaimInjection`; EMAIL-LESS retired by rb-rn-win-claim-email-flow).
       requestAwardClaim: buildAwardClaimInjection(playerRef),
+      // fix-rn-livebuyplayer-scrub-control-wiring-reference-ui: these three were previously
+      // MISSING here despite `DefaultPlayerTemplate`/`PlayerShellModel`/`PlayerShellView` all
+      // already forwarding to them correctly — `template.seek()` etc. silently no-op'd on an
+      // undefined requester, so the VOD/replay progress bar's play/pause + drag-seek and the
+      // video area's double-tap-seek / long-press-2x (same requestSeek/requestSeekBy chain)
+      // visually responded but never actually drove the real player. Same player-bound-seam
+      // pattern as loadVideo/requestEventJoin/requestAwardClaim above.
+      requestTogglePlayPause: () => playerRef.current?.togglePlayPause(),
+      requestSeek: (seconds: number) => playerRef.current?.seek(seconds),
+      requestSeekBy: (delta: number) => playerRef.current?.seekBy(delta),
+      // rn-vod-scrub-seek-tolerance-reference-ui: same player-bound-seam pattern as
+      // requestSeek/requestSeekBy above — Android-only, safe no-op on iOS via the core ref's own
+      // Platform.OS guard (dispatchBeginScrub/dispatchEndScrub).
+      requestBeginScrub: () => playerRef.current?.beginScrub(),
+      requestEndScrub: () => playerRef.current?.endScrub(),
     });
     setAttachment(att);
     return () => {

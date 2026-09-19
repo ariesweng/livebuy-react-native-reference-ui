@@ -223,6 +223,16 @@ const STROKE_STRONG = '#D8D5DE';
 const BG_SUNKEN = '#F4F4F6';
 /** `theme.soldOut` (sold-out copy color — design `#9A96A3`). */
 const SOLD_OUT_COLOR = '#9A96A3';
+/** Struck-through original-price text color (`.addToCart` AND `.detail` price rows, design R45,
+ *  `rb-rn-product-detail-sheet-price-color`) — a FIXED, theme-independent token
+ *  (`design/templates/minimal/screens.jsx:1190`'s `ProductDetailSheet`), replacing the two former
+ *  call sites that used to share {@link TEXT_DIM}. `TEXT_DIM` itself is untouched and keeps its
+ *  other (unrelated, decorative) call sites in this file (stock caption / fav label / brief /
+ *  product intro / share label). Mirrors the equivalent local constant `ORIGINAL_PRICE_COLOR` in
+ *  `ProductListView.tsx` / `MiniCartPeekView.tsx` — NOT imported (this package's existing
+ *  convention is per-file duplication of these literal design tokens rather than cross-file
+ *  sharing). */
+const ORIGINAL_PRICE_COLOR = '#A0A0A0';
 /** Product-photo placeholder fill — neutral gray (rb-rn-product-image-loading-polish; was the
  *  design's warm media-chip color `'#E27D5A'`). Distinct from the scale-down-letterbox
  *  whitespace fill (`'#FFFFFF'`, below) — that is "image loaded, native size narrower than the
@@ -1341,8 +1351,20 @@ export function ProductDetail(props: ProductDetailProps): ReactElement {
             </Text>
           ) : (
             <View
-              style={{ marginTop: 8, flexDirection: 'row', alignItems: 'flex-end' }}
+              style={{ marginTop: 8, flexDirection: 'column', alignItems: 'flex-start' }}
             >
+              {price.hasOriginalPrice ? (
+                <Text
+                  style={{
+                    marginBottom: 4,
+                    color: ORIGINAL_PRICE_COLOR,
+                    fontSize: 12 * theme.fontScale,
+                    textDecorationLine: 'line-through',
+                  }}
+                >
+                  {price.originalPriceShow}
+                </Text>
+              ) : null}
               <Text
                 style={{
                   color: theme.accent,
@@ -1352,18 +1374,6 @@ export function ProductDetail(props: ProductDetailProps): ReactElement {
               >
                 {price.priceShow}
               </Text>
-              {price.hasOriginalPrice ? (
-                <Text
-                  style={{
-                    marginLeft: 8,
-                    color: TEXT_DIM,
-                    fontSize: 12 * theme.fontScale,
-                    textDecorationLine: 'line-through',
-                  }}
-                >
-                  {price.originalPriceShow}
-                </Text>
-              ) : null}
             </View>
           )}
         </View>
@@ -1570,7 +1580,7 @@ export function ProductDetail(props: ProductDetailProps): ReactElement {
               <Text
                 style={{
                   marginLeft: 8,
-                  color: TEXT_DIM,
+                  color: ORIGINAL_PRICE_COLOR,
                   fontSize: 13 * theme.fontScale,
                   textDecorationLine: 'line-through',
                 }}

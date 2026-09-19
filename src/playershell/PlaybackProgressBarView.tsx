@@ -102,11 +102,23 @@ export interface PlaybackProgressBarProps {
   readonly onTogglePlayPause?: () => void;
   /** Touch-down on the track → host reports scrub start. Omitted → inert. */
   readonly onScrubStarted?: () => void;
+  /** Touch-down on the track, called right alongside {@link onScrubStarted} — SYNCHRONOUS
+   *  drag-boundary hint for host state that must complete BEFORE the drag's own seek calls
+   *  (e.g. the engine seek-precision toggle, `rn-vod-scrub-seek-tolerance-reference-ui`).
+   *  Deliberately separate from `onScrubStarted` (a different, longer-standing concern) rather
+   *  than folded into it, so the two call sites stay independently readable. Omitted → inert
+   *  (the natural state on iOS, which has no matching core capability). */
+  readonly onScrubBegin?: () => void;
   /** Drag moved → the new ratio `[0, 1]`. Host forwards to `model.seek(ratio * duration)`.
    *  Omitted → inert (demo / snapshot; the visual still tracks locally via the local drag ratio). */
   readonly onScrub?: (ratio: number) => void;
   /** Finger lifted → host reports scrub end (starts the post-release hold timer). Omitted → inert. */
   readonly onScrubEnded?: () => void;
+  /** Finger lifted or gesture cancelled, called right alongside {@link onScrubEnded} but BEFORE
+   *  the gesture's final forced `onScrub` call (`rn-vod-scrub-seek-tolerance-reference-ui`) — so
+   *  a precision-toggle-style subscriber can complete before that last, position-determining seek
+   *  is dispatched. See {@link emitScrubEnd} for the exact ordering guarantee. Omitted → inert. */
+  readonly onScrubEnd?: () => void;
 }
 
 /**
@@ -127,8 +139,10 @@ export function PlaybackProgressBarView(props: PlaybackProgressBarProps): ReactE
     isExpanded,
     onTogglePlayPause,
     onScrubStarted,
+    onScrubBegin,
     onScrub,
     onScrubEnded,
+    onScrubEnd,
   } = props;
 
   // Local, optimistic drag ratio `[0, 1]` — non-nil only while a live drag gesture is being
@@ -150,17 +164,15 @@ export function PlaybackProgressBarView(props: PlaybackProgressBarProps): ReactE
   trackWidthRef.current = trackWidth;
   const onScrubStartedRef = useRef(onScrubStarted);
   onScrubStartedRef.current = onScrubStarted;
+  const onScrubBeginRef = useRef(onScrubBegin);
+  onScrubBeginRef.current = onScrubBegin;
   const onScrubRef = useRef(onScrub);
   onScrubRef.current = onScrub;
   const onScrubEndedRef = useRef(onScrubEnded);
   onScrubEndedRef.current = onScrubEnded;
+  const onScrubEndRef = useRef(onScrubEnd);
+  onScrubEndRef.current = onScrubEnd;
 
-  // Mirrors `dragRatio` state so `onPanResponderRelease` / `onPanResponderTerminate` (which don't
-  // recompute a fresh ratio from the event — a terminate in particular isn't guaranteed to carry a
-  // meaningful touch coordinate for THIS gesture) can force-emit "the last ratio this drag actually
-  // computed". Updated in lockstep with every `setDragRatio` call below — never read as a stale
-  // value since PanResponder callbacks always read `.current`.
-  const dragRatioRef = useRef<number | null>(null);
   // Timestamp (ms) of the last `onScrub` call THIS view actually emitted — `null` before the first
   // one. Feeds {@link shouldEmitDragSeek} (see the DRAG-SEEK THROTTLE file-header note).
   const lastSeekEmitMsRef = useRef<number | null>(null);
@@ -194,31 +206,36 @@ export function PlaybackProgressBarView(props: PlaybackProgressBarProps): ReactE
         // `dragRatio(offsetX:trackWidth:)` computation in the same gesture callback. Touch-down
         // always force-emits (exempt from the drag-seek throttle) — see file-header note.
         const ratio = dragRatioFromOffset(evt.nativeEvent.locationX, trackWidthRef.current);
-        dragRatioRef.current = ratio;
         setDragRatio(ratio);
         onScrubStartedRef.current?.();
+        onScrubBeginRef.current?.();
         emitSeek(ratio, { force: true });
       },
       onPanResponderMove: (evt: GestureResponderEvent) => {
         // Visual feedback (handle position / fill) updates on EVERY move, unthrottled — only the
         // actual `onScrub` call (→ real cross-bridge seek dispatch) is throttled via `emitSeek`.
         const ratio = dragRatioFromOffset(evt.nativeEvent.locationX, trackWidthRef.current);
-        dragRatioRef.current = ratio;
         setDragRatio(ratio);
         emitSeek(ratio, { force: false });
       },
-      onPanResponderRelease: () => {
-        // Force-emit the final ratio even if the last move was throttled away — the throttle must
-        // never cause the actually-released position to diverge from what native ends up seeked to.
-        if (dragRatioRef.current != null) emitSeek(dragRatioRef.current, { force: true });
-        onScrubEndedRef.current?.();
+      onPanResponderRelease: (evt: GestureResponderEvent) => {
+        // Read the release event's OWN position (previously never read — the final ratio came
+        // from whatever move preceded release, not release itself; rn-vod-scrub-seek-tolerance-
+        // reference-ui, same gap fixed on Android's PlaybackProgressBar.kt). Force-emit the final
+        // ratio even if the last move was throttled away — the throttle must never cause the
+        // actually-released position to diverge from what native ends up seeked to. See
+        // {@link emitScrubEnd} for why `onScrubEnded`/`onScrubEnd` MUST both run before this.
+        const ratio = dragRatioFromOffset(evt.nativeEvent.locationX, trackWidthRef.current);
+        setDragRatio(ratio);
+        emitScrubEnd(ratio, onScrubEndedRef.current, onScrubEndRef.current, (r) => emitSeek(r, { force: true }));
       },
       // Defensive: a terminated gesture (e.g. an OS-level interruption) is still a "finger lifted"
       // from this view's perspective — the caller's 2.8s hold timer must still fire, mirroring
-      // `onPanResponderRelease` (including the same force-emit-final-ratio behavior).
-      onPanResponderTerminate: () => {
-        if (dragRatioRef.current != null) emitSeek(dragRatioRef.current, { force: true });
-        onScrubEndedRef.current?.();
+      // `onPanResponderRelease` (including reading the event's own position and the same ordering).
+      onPanResponderTerminate: (evt: GestureResponderEvent) => {
+        const ratio = dragRatioFromOffset(evt.nativeEvent.locationX, trackWidthRef.current);
+        setDragRatio(ratio);
+        emitScrubEnd(ratio, onScrubEndedRef.current, onScrubEndRef.current, (r) => emitSeek(r, { force: true }));
       },
     }),
   ).current;
@@ -433,6 +450,33 @@ export function shouldEmitDragSeek(
   if (lastEmitMs == null) return true;
   const minIntervalMs = options.minIntervalMs ?? DRAG_SEEK_THROTTLE_MS;
   return nowMs - lastEmitMs >= minIntervalMs;
+}
+
+/**
+ * The end-of-gesture dispatch order (rn-vod-scrub-seek-tolerance-reference-ui): calls
+ * `onScrubEnded`, then `onScrubEnd`, then `onScrub` (with `finalRatio`), in exactly that order.
+ * `onScrubEnded`/`onScrubEnd` MUST both complete before `onScrub`'s call — the last,
+ * position-determining seek of the gesture — reaches the host, so a precision-toggle-style
+ * subscriber wired to `onScrubEnd` (e.g. the container's `endScrub()`) has already taken effect
+ * by then (mirrors the ordering bug fixed on Flutter by
+ * `fix-flutter-scrub-end-before-final-seek-reference-ui` and on Android by
+ * `android-vod-scrub-seek-tolerance-reference-ui`'s own `emitScrubEnd`).
+ *
+ * Pulled out as a standalone, side-effecting-but-order-pure function (not inlined in the gesture
+ * handlers) specifically so this ordering guarantee has a unit test: this package's jest
+ * `react-native` mock stubs `PanResponder.create` to discard its config, so no drag gesture can
+ * be SIMULATED through a renderer (see the file-header TESTABILITY NOTE) — the gesture handlers
+ * themselves never run under test.
+ */
+export function emitScrubEnd(
+  finalRatio: number,
+  onScrubEnded: (() => void) | undefined,
+  onScrubEnd: (() => void) | undefined,
+  onScrub: (ratio: number) => void,
+): void {
+  onScrubEnded?.();
+  onScrubEnd?.();
+  onScrub(finalRatio);
 }
 
 /**

@@ -424,6 +424,26 @@ export class PlayerShellModel {
     this.template?.seekBy(delta);
   }
 
+  /**
+   * Drag-to-scrub precision hint forwarder (rn-vod-scrub-seek-tolerance-reference-ui) — the
+   * EXISTING `template.beginScrub()` (`rn-vod-scrub-seek-tolerance-template`'s
+   * `requestBeginScrub` forwarder; no new view-model API). Android-only — a safe no-op on iOS
+   * (the host never injects `requestBeginScrub` there) and for demo instances (no bound
+   * template). Mirrors Android `PlayerShellModel.beginScrub()`.
+   */
+  beginScrub(): void {
+    this.template?.beginScrub();
+  }
+
+  /**
+   * Drag-to-scrub precision hint forwarder (rn-vod-scrub-seek-tolerance-reference-ui) — the
+   * EXISTING `template.endScrub()`. Same no-op contract as {@link beginScrub}. Mirrors Android
+   * `PlayerShellModel.endScrub()`.
+   */
+  endScrub(): void {
+    this.template?.endScrub();
+  }
+
   // -- Read-only host intent (template-owned navigation, NOT a core simulate*) --
 
   /**

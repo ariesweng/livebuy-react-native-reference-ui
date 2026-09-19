@@ -6,7 +6,7 @@ import {
   type ComponentRef,
   type ReactElement,
 } from 'react';
-import { AppState, Dimensions, StyleSheet, View } from 'react-native';
+import { AppState, Dimensions, Platform, StyleSheet, View } from 'react-native';
 import Video from 'react-native-video';
 
 import { LBTestIDs } from '../testing/LBTestIDs';
@@ -58,6 +58,31 @@ import { PreviewPlaybackController, isCardOnScreen } from './previewPlaybackCont
 //     的可見性變化需 host 提供 scroll 信號或改用 lazy 面才精準。主案(default plain-View 面
 //     的靜態 overflow 離屏卡、初始離屏)由 `onLayout` 量測涵蓋。誠實標明,不誇大。
 //   • widget 預覽**永不是** PiP 內容(全螢幕 player / PiP 走 core),故不需、也不加 PiP guard。
+//
+// MARK: - AUDIO FOCUS (rb-rn-widget-preview-no-audio-focus)
+//
+// Android 上 `react-native-video`(6.19.2,`android/src/main/java/com/brentvatne/exoplayer/
+// ReactExoplayerView.java`)預設把每個 `<Video>` 當成會出聲的播放器:`setPlayWhenReady(true)` 先走
+// `requestAudioFocus()` —— 只有 `disableFocus || source.getUri() == null || hasAudioFocus` 才跳過,
+// **不看 `muted`** —— 向 `AudioManager.requestAudioFocus(listener, STREAM_MUSIC, AUDIOFOCUS_GAIN)`
+// 要 focus;收到 `onAudioFocusChange(AUDIOFOCUS_LOSS)` 則 `hasAudioFocus = false` + `pausePlayback()`
+// + `abandonAudioFocus`。widget 輪播 / Grid 是非-lazy 的 plain View,N 張帶 `preview` 的卡同時
+// `paused=false`,每張的 focus 請求都把前一張踢成 LOSS → 暫停,最後只剩最後一張在動、其餘停在第一幀。
+// Flutter sibling(`rb-flutter-widget-preview-no-audio-focus`)已在 SM-G887F 實機證實同一機制:logcat
+// `MediaFocusControl` 對 example uid 記到 9 次 `requestAudioFocus()`(兩次量測各派送 9 / 8 次
+// `AUDIOFOCUS_LOSS`),改為不請求 focus 後 0 次、首頁輪播全部持續播放。RN 是同款機制的另一個實作,
+// 屬**靜態判定**(測試機未裝 RN sample,見 change tasks 3.1),不宣稱真機驗過。原生 parity 來源從不
+// 請求 focus:Android `LoopingVideoView.kt`(ExoPlayer 預設 `handleAudioFocus = false`)、iOS
+// `LoopingPlayerUIView`(`AVQueuePlayer`,無 per-player focus)。
+//
+// 修法:`<Video disableFocus={Platform.OS === 'android'}>`。`disableFocus` 是 RNV 對 Android focus
+// 仲裁的唯一開關(`@ReactProp(name = "disableFocus", defaultBoolean = false)` → `setDisableFocus`),
+// 為 true 時 `requestAudioFocus()` 直接回 true、不向 `AudioManager` 請求,預覽也就不會因 LOSS 被
+// `pausePlayback()`。**只在 Android**:RNV 6.19.2 把此 prop 標為 Android-only(`src/specs/
+// VideoNativeComponent.ts` 註記 `// android`;`ios/` 端無任何 focus 處理、完全忽略此 prop),iOS 今日
+// 亦無此症狀,以平台分流讓 iOS 明確傳 `false`(= 改動前行為,也讓測試能鎖住兩個分支;若未來 RNV 替
+// iOS 賦予語意亦不會被意外打開)。既有 `paused` 三軸閘門、`repeat` / `muted` / `resizeMode="cover"` /
+// `testID` 全部不動。
 
 /** 讀取當前 App 前景狀態(`AppState.currentState` 可能為 null,保守視為前景)。 */
 function isForegroundNow(): boolean {
@@ -138,6 +163,8 @@ export function LoopingVideoView(props: { uri: string; borderRadius?: number }):
         muted
         paused={paused}
         resizeMode="cover"
+        // Android:不參與 audio focus 仲裁(見檔頭 AUDIO FOCUS 段);iOS 傳 false = 改動前現況。
+        disableFocus={Platform.OS === 'android'}
         style={[StyleSheet.absoluteFill, { borderRadius }]}
       />
     </View>

@@ -83,6 +83,7 @@ import {
 } from './ProductRowOverlay';
 import { ProductStatusBadge } from './ProductStatusBadge';
 import { ProductRowNameTag, type ProductRowNameTagValue } from './ProductRowNameTag';
+import { ProductRowDiscountBadge } from './ProductRowDiscountBadge';
 import { RemoteImage } from './RemoteImage';
 import { SheetHeaderCloseButton } from './SheetHeaderCloseButton';
 import { SheetScaffold } from './SheetScaffold';
@@ -120,6 +121,16 @@ const BG_SUNKEN = '#F4F4F6';
 const SALE_COLOR = '#E0334B';
 /** `theme.soldOut` (sold-out grey label — `design/brands/livebuy/tokens.jsx`). */
 const SOLD_OUT_COLOR = '#9A96A3';
+/** Struck-through original-price text color (`.row` AND `.grid`, design R45,
+ *  rb-rn-product-row-layout-and-price-color) — a FIXED, theme-independent token, replacing the
+ *  two former call sites (`.row` / `.grid`) that used to share {@link TEXT_DIM}. `TEXT_DIM` itself
+ *  is untouched and keeps its other (unrelated, decorative) call sites below (search icon /
+ *  placeholder / no-results text). */
+const ORIGINAL_PRICE_COLOR = '#A0A0A0';
+/** `.row`-only discount-percentage badge text color (design R45,
+ *  rb-rn-product-row-layout-and-price-color) — a FIXED, theme-independent token. `.grid` has no
+ *  equivalent badge element. */
+const DISCOUNT_COLOR = '#3C3C3C';
 /** out_soon「即將售完」名稱前標籤底色（`design/templates/minimal/sdk-components.jsx:1183`，
  *  rb-rn-product-row-name-tag-system 訂正自舊「價格列之後」徽章色 `#F5A623`）。 */
 const OUT_SOON_COLOR = '#FACC15';
@@ -708,6 +719,20 @@ function StatusPill(props: {
 // `StatusPill` above is intentionally NOT reused here (its shape is the wrong one for this design)
 // and is left untouched — no other call site depends on it, but it stays available in case a
 // genuinely fully-round pill is needed elsewhere in the future.
+//
+// rb-rn-product-row-name-tag-wrap-fix: this component's call site (`RowLayoutBody`, below) now
+// nests it (plus a 4px spacer `<View>`) as INLINE children of the outer product-name `<Text>`
+// (fixes a wrap bug — see that call site's comment + `design.md` D1) via RN's built-in "a `<View>`
+// nested inside `<Text>` renders as inline content" support. This function's body deliberately
+// stays a `<View>` wrapping a `<Text>` — it MUST NOT be rewritten into a pure nested `<Text>` (no
+// `<View>`): RN's nested-Text style schema has no `borderRadius`/`borderWidth`/`borderColor`/
+// `padding` fields on EITHER iOS or Android (verified against this package's own vendored
+// `node_modules/react-native` renderer source — `ReactCommon/.../TextAttributes.h`,
+// `RCTTextAttributes.h`/`.mm`, `TextAttributeProps.kt`), so a pure-Text rewrite would silently
+// drop this pill's border + corner radius and violate the `goods-status-label-render` spec's
+// existing MUST clauses on this exact visual. Keep it a real `<View>` — RN's inline-view-in-Text
+// support (which the call site now uses) preserves full native View rendering, including border/
+// radius, unlike a nested Text run.
 
 function NameTagPill(props: {
   theme: ReferenceUITheme;
@@ -744,6 +769,10 @@ function NameTagPill(props: {
  * fill, `theme.accent` border + text). `Rush` (rb-rn-flash-sale-live-signal-wiring, design
  * `liveMode === 'rush'`: `{ bg: accent, fg: '#fff', border: accent }`) is a SOLID pill — filled
  * `theme.accent`, white text — the opposite fill direction from `LivePrice`'s outline.
+ *
+ * rb-rn-product-row-name-tag-wrap-fix: the caller nests this component's return value directly
+ * as an INLINE child of the outer product-name `<Text>` (not a flex-row sibling) — see that call
+ * site's comment. This function itself is unchanged.
  */
 function ProductRowNameTagPill(props: {
   theme: ReferenceUITheme;
@@ -1028,6 +1057,11 @@ function RowLayoutBody(props: {
   const showStrike =
     product.originalPriceShow.length > 0 &&
     product.originalPriceShow !== product.priceShow;
+  // 折扣百分比（design R45, rb-rn-product-row-layout-and-price-color）：讀原始數值欄位（RN 特有：
+  // 字串），MUST NOT 解析 priceShow/originalPriceShow 顯示字串。只在 showStrike 成立時渲染，但計算
+  // 本身獨立於 showStrike（`percent` 自己會在無原價/原價不高於現價時回傳 null，屬防禦性重算，不信任
+  // 呼叫端）。
+  const discountPercent = ProductRowDiscountBadge.percent(product.price, product.originalPrice);
 
   return (
     <View>
@@ -1196,34 +1230,24 @@ function RowLayoutBody(props: {
         </Pressable>
         <View style={{ width: 12 }} />
 
-        {/* Name + price column (tap → open detail via host/core). */}
-        <Pressable
-          testID={index != null ? productRowDetail(index) : undefined}
-          onPress={open}
-          style={{ flex: 1 }}
-        >
-          {/* 商品名稱前標籤（rb-rn-product-row-name-tag-system, design R39）：`nameTag === 'None'`
-              時保持原本 byte-identical 的裸 Text（既有 call site 佔絕大多數，無明確 label / 已售完
-              / effectiveMode 未觸發任何分支）；否則在同一行加一個 NameTagPill + 4px spacer。 */}
-          {nameTag === ProductRowNameTag.None ? (
-            <Text
-              numberOfLines={2}
-              style={{
-                color: theme.text,
-                fontSize: 14 * theme.fontScale,
-                fontWeight: '600',
-              }}
-            >
-              {product.name}
-            </Text>
-          ) : (
-            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-              <ProductRowNameTagPill theme={theme} nameTag={nameTag} />
-              <View style={{ width: 4 }} />
+        {/* Name + price column (rb-rn-product-row-layout-and-price-color, design R45): a SINGLE
+            flex:1 column, replacing the former THREE sibling children (thumb / name+price
+            Pressable / action-icon group) with two stacked rows — name, then a space-between row
+            of [price block, action-icon group]. See design.md D1. */}
+        <View style={{ flex: 1 }}>
+          {/* Row 1 — name only (the price block below now has its OWN independent tap target,
+              design.md D3 — it is no longer nested inside this Pressable). */}
+          <Pressable
+            testID={index != null ? productRowDetail(index) : undefined}
+            onPress={open}
+          >
+            {/* 商品名稱前標籤（rb-rn-product-row-name-tag-system, design R39）：`nameTag === 'None'`
+                時保持原本 byte-identical 的裸 Text（既有 call site 佔絕大多數，無明確 label / 已售完
+                / effectiveMode 未觸發任何分支）；否則在同一行加一個 NameTagPill + 4px spacer。 */}
+            {nameTag === ProductRowNameTag.None ? (
               <Text
                 numberOfLines={2}
                 style={{
-                  flex: 1,
                   color: theme.text,
                   fontSize: 14 * theme.fontScale,
                   fontWeight: '600',
@@ -1231,79 +1255,150 @@ function RowLayoutBody(props: {
               >
                 {product.name}
               </Text>
-            </View>
-          )}
-          {/* hideSub (design R21 task 1.3, mirrors Android's ROW contract): hides this ENTIRE
-              secondary line — soldOut label OR price+strike row — when set. `ProductList`'s
-              existing call site never passes `hideSub`, so this stays byte-identical. */}
-          {!hideSub ? (
-            <>
-              <View style={{ height: 4 }} />
-              {soldOut ? (
+            ) : (
+              // rb-rn-product-row-name-tag-wrap-fix: the pill + its 4px spacer are now INLINE
+              // children of the SAME <Text> as the product name — React Native's built-in "a
+              // <View> nested inside <Text> is treated as inline content" support (iOS legacy arch:
+              // `RCTBaseTextShadowView.mm`'s `NSTextAttachment` embedding, the inline view keeps
+              // its own Yoga node so `NameTagPill`'s existing auto-sizing works unchanged; Android:
+              // `TextInlineViewPlaceholderSpan` reserves a measured slot, the pill still draws as a
+              // real native View with its border/radius/background intact) — instead of the
+              // previous `flexDirection:'row'` SIBLING `<View>` wrapping a separate `flex: 1` name
+              // `<Text>`. See `design.md` D1 for the full rationale (incl. why a pure-nested-`Text`
+              // rewrite of `NameTagPill` was considered and rejected — RN's nested-Text style
+              // schema has no border/radius/padding fields on EITHER platform, which would violate
+              // this spec's existing border/corner-radius MUST clauses; confirmed by reading this
+              // package's own vendored `node_modules/react-native` renderer source, not inferred).
+              //
+              // The former sibling-flex layout gave the name `<Text>` ONE fixed available width for
+              // its ENTIRE block (row width minus the pill+spacer width) — including any wrapped
+              // second line, which stayed squeezed into that same narrow column even though nothing
+              // occupies that space to its left. Nesting the pill+spacer INLINE makes the
+              // text-layout engine reserve their width only on the line they actually render on
+              // (line 1); a wrapped line 2 gets the FULL available width, matching the design
+              // source's CSS inline-flow intent (`sdk-components.jsx:LBPProductRow`'s tag `<span>`).
+              //
+              // `NameTagPill` / `ProductRowNameTagPill` themselves are UNCHANGED — zero edits to
+              // their styling / color logic — only the nesting position moved.
+              <Text
+                numberOfLines={2}
+                style={{
+                  color: theme.text,
+                  fontSize: 14 * theme.fontScale,
+                  fontWeight: '600',
+                }}
+              >
+                <ProductRowNameTagPill theme={theme} nameTag={nameTag} />
+                <View style={{ width: 4 }} />
+                {product.name}
+              </Text>
+            )}
+          </Pressable>
+          <View style={{ height: 4 }} />
+          {/* Row 2 — price block (left) + action-icon group (right), space-between
+              (rb-rn-product-row-layout-and-price-color, design R45). The action-icon group is
+              UNCONDITIONAL — it renders regardless of `hideSub` (mirrors the pre-existing
+              invariant: before this change the icons lived entirely OUTSIDE the `!hideSub`-gated
+              block, as top-level siblings of the whole name+price Pressable, design.md D2). When
+              `hideSub` hides the price slot, it renders an empty `<View />` placeholder (NOT
+              `null`) so `justifyContent:'space-between'` still anchors the icon group to the
+              trailing edge instead of collapsing to the row's start with only one child. */}
+          <View
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+            }}
+          >
+            {!hideSub ? (
+              soldOut ? (
                 <Text style={{ color: SOLD_OUT_COLOR, fontSize: 12 * theme.fontScale }}>
                   {SOLD_OUT_LABEL}
                 </Text>
               ) : (
-                <View style={{ flexDirection: 'row', alignItems: 'flex-end' }}>
-                  {showStrike ? (
+                // 價格區塊自己獨立的 tap target（design.md D3）——與商品名稱各自獨立的
+                // `<Pressable onPress={open}>`，保留既有「點價格開明細」熱區，不巢在名稱那個
+                // Pressable 裡（四端一致的既有拍板決策）。
+                <Pressable onPress={open}>
+                  <View>
+                    {showStrike ? (
+                      <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>
+                        <Text
+                          style={{
+                            color: ORIGINAL_PRICE_COLOR,
+                            fontSize: 12 * theme.fontScale,
+                            textDecorationLine: 'line-through',
+                            textDecorationColor: ORIGINAL_PRICE_COLOR,
+                            marginRight: 6,
+                          }}
+                        >
+                          {product.originalPriceShow}
+                        </Text>
+                        {discountPercent != null ? (
+                          <Text
+                            style={{
+                              color: DISCOUNT_COLOR,
+                              fontSize: 11 * theme.fontScale,
+                              fontWeight: '600',
+                            }}
+                          >
+                            {`(-${discountPercent}%)`}
+                          </Text>
+                        ) : null}
+                      </View>
+                    ) : null}
                     <Text
                       style={{
-                        color: TEXT_DIM,
-                        fontSize: 12 * theme.fontScale,
-                        textDecorationLine: 'line-through',
-                        textDecorationColor: TEXT_DIM,
-                        marginRight: 6,
+                        color: SALE_COLOR,
+                        fontSize: 14 * theme.fontScale,
+                        fontWeight: '900',
                       }}
                     >
-                      {product.originalPriceShow}
+                      {product.priceShow}
                     </Text>
-                  ) : null}
-                  <Text
-                    style={{
-                      color: SALE_COLOR,
-                      fontSize: 14 * theme.fontScale,
-                      fontWeight: '900',
-                    }}
+                  </View>
+                </Pressable>
+              )
+            ) : (
+              <View />
+            )}
+            {/* Trailing action group (detail · share · cart/bell). The detail icon (`DetailGlyph`,
+                design Icons.detail, rb-rn-icon-parity-product-detail-button — parity iOS/Android/
+                Flutter) funnels the FULL browse detail exit; the cart button (`CartGlyph`) funnels
+                the COMPACT add-to-cart exit (in-stock) or the 補貨 restock exit (sold-out
+                `BellGlyph`); the share icon (↑) forwards `share` (→ host → system share with
+                ?t=beginTime, issue 6). CODE UNCHANGED from the pre-regroup tree — only its nesting
+                position moved (was a top-level sibling row; now row 2 of the new column). */}
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <RowOutlineIcon theme={theme} onTap={open}>
+                <DetailGlyph color={theme.accent} size={16} />
+              </RowOutlineIcon>
+              <View style={{ width: 8 }} />
+              {/* 列分享 改設計稿自繪三節點 ShareGlyph（rb-rn-share-icon-design-align，問題 8）。
+                  進行中直播（`showShare === false`）時連同其後 spacer 一併不畫（rb-rn-live-hide-
+                  product-share，design R12）——沒有已定案的「開始銷售時間」，分享連結無法帶出正確
+                  時間點資訊；VOD / 回放不受影響。 */}
+              {showShare ? (
+                <>
+                  <RowOutlineIcon
+                    testID={index != null ? productRowShare(index) : undefined}
+                    theme={theme}
+                    onTap={share}
                   >
-                    {product.priceShow}
-                  </Text>
-                </View>
-              )}
-            </>
-          ) : null}
-        </Pressable>
-        <View style={{ width: 8 }} />
-
-        {/* Trailing action group (detail · share · cart/bell). The detail icon (`DetailGlyph`,
-            design Icons.detail, rb-rn-icon-parity-product-detail-button — parity iOS/Android/Flutter)
-            funnels the FULL browse detail exit; the cart button (`CartGlyph`) funnels the
-            COMPACT add-to-cart exit (in-stock) or the 補貨 restock exit (sold-out `BellGlyph`);
-            the share icon (↑) forwards `share` (→ host → system share with ?t=beginTime, issue 6). */}
-        <RowOutlineIcon theme={theme} onTap={open}>
-          <DetailGlyph color={theme.accent} size={16} />
-        </RowOutlineIcon>
-        <View style={{ width: 8 }} />
-        {/* 列分享 改設計稿自繪三節點 ShareGlyph（rb-rn-share-icon-design-align，問題 8）。 進行中直播
-            （`showShare === false`）時連同其後 spacer 一併不畫（rb-rn-live-hide-product-share，design
-            R12）——沒有已定案的「開始銷售時間」，分享連結無法帶出正確時間點資訊；VOD / 回放不受影響。 */}
-        {showShare ? (
-          <>
-            <RowOutlineIcon
-              testID={index != null ? productRowShare(index) : undefined}
-              theme={theme}
-              onTap={share}
-            >
-              <ShareGlyph color={theme.accent} size={14} />
-            </RowOutlineIcon>
-            <View style={{ width: 8 }} />
-          </>
-        ) : null}
-        <RowCartButton
-          testID={index != null ? productRowCart(index) : undefined}
-          theme={theme}
-          soldOut={soldOut}
-          onTap={quickAdd}
-        />
+                    <ShareGlyph color={theme.accent} size={14} />
+                  </RowOutlineIcon>
+                  <View style={{ width: 8 }} />
+                </>
+              ) : null}
+              <RowCartButton
+                testID={index != null ? productRowCart(index) : undefined}
+                theme={theme}
+                soldOut={soldOut}
+                onTap={quickAdd}
+              />
+            </View>
+          </View>
+        </View>
       </View>
 
       {/* Bottom hairline (`LBPProductRow` borderBottom: 1px solid stroke). */}
@@ -1432,10 +1527,19 @@ function GridLayoutBody(props: {
           {product.name}
         </Text>
         {/* 價格 cell（rb-rn-product-row-price-cart-layout-fix）：售價（或已售完）與劃線原價同屬
-            一個 View，售價在上、劃線原價在下——對齊設計 `sdk-components.jsx:1116-1129`
-            `flexDirection: p.was ? 'column' : 'row'` 分支（JSX 子節點順序 price span 先於 was
-            span，即視覺上原價落在售價下方）。此 cell 與加購圓鈕同為外層列（`alignItems:'flex-end'`）
-            的直接手足節點，讓加購圓鈕永遠貼齊列底、不受這個 cell 是 1 行或 2 行高度影響。 */}
+            一個 View，子節點順序恆為售價在前、劃線原價在後——對齊設計 `sdk-components.jsx:1116-1129`
+            `LBPProductRow` grid 分支的 JSX 子節點順序。此 cell 與加購圓鈕同為外層列
+            （`alignItems:'flex-end'`）的直接手足節點，讓加購圓鈕永遠貼齊列底、不受這個 cell 是 1 行
+            或 2 行高度影響。
+            容器排列（rb-rn-product-row-grid-price-wrap，design D8，claude-design-sync.md，
+            2026-09-18）：改用 flexWrap 語意，裝得下時售價與劃線原價同一行顯示，裝不下才自動換行、
+            劃線原價落到售價下方——取代先前恆定 `flexDirection:'column'` 的無條件二選一寫死。比照
+            設計源碼 `sdk-components.jsx` `.row` 版型「原價+折扣%」那行（約 1321-1322 行）已在用
+            的 flexWrap 慣例（本檔 `.row` 版型自己目前無此寫法，只有設計源碼有）。`flexShrink: 1`
+            是必要的：RN Yoga 的預設 `flexShrink` 是 `0`
+            （跟 CSS 預設 `1` 不同），若不顯式設定，這個 cell 在外層列（含 `flex:1` spacer +
+            加購圓鈕）裡永遠不會被壓縮，`flexWrap` 也就永遠不會被觸發。`gap: 4` 取代先前劃線原價
+            Text 自帶的 `marginTop: 2`，同時涵蓋同行的水平間距與換行後的行距。 */}
         <View
           style={{
             marginTop: 6,
@@ -1443,7 +1547,15 @@ function GridLayoutBody(props: {
             alignItems: 'flex-end',
           }}
         >
-          <View>
+          <View
+            style={{
+              flexDirection: 'row',
+              flexWrap: 'wrap',
+              alignItems: 'baseline',
+              flexShrink: 1,
+              gap: 4,
+            }}
+          >
             {soldOut ? (
               <Text style={{ color: SOLD_OUT_COLOR, fontSize: 13 * theme.fontScale, fontWeight: 'bold' }}>
                 {SOLD_OUT_LABEL}
@@ -1456,11 +1568,10 @@ function GridLayoutBody(props: {
                 {showStrike ? (
                   <Text
                     style={{
-                      marginTop: 2,
-                      color: TEXT_DIM,
+                      color: ORIGINAL_PRICE_COLOR,
                       fontSize: 11 * theme.fontScale,
                       textDecorationLine: 'line-through',
-                      textDecorationColor: TEXT_DIM,
+                      textDecorationColor: ORIGINAL_PRICE_COLOR,
                     }}
                   >
                     {product.originalPriceShow}

@@ -122,6 +122,12 @@ const SOLD_OUT_COLOR = '#9A96A3';
  *  (rb-rn-product-image-loading-polish; was warm `'#E27D5A'`, mirrors `ProductDetail`'s media
  *  chip, kept in sync with it). */
 const PHOTO_FILL = '#8E8E93';
+/** Struck-through original-price color `#A0A0A0` (design `sdk-components.jsx:939` literal,
+ *  vod-now-introducing-original-price-reference-ui-rn). Mirrors the equivalent local constant
+ *  `ORIGINAL_PRICE_COLOR` in `ProductListView.tsx` — NOT imported (that file's constant is
+ *  module-private, and this package's existing convention is per-file duplication of these
+ *  literal design tokens rather than cross-file sharing). */
+const ORIGINAL_PRICE_COLOR = '#A0A0A0';
 
 // MARK: - Fixed localized copy (static presentation strings — parity to iOS/Android)
 
@@ -204,6 +210,14 @@ export function MiniCartPeek(props: MiniCartPeekProps): ReactElement {
   // Whether the peeked product is sold out (`soldOut === 1`). Drives the price line:
   // sold-out shows `已售完`, in-stock shows `priceShow`.
   const isSoldOut = peek.soldOut === 1;
+
+  // Whether to draw a struck-through original price next to the current price
+  // (vod-now-introducing-original-price-reference-ui-rn) — non-empty AND different from the
+  // current `priceShow` (mirrors `ProductListView.tsx`'s `showStrike` predicate, applied here to
+  // `LBMiniCartPeek` instead of `LBProduct`). Sold-out is handled separately below and never
+  // shows any price information regardless of this value.
+  const hasOriginalPrice =
+    peek.originalPriceShow.length > 0 && peek.originalPriceShow !== peek.priceShow;
 
   // The whole card body is the open-detail affordance (design `onTap`); the close
   // button is a separate Pressable, absolutely positioned top-right, that dismisses
@@ -294,19 +308,55 @@ export function MiniCartPeek(props: MiniCartPeekProps): ReactElement {
           {peek.name}
         </Text>
 
-        {/* Price line — sold-out → 已售完 (muted); else the priceShow (accent, string). */}
-        <Text
-          numberOfLines={1}
-          ellipsizeMode="tail"
-          style={{
-            marginTop: 2,
-            color: isSoldOut ? SOLD_OUT_COLOR : theme.accent,
-            fontSize: 12 * theme.fontScale,
-            fontWeight: isSoldOut ? '600' : '700',
-          }}
-        >
-          {isSoldOut ? SOLD_OUT_LABEL : peek.priceShow}
-        </Text>
+        {/* Price line — sold-out → 已售完 (muted), no price info at all; else the priceShow
+            (accent, string) followed by an optional struck-through original price
+            (vod-now-introducing-original-price-reference-ui-rn — current price FIRST, original
+            price SECOND, mirroring `LBPMiniCart`'s own layout; the OPPOSITE order from this
+            package's `ProductListView.tsx`, which is that component's own established layout and
+            MUST NOT be cross-applied here). */}
+        {isSoldOut ? (
+          <Text
+            numberOfLines={1}
+            ellipsizeMode="tail"
+            style={{
+              marginTop: 2,
+              color: SOLD_OUT_COLOR,
+              fontSize: 12 * theme.fontScale,
+              fontWeight: '600',
+            }}
+          >
+            {SOLD_OUT_LABEL}
+          </Text>
+        ) : (
+          <View style={{ marginTop: 2, flexDirection: 'row', alignItems: 'baseline' }}>
+            <Text
+              numberOfLines={1}
+              ellipsizeMode="tail"
+              style={{
+                color: theme.accent,
+                fontSize: 12 * theme.fontScale,
+                fontWeight: '700',
+              }}
+            >
+              {peek.priceShow}
+            </Text>
+            {hasOriginalPrice ? (
+              <Text
+                numberOfLines={1}
+                ellipsizeMode="tail"
+                style={{
+                  marginLeft: 6,
+                  color: ORIGINAL_PRICE_COLOR,
+                  fontSize: 12 * theme.fontScale,
+                  textDecorationLine: 'line-through',
+                  textDecorationColor: ORIGINAL_PRICE_COLOR,
+                }}
+              >
+                {peek.originalPriceShow}
+              </Text>
+            ) : null}
+          </View>
+        )}
       </View>
 
       {/* Close button (LBPMiniCart top-right close — design `top: 3, right: 3`,

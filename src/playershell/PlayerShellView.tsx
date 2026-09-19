@@ -124,6 +124,7 @@ import { CaptionOverlayView } from './CaptionOverlayView';
 import { VTTSubtitleParser } from './VTTSubtitleParser';
 import type { VTTCue } from './VTTSubtitleParser';
 import { DetailGlyph } from './DetailGlyph';
+import { GestureSeekToastView } from './GestureSeekToastView';
 
 import { LBTestIDs } from '../testing/LBTestIDs';
 
@@ -515,6 +516,16 @@ export function isDoubleTapSeekHit(
 
 /** Seconds a double-tap-seek hit moves the playhead (design R29, `model.seekBy(±10)`). */
 export const SEEK_STEP_SECONDS = 10;
+
+/**
+ * Display duration (ms) of the double-tap-seek half-screen gesture toast
+ * (`GestureSeekToastView`, rb-rn-double-tap-seek-feedback) — matches the ~0.7s convention already
+ * documented on the retired `GestureMuteToastView` ("0.7s tap feedback", see that file's header
+ * comment). A re-trigger while the toast is still showing cancels and reschedules this duration
+ * (see `handleVideoTap`'s `isDoubleTapSeekHit` branch below), so it never stacks or disappears
+ * early.
+ */
+export const GESTURE_SEEK_TOAST_DURATION_MS = 700;
 
 /**
  * Long-press 2x-speed-approximation tick interval (ms, rb-rn-gesture-clean-mode-v2, design R29).
@@ -1011,6 +1022,15 @@ export function PlayerShellView(props: PlayerShellViewProps): ReactElement {
   const lastSeekTapAtRef = useRef<number | null>(null);
   const lastSeekTapZoneRef = useRef<TapZone | null>(null);
 
+  // 雙擊 seek 的半螢幕手勢回饋 toast 狀態（rb-rn-double-tap-seek-feedback）：`null` = 不顯示，
+  // 非 null = 顯示中且值為觸發方向。純呈現層狀態，不影響雙擊 seek 本身的判定/呼叫（見
+  // `handleVideoTap` 的 `isDoubleTapSeekHit` 分支）。`seekToastTimerRef` 是驅動這個 state 自動歸零
+  // 的 timer handle，比照同檔案既有 `pendingCleanModeToggleTimerRef` 的
+  // `useRef<ReturnType<typeof setTimeout> | null>` pattern；命中一次雙擊 seek 就會取消前一個 pending
+  // timer 重新排程（不疊加、不提早消失）。
+  const [seekToastZone, setSeekToastZone] = useState<TapZone | null>(null);
+  const seekToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // 延遲乾淨模式切換的 pending timer（rb-rn-gesture-clean-mode-v2，取代退役的
   // `pendingMuteCommitTimerRef` / `pendingPlayPauseCommitTimerRef`——新模型下單擊只有一種結果（切換
   // cleanMode），不再需要依 LIVE/回放分流成兩個獨立 timer slot）。非 null = 目前有一個尚未到期的
@@ -1032,6 +1052,8 @@ export function PlayerShellView(props: PlayerShellViewProps): ReactElement {
         clearTimeout(pendingCleanModeToggleTimerRef.current);
       }
       if (speedModeTickTimerRef.current != null) clearTimeout(speedModeTickTimerRef.current);
+      // rb-rn-double-tap-seek-feedback: same unmount-safety rationale as the two timers above.
+      if (seekToastTimerRef.current != null) clearTimeout(seekToastTimerRef.current);
     };
   }, []);
 
@@ -1101,6 +1123,21 @@ export function PlayerShellView(props: PlayerShellViewProps): ReactElement {
     }
     setIsScrubbing(true);
     setScrubBarExpanded(true);
+  };
+
+  // Drag-to-scrub precision hint forwarders (rn-vod-scrub-seek-tolerance-reference-ui) — the
+  // EXISTING `model.beginScrub()`/`endScrub()` (Android-only, safe no-op on iOS / demo
+  // instances). Deliberately independent of `handleScrubStarted`/`handleScrubEnded` above (those
+  // own only the pre-existing chrome-hide / hold-timer concern) rather than folded into them, so
+  // the two call sites stay independently readable — mirrors Android
+  // `PlayerShellView.kt`'s `onScrubBegin = { model.beginScrub() }` / `onScrubEnd = {
+  // model.endScrub() }`. `onScrubEnd` is guaranteed by `PlaybackProgressBarView`'s
+  // `emitScrubEnd` to run BEFORE the gesture's final forced `onScrub` call.
+  const handleScrubBegin = (): void => {
+    model.beginScrub();
+  };
+  const handleScrubEnd = (): void => {
+    model.endScrub();
   };
 
   // Drag moved → forward the new absolute position to the EXISTING `model.seek()` forwarder (no
@@ -1306,6 +1343,14 @@ export function PlayerShellView(props: PlayerShellViewProps): ReactElement {
         pendingCleanModeToggleTimerRef.current = null;
       }
       model.seekBy(zone === 'forward' ? SEEK_STEP_SECONDS : -SEEK_STEP_SECONDS);
+      // rb-rn-double-tap-seek-feedback: show the half-screen gesture toast for this direction,
+      // resetting (not stacking) the auto-dismiss timer on a re-trigger while already showing.
+      if (seekToastTimerRef.current != null) clearTimeout(seekToastTimerRef.current);
+      setSeekToastZone(zone);
+      seekToastTimerRef.current = setTimeout(() => {
+        seekToastTimerRef.current = null;
+        setSeekToastZone(null);
+      }, GESTURE_SEEK_TOAST_DURATION_MS);
     } else {
       pendingCleanModeToggleTimerRef.current = setTimeout(() => {
         pendingCleanModeToggleTimerRef.current = null;
@@ -1548,6 +1593,9 @@ export function PlayerShellView(props: PlayerShellViewProps): ReactElement {
     priceShow: p.priceShow,
     soldOut: p.soldOut,
     pic: p.photos.length > 0 ? p.photos[0]! : p.pic,
+    // 原價劃線資料透傳（vod-now-introducing-original-price-reference-ui-rn）：直接轉發來源
+    // LBProduct 既有欄位，無需任何額外映射邏輯——是否畫出劃線像素是 MiniCartPeekView 的版面判斷。
+    originalPriceShow: p.originalPriceShow,
   }));
   // Trailing clearance follows the side rail's visibility (shown from Buffering
   // onward, suppressed only in Loading/Splash) — rb-rn-vod-rail-show-on-buffering.
@@ -1944,8 +1992,10 @@ export function PlayerShellView(props: PlayerShellViewProps): ReactElement {
             isExpanded={scrubBarExpanded || cleanMode}
             onTogglePlayPause={() => model.togglePlayPause()}
             onScrubStarted={handleScrubStarted}
+            onScrubBegin={handleScrubBegin}
             onScrub={handleScrub}
             onScrubEnded={handleScrubEnded}
+            onScrubEnd={handleScrubEnd}
           />
         </View>
       ) : null}
@@ -2033,6 +2083,18 @@ export function PlayerShellView(props: PlayerShellViewProps): ReactElement {
         </View>
       ) : null}
 
+      {/* 雙擊 seek 視覺回饋（rb-rn-double-tap-seek-feedback，design R46 `LBPGestureToast`
+          seekFwd/seekBack 分支）：命中雙擊 seek 那一刻（`handleVideoTap` 的 `isDoubleTapSeekHit`
+          分支）由 `seekToastZone` 驅動顯示，`GESTURE_SEEK_TOAST_DURATION_MS`（700ms）後自動消失。
+          純視覺——雙擊 seek 的判定/呼叫（`model.seekBy`）本身完全不受影響，早於本 change 就已上線
+          （rb-rn-gesture-clean-mode-v2）。本檔案無 `zIndex`，疊層順序純由 JSX 手足順序決定：放在
+          一般 chrome（caption / live-now pill / 退出乾淨模式鈕）之後，讓它蓋在上方；放在 restriction
+          mask / modal / sheet 之前，避免蓋過那些更高優先的互動層。`pointerEvents="none"`，不吃下層
+          觸控，這個順序選擇對觸控行為無影響。 */}
+      {seekToastZone != null ? (
+        <GestureSeekToastView theme={theme} zone={seekToastZone} />
+      ) : null}
+
       {/* 會員等級限定升級遮罩（restriction-mask ②）。`is_restriction` 為**軟性顯示閘門**：
           core 不擋播放（後端仍回完整內容），reference-ui 在播放畫面上疊全幅暗罩 + 升級提示並
           阻擋下層互動。疊在播放 chrome 之上、info panel / 聯絡商家 modal 之下（對齊 iOS：遮罩在
@@ -2074,6 +2136,11 @@ export function PlayerShellView(props: PlayerShellViewProps): ReactElement {
           // .isLiveBroadcast`'s doc comment for why this is NOT named `live`/`isLive` (this
           // call site already has an unrelated `live` prop above — the image-loading gate).
           isLiveBroadcast={model.isLive}
+          // design R44 (rb-rn-video-info-panel-replay-copy): `model.isFinishedLiveReplay` is a
+          // documented mutual-exclusion invariant with `model.isLive` above (see this file's own
+          // `isSeekable` / `captionOverlayRightInset` / `showsLiveNowPill` doc comments) — the
+          // panel's publishAt-row only ever consults it when `isLiveBroadcast` is `false`.
+          isFinishedLiveReplay={model.isFinishedLiveReplay}
           // rb-rn-subscribe-favorite-visibility-toggle — SECOND render point of the subscribe
           // feature (the shop row's subscribe pill; the FIRST is the header badge above, which
           // gets `showSubscribe={showSubscribe}` raw). This is a DELIBERATE `?? false`, NOT a

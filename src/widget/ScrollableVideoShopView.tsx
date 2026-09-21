@@ -16,6 +16,18 @@
 // pixels (all pixels come from `VideoShopGrid`); interactions pass through as host-wired
 // callbacks; the auto-load decision is covered by the pure {@link shouldAutoLoadMore} unit
 // test + the surface's own structural snapshots — the wrapper is NEVER snapshot-baselined.
+//
+// PREVIEW SCROLL SIGNAL (rb-rn-widget-preview-offscreen-decoder-release): because this wrapper
+// OWNS the scroll container, it is the one place that knows the grid is scrolling — and RN's
+// `onLayout` never re-fires on an ancestor scroll, so the cards' `LoopingVideoView` off-screen
+// measurement would otherwise be stuck at its mount-time value. The wrapper therefore provides a
+// `LivebuyPreviewScrollSignalContext` over its subtree and emits on `onScroll` (JS-throttled,
+// `previewScrollSignalThrottleMs()`), `onScrollEndDrag` and `onMomentumScrollEnd` (always, so the
+// final resting visibility is always re-measured). Each card re-measures on emit; on Android the
+// `release` policy then keeps only the cards known to be on screen holding a decoder (the grid is
+// render-ALL — page 1 is 9 cards, load-more makes it 18+, and every paused `<Video>` still holds
+// a `MediaCodec`). The Provider is not a host element and the two new `ScrollView` props are
+// invisible to structural snapshots (this wrapper has none). Zero new pixels still holds.
 
 import type { ReactElement } from 'react';
 import { useRef } from 'react';
@@ -25,6 +37,10 @@ import type { LBVideoItem } from 'livebuy-react-native';
 import type { ReferenceUITheme } from '../theme';
 import type { WidgetGoods } from './WidgetModel';
 import { VideoShopGrid } from './VideoShopGridView';
+import {
+  LivebuyPreviewScrollSignalContext,
+  usePreviewScrollSignalEmitter,
+} from './livebuyPreviewScrollSignal';
 
 /** Auto-load prefetch margin (logical px) from the bottom — fire before the very bottom. */
 const PREFETCH_MARGIN = 300;
@@ -108,6 +124,9 @@ export function ScrollableVideoShopView(props: ScrollableVideoShopProps): ReactE
   // (per-page debounce). Re-armed when a new page loads (`currentPage` increments).
   const lastTriggeredPage = useRef(-1);
 
+  // Preview scroll signal (see the file header): one stable emitter per wrapper instance.
+  const previewScroll = usePreviewScrollSignalEmitter();
+
   const handleScroll = (e: NativeSyntheticEvent<NativeScrollEvent>): void => {
     const { contentOffset, layoutMeasurement, contentSize } = e.nativeEvent;
     if (
@@ -124,29 +143,43 @@ export function ScrollableVideoShopView(props: ScrollableVideoShopProps): ReactE
       lastTriggeredPage.current = currentPage;
       onLoadMore?.();
     }
+    // Same handler, after the load-more decision: wake the cards to re-measure (throttled).
+    previewScroll.emitThrottled();
+  };
+
+  // Drag / momentum end: always emit so the resting visibility is re-measured (not throttled).
+  const handleScrollEnd = (): void => {
+    previewScroll.emitNow();
   };
 
   return (
-    <ScrollView onScroll={handleScroll} scrollEventThrottle={16}>
-      <VideoShopGrid
-        theme={theme}
-        videos={videos}
-        currentPage={currentPage}
-        lastPage={lastPage}
-        goodsFor={goodsFor}
-        live={live}
-        productCard={productCard}
-        // Raw hand-off — the grid owns the single derivation
-        // (`ReferenceUIWidgetEmbedTheme.derive`); this wrapper draws nothing itself.
-        widgetColor={widgetColor}
-        widgetBgcolor={widgetBgcolor}
-        onTapVideo={onTapVideo}
-        onLoadMore={onLoadMore}
-        // Render ALL videos (no fixed cap) + drop the manual footer button — the wrapper drives
-        // the load on scroll.
-        maxCards={null}
-        autoLoadOnScroll
-      />
-    </ScrollView>
+    <LivebuyPreviewScrollSignalContext.Provider value={previewScroll.source}>
+      <ScrollView
+        onScroll={handleScroll}
+        scrollEventThrottle={16}
+        onScrollEndDrag={handleScrollEnd}
+        onMomentumScrollEnd={handleScrollEnd}
+      >
+        <VideoShopGrid
+          theme={theme}
+          videos={videos}
+          currentPage={currentPage}
+          lastPage={lastPage}
+          goodsFor={goodsFor}
+          live={live}
+          productCard={productCard}
+          // Raw hand-off — the grid owns the single derivation
+          // (`ReferenceUIWidgetEmbedTheme.derive`); this wrapper draws nothing itself.
+          widgetColor={widgetColor}
+          widgetBgcolor={widgetBgcolor}
+          onTapVideo={onTapVideo}
+          onLoadMore={onLoadMore}
+          // Render ALL videos (no fixed cap) + drop the manual footer button — the wrapper drives
+          // the load on scroll.
+          maxCards={null}
+          autoLoadOnScroll
+        />
+      </ScrollView>
+    </LivebuyPreviewScrollSignalContext.Provider>
   );
 }

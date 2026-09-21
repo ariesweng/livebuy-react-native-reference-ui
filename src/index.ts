@@ -204,12 +204,58 @@ export {
   externalLiveAwareTap,
 } from './widget/ExternalLive';
 // rn-refui-widget-host-visibility-pause — opt-in host→SDK 橋接:host 一行
-// `LivebuyWidgetVisibility.setWidgetsCovered(true/false)` 宣告承載 widget 預覽的畫面被覆蓋
-// (最典型:全螢幕直播播放器 overlay 蓋住底下首頁),把信號餵進每支 `LoopingVideoView` 的
-// play-gate 第三軸 `notCovered`,暫停 SDK 自足兩軸(AppState 背景 / measureInWindow 離屏)
-// 偵測不到的「被覆蓋」預覽。RN parity of Android `LivebuyWidgetVisibility`。向後相容:host
-// 不呼叫時行為與現況逐位元組相同。
+// `LivebuyWidgetVisibility.setWidgetsCovered(true/false)` 宣告承載 widget 預覽的畫面被**非 route 的
+// overlay** 覆蓋(最典型:collapsible presenter 的全螢幕直播播放器蓋住底下首頁、host 自製 overlay),
+// 把信號餵進每支 `LoopingVideoView` 的 play-gate 第三軸 `notCovered`,暫停 SDK 自足兩軸(AppState
+// 背景 / measureInWindow 離屏)偵測不到的「被覆蓋」預覽。RN parity of Android `LivebuyWidgetVisibility`。
+// 向後相容:host 不呼叫時行為與現況逐位元組相同。**不要**為 stack / route push(`Navigator.push` 類的
+// react-navigation push)呼叫它——它是 process-global 單一 level,會把被 push 上去那頁自己的預覽也蓋住;
+// route push 請用下方的 `LivebuyRouteVisibilityContext` / `LivebuyWidget.routeVisible`。
 export { LivebuyWidgetVisibility } from './widget/livebuyWidgetVisibility';
+// rb-rn-widget-preview-route-cover-release — host 餵入的 **per-subtree** route 焦點信號(React context)。
+// react-native core 沒有「被哪個畫面蓋住」的框架訊號(那是 react-navigation 的概念,本套件無任何
+// navigation 依賴),所以 host 在承載 widget 的 screen 內以 `useIsFocused()` 餵入:
+//     <LivebuyRouteVisibilityContext.Provider value={useIsFocused()}>…</LivebuyRouteVisibilityContext.Provider>
+//     // 或等價單行:<LivebuyWidget shopId="…" routeVisible={useIsFocused()} />
+// 每支 `LoopingVideoView` 以 `useContext` 讀取作為 play-gate 第四軸 `routeVisible`:被 push 蓋住時
+// 暫停,Android 上更**卸載 `<Video>` 釋放硬體解碼器**(paused 的 react-native-video 仍占一個 MediaCodec)、
+// pop 回來重新掛載(含有上限的 onError 重試);iOS 只 keep-alive pause。per-subtree,所以被 push 上去
+// 那頁自己的 `LivebuyWidget` 正常播——這正是 process-global `LivebuyWidgetVisibility` 做不到的。
+// 未提供 Provider 時預設 `true` = 現況,向後相容。`previewDecoderPolicyFor` / `previewInitRetryDelayMs`
+// 為對應的純函式(Android → 'release'、其他 → 'pause';重試退避 500 / 1000 / 2000 ms 後放棄),
+// 匯出供 host 自組 design 時比照。
+export { LivebuyRouteVisibilityContext, useLivebuyRouteVisible } from './widget/livebuyRouteVisibility';
+export {
+  previewDecoderPolicyFor,
+  previewInitRetryDelayMs,
+  PREVIEW_INIT_RETRY_DELAYS_MS,
+  previewOffScreenReleaseDelayMs,
+  previewScrollSignalThrottleMs,
+} from './widget/previewDecoderPolicy';
+export type { PreviewDecoderPolicy } from './widget/previewDecoderPolicy';
+// rb-rn-widget-preview-offscreen-decoder-release — reference-ui 自己的 scroll 容器發的**捲動訊號**
+// (React context,event source)。RN 的 `onLayout` 不因祖先 `ScrollView` 捲動而重發,所以卡片預覽的
+// 離屏量測原本只在 layout 時做一次;`ScrollableVideoShopView`(「查看更多」Grid)與 turnkey 首頁輪播
+// (`Carousel scrollable`)現在各自在 `onScroll`(100 ms 節流)/ `onScrollEndDrag` / `onMomentumScrollEnd`
+// emit,每支 `LoopingVideoView` 訂閱後重新 `measureInWindow`——Android 上任一時刻只有量到在螢幕上的
+// 卡持有 `<Video>` / 解碼器(離屏 1000 ms debounce 後卸載、滾入重掛、從未量到可見的卡從不掛載;
+// `previewOffScreenReleaseDelayMs` / `previewScrollSignalThrottleMs` 為對應純函式),iOS 只讓
+// `paused` 更準。**不靠 host**——turnkey 面自動生效。
+// host 可選(optional):若把 windowed `Carousel` / `CarouselRowView`(plain Row,真正的捲動由 host 的
+// `ScrollView` 負責、reference-ui 拿不到那些事件)放進自己的 `ScrollView`,可用同一 context 餵入自己的
+// 捲動事件:
+//     const signal = useRef(createPreviewScrollSignal()).current;
+//     <LivebuyPreviewScrollSignalContext.Provider value={signal.source}>
+//       <ScrollView onScroll={() => signal.emit()} onMomentumScrollEnd={() => signal.emit()} scrollEventThrottle={16}>…
+// 未餵時維持「只在 layout 時量」的既有行為(離屏卡不會被釋放,與現況相同)——誠實限制,不宣稱涵蓋。
+export {
+  LivebuyPreviewScrollSignalContext,
+  createPreviewScrollSignal,
+} from './widget/livebuyPreviewScrollSignal';
+export type {
+  LivebuyPreviewScrollSignal,
+  LivebuyPreviewScrollSignalSource,
+} from './widget/livebuyPreviewScrollSignal';
 export {
   Carousel,
   VideoShopGrid,

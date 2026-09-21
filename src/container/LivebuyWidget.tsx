@@ -46,6 +46,7 @@ import { ReferenceUIThemeResolver } from '../theme';
 
 import { useContainerEventListener } from './containerEventListener';
 import { resolveDesign } from './ReferenceUIDesign';
+import { LivebuyRouteVisibilityContext } from '../widget/livebuyRouteVisibility';
 import type { LivebuyWidgetConfig } from './LivebuyWidgetConfig';
 import type { WidgetContainerMode } from './widgetData';
 import {
@@ -138,6 +139,25 @@ export interface LivebuyWidgetProps {
   readonly mode?: WidgetContainerMode;
   /** Optional per-instance wiring. Omitting it gives a fully-defaulted list. */
   readonly config?: LivebuyWidgetConfig;
+  /**
+   * Route focus of the screen hosting this widget (rb-rn-widget-preview-route-cover-release).
+   * A stack push (react-navigation) leaves the covered screen mounted, so without this signal its
+   * card previews keep decoding — and on Android each paused `<Video>` still holds a hardware
+   * decoder, starving the pushed screen's own previews. Feed react-navigation's focus here:
+   *
+   *     const focused = useIsFocused();
+   *     <LivebuyWidget shopId="Pw8PJ99J" routeVisible={focused} />
+   *
+   * `false` pauses this widget's previews (Android additionally unmounts each `<Video>` to release
+   * its decoder; iOS keeps them alive, paused); `true` resumes (Android re-mounts). Per-subtree:
+   * ONLY this widget's subtree is affected, so a pushed screen hosting its own `LivebuyWidget` plays
+   * normally. When omitted, NO provider is inserted and the subtree inherits any outer
+   * `LivebuyRouteVisibilityContext` (default `true` = today's behaviour) — additive, backward
+   * compatible. Do NOT call the process-global `LivebuyWidgetVisibility.setWidgetsCovered` for a
+   * stack push: it would also cover the pushed screen's own previews. That bridge is for NON-route
+   * overlays only (collapsible presenter full-screen, host-made overlays).
+   */
+  readonly routeVisible?: boolean;
 }
 
 /**
@@ -289,7 +309,7 @@ export function LivebuyWidget(props: LivebuyWidgetProps): ReactElement {
   // design; dismiss / minimize close the Modal.
   const defaultPlayerConfig = makeDefaultPlayerConfig(config.design, () => setPresented(null));
 
-  return (
+  const body = (
     // rb-rn-refui-text-tighten-line-spacing: tighten line spacing (Android includeFontPadding=false)
     // for every card/caption Text in the widget surface (parity Android `ProvideTightText`).
     <ProvideTightText>
@@ -334,6 +354,17 @@ export function LivebuyWidget(props: LivebuyWidgetProps): ReactElement {
       </Modal>
       </View>
     </ProvideTightText>
+  );
+
+  // rb-rn-widget-preview-route-cover-release: `routeVisible` given → wrap THIS widget's subtree in
+  // the per-subtree route-focus provider (its card previews pause / Android releases decoders while
+  // the hosting screen is covered by a stack push). Omitted → NO provider, the subtree inherits any
+  // outer `LivebuyRouteVisibilityContext` (default `true`) — the tree is exactly what it was before.
+  if (props.routeVisible === undefined) return body;
+  return (
+    <LivebuyRouteVisibilityContext.Provider value={props.routeVisible}>
+      {body}
+    </LivebuyRouteVisibilityContext.Provider>
   );
 }
 

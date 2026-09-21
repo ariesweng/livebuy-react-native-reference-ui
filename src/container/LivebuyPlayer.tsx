@@ -78,6 +78,7 @@ import {
   deriveServiceLinkAvailable,
   deriveEndScreenNavRows,
 } from './channelChrome';
+import { overlayChromeVisibleInPip } from './pipChrome';
 
 export type { LivebuyPlayerConfig } from './LivebuyPlayerConfig';
 
@@ -376,6 +377,14 @@ export function LivebuyPlayer(props: LivebuyPlayerProps): ReactElement {
   const isInPiPRef = useRef(false);
   const resumeControllerRef = useRef<ForegroundResumeController | null>(null);
 
+  // Platform-agnostic PiP tracking for rn-android-pip-hide-chrome-reference-ui — deliberately
+  // SEPARATE from `isInPiPRef` above (which stays iOS-only / ref-only, unchanged, serving ONLY the
+  // foreground-resume controller). This is a `useState` (not a ref) because it must trigger a
+  // re-render to actually hide/show the JSX overlay chrome below; it is read on EVERY platform (the
+  // Android-only gating lives in `overlayChromeVisibleInPip`, not here) because `PIP_STATE_CHANGE`
+  // itself is not platform-gated at the event level.
+  const [pipActive, setPipActive] = useState(false);
+
   const sdkConfig = useSdkConfig(config.sdkConfig);
   const theme = useResolvedTheme(sdkConfig, config.hostOptions);
   const attachment = useTemplateAttachment(sdkConfig, config.hostOptions, playerRef);
@@ -469,6 +478,18 @@ export function LivebuyPlayer(props: LivebuyPlayerProps): ReactElement {
         isInPiPRef.current = active;
         if (!active) resumeControllerRef.current?.pipDidExit();
       }
+    }
+
+    // rn-android-pip-hide-chrome-reference-ui — platform-agnostic PiP tracking, deliberately a
+    // SEPARATE branch from the iOS-only block above (NOT folded into it, NOT `else if`'d against
+    // it — both branches must independently run off the SAME `PIP_STATE_CHANGE` event). This drives
+    // `pipActive` (a `useState`, unlike the iOS-only `isInPiPRef` above), which the JSX overlay-chrome
+    // gate below reads via `overlayChromeVisibleInPip` (Android-only hiding; iOS unaffected — see that
+    // function's own doc comment). Only calls `setPipActive` on an actual change to avoid a spurious
+    // re-render on every repeated PIP_STATE_CHANGE carrying the same value.
+    if (event.eventName === 'PIP_STATE_CHANGE') {
+      const active = params.active === true;
+      if (active !== pipActive) setPipActive(active);
     }
 
     // rb-rn-live-activity-sheet (design.md D3) — push-side intake for the template's
@@ -736,7 +757,10 @@ export function LivebuyPlayer(props: LivebuyPlayerProps): ReactElement {
           on-demand composer, all bound to the SAME template and absolutely positioned
           over the video (box-none passthrough). Rendered only once the template is
           attached. */}
-      {attachment != null
+      {/* rn-android-pip-hide-chrome-reference-ui — Android OS PiP in progress hides this ENTIRE
+          node (the sole JSX site that composes the overlay chrome); iOS is unaffected
+          (`overlayChromeVisibleInPip` only hides for Android — see its doc comment). */}
+      {attachment != null && overlayChromeVisibleInPip(pipActive, Platform.OS)
         ? resolveDesign(config.design).playerOverlay({
             attachment,
             theme,

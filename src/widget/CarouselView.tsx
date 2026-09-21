@@ -58,6 +58,20 @@
 //   `theme.background` (rb-rn-carousel-bgcolor, parity with `VideoShopGridView`'s
 //   existing `styles.container` background paint).
 //
+// ── PREVIEW SCROLL SIGNAL (rb-rn-widget-preview-offscreen-decoder-release) ──────────────
+//   The `scrollable` branch OWNS its horizontal `ScrollView`, so it is the one place that knows
+//   the turnkey row is scrolling — and RN's `onLayout` never re-fires on an ancestor scroll, so
+//   each card's `LoopingVideoView` off-screen measurement would otherwise stay at its mount-time
+//   value (9 cards, 3 visible, 6 off-screen each still holding an Android decoder). That branch
+//   therefore provides a `LivebuyPreviewScrollSignalContext` over its subtree and emits on
+//   `onScroll` (JS-throttled, `previewScrollSignalThrottleMs()`), `onScrollEndDrag` and
+//   `onMomentumScrollEnd` (always). The Provider is not a host element and the two new
+//   `ScrollView` props are invisible to structural snapshots (the scrollable branch has none).
+//   The WINDOWED branch is untouched: it is a plain Row and the real scroll belongs to the HOST's
+//   ScrollView, whose events this surface cannot see — a host that wants the same behaviour there
+//   can feed its own scroll events through the same context (see `livebuyPreviewScrollSignal.tsx`);
+//   without that, those cards keep today's "measure at layout time only" behaviour.
+//
 // jsx automatic runtime — no `import React`. Returns `ReactElement`.
 
 import type { ReactElement } from 'react';
@@ -70,6 +84,10 @@ import { LBTestIDs, carouselCard } from '../testing/LBTestIDs';
 import { CarouselCardView, DEFAULT_CARD_WIDTH } from './CarouselCardView';
 import { widgetGoodsFromFeatured } from './WidgetModel';
 import type { WidgetGoods } from './WidgetModel';
+import {
+  LivebuyPreviewScrollSignalContext,
+  usePreviewScrollSignalEmitter,
+} from './livebuyPreviewScrollSignal';
 
 import type { LBVideoItem } from 'livebuy-react-native';
 
@@ -199,6 +217,10 @@ export function Carousel(props: CarouselProps): ReactElement {
   // → `derive` hands back `resolvedTheme` itself, so today's pixels are untouched.
   const theme = ReferenceUIWidgetEmbedTheme.derive(resolvedTheme, widgetColor, widgetBgcolor);
 
+  // Preview scroll signal (see the file header). Hook is unconditional (rules of hooks); only the
+  // `scrollable` branch below provides / emits it — the windowed plain Row never touches it.
+  const previewScroll = usePreviewScrollSignalEmitter();
+
   // The header row shows when `title` is non-empty OR a `subtitle` exists (mirrors
   // `LBPCarousel`'s `(title || subtitle) && (...)`, widgets.jsx 208).
   const hasSubtitle = subtitle != null && subtitle.length > 0;
@@ -276,14 +298,22 @@ export function Carousel(props: CarouselProps): ReactElement {
           gap 12, leading padding 16 (mirrors the design's `padding: '0 16 6'`). */}
       {cards.length > 0 ? (
         scrollable ? (
-          <ScrollView
-            testID={LBTestIDs.widgetCarousel}
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.row}
-          >
-            {cardEls}
-          </ScrollView>
+          // The scrollable branch owns this ScrollView, so it also owns the preview scroll signal:
+          // throttled on `onScroll`, always on drag / momentum end (see the file header).
+          <LivebuyPreviewScrollSignalContext.Provider value={previewScroll.source}>
+            <ScrollView
+              testID={LBTestIDs.widgetCarousel}
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.row}
+              scrollEventThrottle={16}
+              onScroll={() => previewScroll.emitThrottled()}
+              onScrollEndDrag={() => previewScroll.emitNow()}
+              onMomentumScrollEnd={() => previewScroll.emitNow()}
+            >
+              {cardEls}
+            </ScrollView>
+          </LivebuyPreviewScrollSignalContext.Provider>
         ) : (
           <View testID={LBTestIDs.widgetCarousel} style={styles.row}>{cardEls}</View>
         )

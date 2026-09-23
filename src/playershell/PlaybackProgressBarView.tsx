@@ -76,6 +76,18 @@ const TRACK_HEIGHT = 3;
 const EXPANDED_TRACK_BACKGROUND_OPACITY = 0.35;
 const HANDLE_SIZE = 14;
 
+// rb-rn-intro-progress-bar-followup-fix: play/pause tap target enlargement. The button's visual
+// size (`PLAY_PAUSE_BUTTON_SIZE`, unchanged) is separate `<View style={{ width: TRANSPORT_SPACING
+// }} />` spacer AWAY from the progress track — `PLAY_PAUSE_HIT_SLOP` extends the TOUCHABLE area
+// into part of that spacer via `hitSlop`, without touching the button's own visual style. MUST
+// stay strictly less than `TRANSPORT_SPACING` on the side facing the track (right) so the
+// enlarged hit area never reaches, let alone overlaps, the track's own `PanResponder` touch area
+// — deliberately leaves a buffer (5 of the 10px gap) rather than using the whole gap, so a future
+// tweak to either constant doesn't silently introduce an overlap. Applied uniformly on all four
+// sides for a single, easy-to-reason-about value (there is no other touchable neighbor above,
+// below, or to the left within `TRANSPORT_HORIZONTAL_PADDING` that this needs to avoid).
+const PLAY_PAUSE_HIT_SLOP = 5;
+
 const READOUT_SPACING = 6;
 const READOUT_FONT_SIZE = 18;
 
@@ -188,9 +200,18 @@ export function PlaybackProgressBarView(props: PlaybackProgressBarProps): ReactE
     onScrubRef.current?.(ratio);
   };
 
-  // Reset the local drag ratio once the bar is fully back to idle so the NEXT scrub starts clean
-  // rather than briefly flashing a stale ratio before the first touch lands (parity iOS
-  // `.onChange(of: isExpanded)`).
+  // SECONDARY / DEFENSIVE reset only (rb-rn-intro-progress-bar-followup-fix): the PRIMARY reset
+  // now happens directly inside `onPanResponderRelease` / `onPanResponderTerminate` below (see
+  // their comments). This effect used to be the ONLY reset mechanism, gated on `isExpanded`
+  // flipping to `false` — that broke the intro clean-mode call site (`PlayerShellView.tsx`'s
+  // `showsIntroProgress` branch), which passes a LITERAL `isExpanded={true}` that never changes:
+  // this effect's dependency never re-fires there, so `dragRatio` stayed frozen at whatever ratio
+  // the user last dragged to, forever — the progress bar looked "stuck", no longer tracking real
+  // playback. For the VOD/replay call site (`isExpanded` really does flip to `false` once the
+  // post-release hold window elapses) the release/terminate handlers below already reset
+  // `dragRatio` well before that happens, so by the time this effect's condition becomes true,
+  // `dragRatio` is already `null` and this is a no-op — kept only as a defensive fallback for any
+  // gesture-termination path that doesn't route through those two handlers.
   useEffect(() => {
     if (!isExpanded) setDragRatio(null);
   }, [isExpanded]);
@@ -226,16 +247,27 @@ export function PlaybackProgressBarView(props: PlaybackProgressBarProps): ReactE
         // actually-released position to diverge from what native ends up seeked to. See
         // {@link emitScrubEnd} for why `onScrubEnded`/`onScrubEnd` MUST both run before this.
         const ratio = dragRatioFromOffset(evt.nativeEvent.locationX, trackWidthRef.current);
-        setDragRatio(ratio);
         emitScrubEnd(ratio, onScrubEndedRef.current, onScrubEndRef.current, (r) => emitSeek(r, { force: true }));
+        // rb-rn-intro-progress-bar-followup-fix: reset the local drag ratio directly HERE, at the
+        // gesture-end callback itself, rather than relying on the `isExpanded`-watching effect
+        // above — the intro clean-mode call site passes a LITERAL `isExpanded={true}` that never
+        // changes (see `PlayerShellView.tsx`'s `showsIntroProgress` comment), so that effect never
+        // fires there and the bar previously froze at the release ratio forever. Parity Flutter's
+        // `_handleUp()`, which resets its own drag state at the gesture-end callback, not via an
+        // external state watch. No intermediate `setDragRatio(ratio)` here — React batches all
+        // `setState` calls within this synchronous handler into a single re-render, so an
+        // intermediate assignment immediately overwritten by this `null` would never actually
+        // paint; skipping it avoids dead code, not a behavior change.
+        setDragRatio(null);
       },
       // Defensive: a terminated gesture (e.g. an OS-level interruption) is still a "finger lifted"
       // from this view's perspective — the caller's 2.8s hold timer must still fire, mirroring
-      // `onPanResponderRelease` (including reading the event's own position and the same ordering).
+      // `onPanResponderRelease` (including reading the event's own position and the same ordering,
+      // and the same immediate `setDragRatio(null)` reset — rb-rn-intro-progress-bar-followup-fix).
       onPanResponderTerminate: (evt: GestureResponderEvent) => {
         const ratio = dragRatioFromOffset(evt.nativeEvent.locationX, trackWidthRef.current);
-        setDragRatio(ratio);
         emitScrubEnd(ratio, onScrubEndedRef.current, onScrubEndRef.current, (r) => emitSeek(r, { force: true }));
+        setDragRatio(null);
       },
     }),
   ).current;
@@ -359,6 +391,12 @@ function PlayPauseButton(props: { isPlaying: boolean; onTap?: () => void }): Rea
     <Pressable
       testID={LBTestIDs.playbackProgressPlayPause}
       onPress={() => onTap?.()}
+      hitSlop={{
+        top: PLAY_PAUSE_HIT_SLOP,
+        bottom: PLAY_PAUSE_HIT_SLOP,
+        left: PLAY_PAUSE_HIT_SLOP,
+        right: PLAY_PAUSE_HIT_SLOP,
+      }}
       style={{
         width: PLAY_PAUSE_BUTTON_SIZE,
         height: PLAY_PAUSE_BUTTON_SIZE,

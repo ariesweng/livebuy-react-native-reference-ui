@@ -18,7 +18,15 @@
 //                   chrome (LIVE / VOD) visible behind; the ONLY added UI is a
 //                   bottom-right「略過介紹」skip pill. NO 片頭 tag / muted indicator /
 //                   brand backdrop / title card / progress bar (all removed — 開場影片
-//                   有聲、不接管畫面).
+//                   有聲、不接管畫面). `cleanMode === true` (rb-rn-clean-mode-upcoming-
+//                   intro-coverage — 「開場影片時，乾淨模式也要隱藏右下角略過介紹」) hides
+//                   the skip pill entirely; `cleanMode === false` / omitted (the default)
+//                   is byte-identical to before this change. The corresponding EXPANDED
+//                   read-only progress row is a SEPARATE surface owned by
+//                   `PlayerShellView.tsx` (Surface 1, sits BELOW this transparent
+//                   overlay) — see that file's `showsIntroProgressBar` — NOT drawn by
+//                   this component, since this surface has no access to playback-
+//                   position data (its only input is the lifecycle `phase`).
 //     • `done`      不畫 (renders NOTHING — returns `null`).
 //
 // SUB-VIEW INPUT PATTERN (the contract documented in `MomentsView.tsx`):
@@ -155,6 +163,18 @@ export interface StartScreenProps {
    */
   readonly live?: boolean;
 
+  /**
+   * Whether the host player is currently in 乾淨模式 (clean mode — rb-rn-clean-mode-upcoming-
+   * intro-coverage). Read ONLY on the `splash` phase: `true` hides the bottom-right「略過介紹」
+   * skip pill entirely (the ONLY other family-4 `splash` UI besides the pill this file draws, so
+   * `splash` renders NOTHING extra while clean mode is on — the expanded intro progress row is a
+   * SEPARATE surface, see the file-header note above). `false` / omitted (the DEFAULT) is
+   * byte-identical to the pre-existing `splash` rendering. This component does NOT own the
+   * `cleanMode` toggle itself (it lives on `PlayerShellView`, a sibling surface) — it only reads
+   * the value BY VALUE, mirroring this file's established SUB-VIEW INPUT PATTERN.
+   */
+  readonly cleanMode?: boolean;
+
   // -- 3. optional action callback (LAST, defaulting to a no-op) -------------
   /** Splash「略過介紹」open intent → host → core `Player.skipStart()`. This surface
    *  does NOT own the skip; omitted → the pill renders correctly but is inert. */
@@ -240,12 +260,18 @@ function renderLoading(theme: ReferenceUITheme, coverUrl?: string, live?: boolea
  *  design `LBPSkipIntroButton`). The overlay is transparent so the chrome behind shows
  *  through. Plain `View` + absolute-positioned skip pill. */
 function renderSplash(props: StartScreenProps): ReactElement {
-  const { theme, onSkip } = props;
+  const { theme, onSkip, cleanMode } = props;
   return (
     <View testID={LBTestIDs.momentStart} style={{ flex: 1 }}>
-      <View style={{ position: 'absolute', right: 12, bottom: 16 }}>
-        {renderSkipPill(theme, onSkip)}
-      </View>
+      {/* rb-rn-clean-mode-upcoming-intro-coverage: the skip pill hides while `cleanMode` is on —
+          `!cleanMode` covers both the explicit `false` and the default `undefined`, so the
+          pre-existing (no `cleanMode` prop passed) call sites keep drawing the pill exactly as
+          before this change. */}
+      {!cleanMode ? (
+        <View style={{ position: 'absolute', right: 12, bottom: 16 }}>
+          {renderSkipPill(theme, onSkip)}
+        </View>
+      ) : null}
     </View>
   );
 }

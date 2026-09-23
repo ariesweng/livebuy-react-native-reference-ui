@@ -23,6 +23,14 @@
 import { isFinishedLiveReplay } from 'livebuy-react-native-ui';
 import type { EndScreenNavRow } from 'livebuy-react-native-ui';
 
+// rb-rn-endscreen-live-duration — reuses `formatTimestamp` from the playershell module (a plain
+// exported pure function, not a `livebuy-react-native` VALUE import — the jest-loadability
+// constraint documented above is specifically about this package's OWN core npm dependency,
+// which pulls in `NativeModules`/`requireNativeComponent`; `react-native` itself is safely
+// module-mapped to a mock for every test in this package, so a `.tsx` component module that
+// merely imports `react-native` loads fine here too).
+import { formatTimestamp } from '../playershell/PlaybackProgressBarView';
+
 /**
  * Shape of the fields this module reads off `LBPlayerChannelInfo`. A structural
  * subset (not an import of the real type from `livebuy-react-native`) — mirrors
@@ -143,4 +151,19 @@ export function deriveEndScreenNavRows(
     shopName: item.shopName,
     duration: item.duration,
   }));
+}
+
+/**
+ * Format `LBPlayerChannelInfo.liveDurationSeconds` (raw seconds, `null` when no goods poll has
+ * landed yet for this video) into the EndScreen 空狀態's「直播時長：…」line
+ * (rb-rn-endscreen-live-duration). `null` → `''`, letting `EndScreenView`'s own default prop
+ * value (`liveDuration = ''`) render its existing `"--:--:--"` fallback — this function does
+ * NOT invent a fallback string itself, mirroring `deriveEndScreenNavRows`'s convention of
+ * passing missing-data straight through to the surface's own absent-field handling. A non-null
+ * value is formatted via {@link formatTimestamp} (reused from the playershell module, NOT
+ * reimplemented) — a zero-padded, ALWAYS-3-segment `HH:MM:SS` (e.g. `5070` → `"01:24:30"`),
+ * matching the visual shape of the `"--:--:--"` fallback it replaces. Pure / deterministic.
+ */
+export function deriveLiveDuration(seconds: number | null): string {
+  return seconds == null ? '' : formatTimestamp(seconds);
 }

@@ -460,11 +460,13 @@ export type TapZone = 'rewind' | 'forward';
  * design's `stateInLiveFamily` union. `isUpcoming` MUST be threaded through explicitly (not
  * inferred from `!isLive`): `model.isLive` is the narrower "`liveStatus === 1`" signal, mutually
  * exclusive with `isUpcoming` — using only `!isLive` would wrongly mark an upcoming countdown as
- * seekable. `PlayerShellView`'s render body never actually reaches this predicate while upcoming
- * (that branch early-returns before the gesture `Pressable` is even composed), but the exported
- * pure function still models the full truth table so it stays independently testable and matches
- * iOS `PlayerShellView.isSeekable(isLive:isUpcoming:isFinishedLiveReplay:)` 1:1. Unit-testable
- * without rendering a gesture (per unit-test discipline).
+ * seekable. `PlayerShellView`'s render body DOES now reach this predicate while upcoming
+ * (rb-rn-clean-mode-upcoming-intro-coverage mounted a video-area `Pressable` in that branch too,
+ * calling the SAME `handleVideoTap` — see the `model.isUpcoming` early-return below); this
+ * predicate's `isUpcoming` disjunct is exactly what makes that tap toggle `cleanMode`
+ * IMMEDIATELY instead of deferring for a double-tap-seek that upcoming can never support. Unit-
+ * testable without rendering a gesture (per unit-test discipline). Parity iOS
+ * `PlayerShellView.isSeekable(isLive:isUpcoming:isFinishedLiveReplay:)` 1:1.
  */
 export function isSeekable(
   isLive: boolean,
@@ -615,6 +617,22 @@ export function showsPlaybackProgressBar(
   isReplay: boolean,
 ): boolean {
   return isMain && !isUpcoming && (!isLive || isReplay);
+}
+
+/**
+ * PURE: whether the interactive intro-progress row should render (Requirement B,
+ * rb-rn-intro-progress-bar-interactive — 「開場影片時，乾淨模式也要...顯示展開進度條」，可暫停/
+ * 播放、可拖拉 seek，取代 rb-rn-clean-mode-upcoming-intro-coverage 原本的唯讀 3px 細線版本).
+ * `introPlaying && cleanMode` — the row appears ONLY once the viewer has explicitly entered clean
+ * mode DURING the intro MP4 preroll; `cleanMode === false` (the default) shows nothing extra, so
+ * the pre-existing intro chrome (bag-only bottom bar, header) is byte-identical to before this
+ * change. Deliberately NOT folded into {@link showsPlaybackProgressBar}'s `isMain` (which
+ * explicitly EXCLUDES `introPlaying` — that gate is for the MAIN-playback transport bar) — this
+ * is a narrowly-scoped SEPARATE surface for the intro's own playhead. Unit-testable without
+ * rendering (per unit-test discipline).
+ */
+export function showsIntroProgressBar(introPlaying: boolean, cleanMode: boolean): boolean {
+  return introPlaying && cleanMode;
 }
 
 /**
@@ -1430,15 +1448,25 @@ export function PlayerShellView(props: PlayerShellViewProps): ReactElement {
   if (model.isUpcoming) {
     return (
       <View testID={LBTestIDs.playerShell} style={{ flex: 1, backgroundColor: theme.background }}>
-        {/* Background: the upcoming countdown surface (date + big time). `live={false}`
-            → solid theme.background (deterministic snapshot, no remote cover load). The
-            host supplies the real cover behind this chrome at runtime. */}
+        {/* Background: the upcoming countdown surface (date + big time). Forwards the
+            scope's runtime `live` signal (rb-rn-upcoming-live-wiring-fix — the prior
+            hardcoded `live={false}` never let the `live === true` branch run at host
+            runtime, matching the same wiring bug already fixed on Android in
+            rb-android-upcoming-cover-real-image). `live === true` + non-empty
+            `coverUrl` → UpcomingCountdownView overlays the real channel cover via its
+            own RemoteImage gate; `live === false` (demo / snapshot) → deterministic
+            solid theme.background, unchanged. */}
         <UpcomingCountdownView
           theme={theme}
           scheduledStartAt={model.upcomingStartAt}
-          live={false}
+          live={live}
           coverUrl={model.upcomingCover}
         />
+
+        {/* rb-rn-clean-mode-upcoming-not-triggered: 直播預告倒數 MUST NOT 支援乾淨模式（訂正
+            rb-rn-clean-mode-upcoming-intro-coverage 的誤判——使用者原始回報描述的其實是期望行為，
+            不是 bug）。先前在這裡掛的 video-area tap `Pressable` 已移除，這個分支重新回到完全沒有
+            手勢偵測的狀態，`cleanMode` 對 upcoming 而言永遠是 `false`。*/}
 
         {/* Header pinned top (LIVE pill / viewer count hidden since isLive == false
             for upcoming). The minimize / subscribe handlers forward as usual. */}
@@ -1478,19 +1506,15 @@ export function PlayerShellView(props: PlayerShellViewProps): ReactElement {
             // defensive: omitting it would let the header fall back to「may scroll」and ignore
             // the merchant's setting on scheduled-live videos.
             titleScroll={titleScroll}
-            // rb-rn-gesture-clean-mode-v2 — `cleanMode` can only be toggled by the video-area
-            // gesture Pressable, which this upcoming branch does not mount, so `cleanMode` is
-            // always `false` while upcoming. Forwarded anyway for interface consistency across
-            // both `PlayerHeaderBar` call sites.
-            hidesHostBadge={cleanMode}
-            muted={model.muted}
-            onToggleMute={cleanMode ? onToggleMute : undefined}
+            // rb-rn-clean-mode-upcoming-not-triggered — upcoming MUST NOT 支援乾淨模式，
+            // `hidesHostBadge` / `onToggleMute` 不轉發，維持其預設值（`false` / `undefined`）。
           />
         </View>
 
         {/* SLIM LIVE bottom bar pinned bottom (bag + spacer + share + like; no 留言 /
             nickname / CC). bag / share / like route through the existing rail wiring by
-            kind. NO VOD side rail / floating bag / mini-cart / overlay chrome. */}
+            kind. NO VOD side rail / floating bag / mini-cart / overlay chrome. 永遠顯示，與乾淨
+            模式無關（rb-rn-clean-mode-upcoming-not-triggered）——upcoming 不支援乾淨模式。 */}
         <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0 }}>
           <LiveBottomBarView
             theme={theme}
@@ -1513,7 +1537,8 @@ export function PlayerShellView(props: PlayerShellViewProps): ReactElement {
           />
         </View>
 
-        {/* 愛心 burst 錨於 slim 底部 bar 愛心上方（靜止態 render null → snapshot 中立）。 */}
+        {/* 愛心 burst 錨於 slim 底部 bar 愛心上方（靜止態 render null → snapshot 中立）。永遠顯示，
+            與乾淨模式無關（rb-rn-clean-mode-upcoming-not-triggered）——upcoming 不支援乾淨模式。 */}
         <HeartBurst theme={theme} tick={liveHeartTick} style={{ position: 'absolute', right: 18, bottom: 64 }} />
       </View>
     );
@@ -1537,6 +1562,10 @@ export function PlayerShellView(props: PlayerShellViewProps): ReactElement {
     model.isLive,
     model.isFinishedLiveReplay,
   );
+
+  // Whether the interactive intro-progress row should be composed (Requirement B,
+  // rb-rn-intro-progress-bar-interactive). See {@link showsIntroProgressBar}'s doc comment.
+  const showsIntroProgress = showsIntroProgressBar(model.introPlaying, cleanMode);
 
   // Whether `LiveNowPillView` should be composed (rb-rn-live-now-pill). `isMainPlaybackPhase` is
   // the SAME value `showsProgressBar` above feeds as `isMain` — it does NOT exclude a genuinely
@@ -1990,6 +2019,69 @@ export function PlayerShellView(props: PlayerShellViewProps): ReactElement {
             // 乾淨模式（cleanMode）下強制展開為完整 transport 列，即使使用者未在拖曳
             // （rb-rn-gesture-clean-mode-rewrite，design R23）；元件本身零改動。
             isExpanded={scrubBarExpanded || cleanMode}
+            onTogglePlayPause={() => model.togglePlayPause()}
+            onScrubStarted={handleScrubStarted}
+            onScrubBegin={handleScrubBegin}
+            onScrub={handleScrub}
+            onScrubEnded={handleScrubEnded}
+            onScrubEnd={handleScrubEnd}
+          />
+        </View>
+      ) : null}
+
+      {/* Intro clean-mode INTERACTIVE expanded progress row (rb-rn-intro-progress-bar-interactive,
+          MODIFIED — supersedes the read-only 3px static line `rb-rn-clean-mode-upcoming-intro-
+          coverage` originally shipped: 「不是細線進度條，是展開進度條，要可以暫停開始以及拖拉」).
+          Directly composes the SAME `PlaybackProgressBarView` instance the VOD/replay transport
+          bar above uses — no parallel hand-rolled implementation — with `isExpanded` forced
+          `true` (this branch only ever renders while `cleanMode === true`, see
+          `showsIntroProgressBar`, so `isExpanded` is trivially always true here; see design.md D2
+          for why this is a literal rather than reusing `scrubBarExpanded || cleanMode`). All six
+          callbacks forward to the EXISTING VOD scrub handlers (`handleScrubStarted` /
+          `handleScrubBegin` / `handleScrub` / `handleScrubEnded` / `handleScrubEnd`, ultimately
+          `model.togglePlayPause()` / `model.seek(...)`) — no new core/view-model API, no second
+          `isScrubbing`/`scrubBarExpanded` state: `showsProgressBar` (VOD/replay bar) and
+          `showsIntroProgress` (this row) are mutually exclusive (`isMainPlaybackPhase` explicitly
+          excludes `model.introPlaying`), so at most one `PlaybackProgressBarView` instance is
+          ever mounted at a time — sharing state is safe (design.md D3). A side effect of sharing
+          `isScrubbing`: dragging this bar also hides the intro's bag-only bottom bar via its own
+          existing `!isScrubbing` gate below, matching the VOD bar's established "hide chrome
+          while dragging" behaviour.
+
+          Progress-reporting routing: iOS (`5af921d48`) / Android (`8245bb849`) core fixed
+          `togglePlayPause()`/`seek()`/`seekBy()`/progress-echo to route to the intro MP4 player
+          today — this RN reference-ui layer needed no core/bridge change (the native bridge is a
+          pure forwarder that inherits the fix automatically), which is why interactivity can now
+          be wired here safely. Whether `model.position`/`model.duration` reflect intro-MP4
+          progress with full precision at every instant is still not independently re-verified by
+          THIS (reference-ui-only) change — any residual gap is a core-layer follow-up, not a
+          reference-ui concern.
+
+          Positioned ABOVE the bag-only bottom bar
+          (`LIVE_BOTTOM_BAR_HEIGHT + LIVE_BOTTOM_BAR_CLEARANCE_GAP` — the SAME clearance constants
+          `captionOverlayBottomInset` already uses) so the two never visually collide; that bag-
+          only bar is itself NOT gated by `cleanMode` (pre-existing behaviour, unchanged, out of
+          this fix's scope). The pre-existing 「退出乾淨模式」round exit button below is
+          unconditional on `cleanMode` alone (not gated on `!introPlaying`), so it already covers
+          this phase too — no separate exit affordance needed here. */}
+      {showsIntroProgress ? (
+        <View
+          testID={LBTestIDs.introProgressBar}
+          style={{
+            position: 'absolute',
+            left: 0,
+            right: 0,
+            bottom: LIVE_BOTTOM_BAR_HEIGHT + LIVE_BOTTOM_BAR_CLEARANCE_GAP,
+            paddingHorizontal: 12,
+          }}
+        >
+          <PlaybackProgressBarView
+            theme={theme}
+            position={model.position}
+            duration={model.duration}
+            isPlaying={model.isPlaying}
+            isScrubbing={isScrubbing}
+            isExpanded
             onTogglePlayPause={() => model.togglePlayPause()}
             onScrubStarted={handleScrubStarted}
             onScrubBegin={handleScrubBegin}

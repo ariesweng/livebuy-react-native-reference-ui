@@ -77,6 +77,7 @@ import {
   deriveHeaderChromeFields,
   deriveServiceLinkAvailable,
   deriveEndScreenNavRows,
+  deriveLiveDuration,
 } from './channelChrome';
 import { overlayChromeVisibleInPip } from './pipChrome';
 
@@ -365,6 +366,17 @@ export function LivebuyPlayer(props: LivebuyPlayerProps): ReactElement {
   // D3), consumed by `refreshSubtitleCuesIfUrlChanged`.
   const [subtitleCues, setSubtitleCues] = useState<readonly VTTCue[]>([]);
   const lastFetchedSubtitleUrlRef = useRef('');
+
+  // rb-rn-endscreen-live-duration — the EndScreen 空狀態's「直播時長：…」line, ALREADY FORMATTED
+  // (`deriveLiveDuration`, `HH:MM:SS` or `''`). REAL React state (same rationale as
+  // `subtitleCues` above, not a ref) — it must trigger a re-render so a fresh goods-poll value
+  // actually shows up. Bypasses the `react-native-ui` template package entirely — UNLIKE
+  // `next[]`/`viewerCount`/products (which flow through `template.handleMomentSnapshot`), this
+  // value is threaded straight from this container-held state down through
+  // `LivebuyPlayerOverlays`/`MomentsView` as a plain prop, mirroring the EXISTING `live`/
+  // `cleanMode` precedent (`MomentsViewProps`) rather than adding a new `react-native-ui` view-
+  // model field for a value that needs no diffing/notification logic beyond formatting.
+  const [liveDuration, setLiveDuration] = useState('');
 
   // iOS-gated PiP-pause foreground-resume (rn-refui-pip-pause-foreground-resume, parity iOS
   // `ForegroundResumeController`). The wrapped headless `<LivebuyPlayerCore enablePiP>` inherits the
@@ -719,6 +731,13 @@ export function LivebuyPlayer(props: LivebuyPlayerProps): ReactElement {
             viewerCount: info.viewerCount,
             next: deriveEndScreenNavRows(info.next),
           });
+          // rb-rn-endscreen-live-duration — same `onChannelChange` re-fire cadence as the
+          // `handleMomentSnapshot` call above (moment-state-sourced, NOT channel-sourced), but
+          // bypasses the template entirely — see `liveDuration` state's own doc comment above for
+          // why. Formats `info.liveDurationSeconds` (raw seconds, `null` when no goods poll has
+          // landed yet) into the EndScreen 空狀態's「直播時長：…」line via the pure
+          // `deriveLiveDuration` fold (`channelChrome.ts`).
+          setLiveDuration(deriveLiveDuration(info.liveDurationSeconds));
           // VOD CC 字幕（rb-react-native-subtitle-vtt-caption-display）：抓取 + 解析
           // `channel.subtitle_url`（換片防呆 + staleness 邏輯見 `subtitlePipeline.ts`），同時餵
           // `handleRailEnablement({ subtitleAvailable })` 讓側欄 CC 鈕的可見性正確反映這支影片是否
@@ -774,6 +793,7 @@ export function LivebuyPlayer(props: LivebuyPlayerProps): ReactElement {
             serviceLink: (): string => serviceLinkRef.current,
             subtitleCues,
             liveNow,
+            liveDuration,
           })
         : null}
       </View>

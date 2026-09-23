@@ -93,6 +93,9 @@ export const LBTestIDs = {
   playbackProgressTrack: 'lb_playback_progress_track',
   playbackProgressPlayPause: 'lb_playback_progress_play_pause',
   playbackProgressReadout: 'lb_playback_progress_readout',
+  // rb-rn-clean-mode-upcoming-intro-coverage — 開場影片 cleanMode 期間的唯讀展開進度列（不可拖曳
+  // seek，只顯示 position/duration 進度）。
+  introProgressBar: 'lb_intro_progress_bar',
   // rb-react-native-subtitle-vtt-caption-display — VOD CC 字幕 overlay.
   captionOverlay: 'lb_caption_overlay',
   // rb-rn-live-now-pill — 「現正直播」right-edge half-pill. Value is 1:1 identical to iOS

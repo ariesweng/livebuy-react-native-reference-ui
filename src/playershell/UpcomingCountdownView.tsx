@@ -13,17 +13,23 @@
 // (`live_status == 0`, 直播預告). Promoted from a top-most moment to the player-shell
 // background (see PlayerShellView's upcoming branch). Binds the template
 // `upcomingState` (republished onto PlayerShellModel.upcomingStartAt / upcomingCover):
-//   - live === true  -> cover placeholder background (NO network-uri Image — uses a
-//                       deterministic dark fill) + a black @ 0.35 dark mask (so the
-//                       text reads),
+//   - live === true  -> a deterministic dark fill (COVER_FILL) as the base, with the
+//                       REAL channel cover (rb-rn-upcoming-live-wiring-fix) overlaid on
+//                       top via the package's shared RemoteImage gate whenever
+//                       `coverUrl` (trimmed) is non-empty — parity iOS
+//                       `UpcomingCountdownView.swift:44-52` / Android
+//                       `rb-android-upcoming-cover-real-image`. A blank / failed-to-load
+//                       `coverUrl` falls back to the plain COVER_FILL dark fill (no
+//                       blank area). Then a black @ 0.35 dark mask on top (so the text
+//                       reads),
 //   - live === false -> solid theme.background (golden-deterministic, no cover load).
 //   - centered: scheduled DATE (small ~14/600) + scheduled TIME (big ~56/800).
 //
 // GOLDEN-DETERMINISM (iOS / Android / Flutter lessons baked in): plain View / Text
-// only — NO ScrollView/FlatList, NO ring/Canvas, NO ticking countdown / timer, NO
-// `Date.now()` dependency. Date / time are pure string reformats of the backend
-// publish_at (see scheduledDate / scheduledTime), so the `live === false` baseline is
-// byte-stable.
+// only (plus the RemoteImage overlay, gated OFF by default — see RemoteImage.tsx) — NO
+// ScrollView/FlatList, NO ring/Canvas, NO ticking countdown / timer, NO `Date.now()`
+// dependency. Date / time are pure string reformats of the backend publish_at (see
+// scheduledDate / scheduledTime), so the `live === false` baseline is byte-stable.
 //
 // SUB-VIEW INPUT PATTERN (mirrors the family-1 surfaces): `theme` first → bound
 // SNAPSHOT VALUE(s) by value (`scheduledStartAt` / `coverUrl`) → `live` opt-in.
@@ -34,6 +40,7 @@ import { Text } from '../TightText';
 
 import type { ReferenceUITheme } from '../theme';
 import { LBTestIDs } from '../testing/LBTestIDs';
+import { RemoteImage } from '../productsheets/RemoteImage';
 
 // MARK: - Cover placeholder + mask tokens (live === true runtime background)
 
@@ -58,9 +65,11 @@ export interface UpcomingCountdownViewProps {
    */
   readonly live?: boolean;
   /**
-   * The video cover URL (`PlayerShellModel.upcomingCover` ← `channel.cover`).
-   * Retained for host-supplied wiring; this layer paints a deterministic
-   * placeholder, NEVER a network image.
+   * The video cover URL (`PlayerShellModel.upcomingCover` ← `channel.cover`). When
+   * `live === true` and this is non-blank, `UpcomingCountdownView` overlays the real
+   * network image over the deterministic COVER_FILL placeholder (via the shared
+   * `RemoteImage` gate — `rb-rn-upcoming-live-wiring-fix`, parity iOS / Android). A
+   * blank value, or a load failure, leaves the COVER_FILL placeholder visible.
    */
   readonly coverUrl?: string;
 }
@@ -72,11 +81,17 @@ export interface UpcomingCountdownViewProps {
  * `live === false`).
  */
 export function UpcomingCountdownView(props: UpcomingCountdownViewProps): ReactElement {
-  const { theme, scheduledStartAt, live = false } = props;
+  const { theme, scheduledStartAt, live = false, coverUrl = '' } = props;
   const date = scheduledDate(scheduledStartAt);
   return (
     <View testID={LBTestIDs.momentCountdownRoot} style={[styles.fill, { backgroundColor: live ? COVER_FILL : theme.background }]}>
-      {/* Dark mask over the cover placeholder (live === true) so the text reads. */}
+      {/* Real channel cover overlay (live === true, non-blank coverUrl) —
+          rb-rn-upcoming-live-wiring-fix. RemoteImage self-gates to `null` when
+          `live === false`, `coverUrl` is blank, or the load fails, leaving the
+          COVER_FILL fill above as the visible fallback (no blank area). */}
+      {live ? <RemoteImage live={live} uri={coverUrl} resizeMode="cover" style={styles.fill} /> : null}
+
+      {/* Dark mask over the cover (placeholder or real photo) so the text reads. */}
       {live ? <View style={[styles.fill, styles.mask]} /> : null}
 
       {/* Centered content: scheduled DATE (small) + scheduled TIME (big). */}

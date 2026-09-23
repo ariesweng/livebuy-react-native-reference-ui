@@ -122,6 +122,16 @@ export interface PlayerOverlayContext {
    * `liveNowController?.liveNow`). Default `undefined`.
    */
   readonly liveNow?: LBVideoItem | null;
+  /**
+   * The EndScreen 空狀態's「直播時長：…」line, ALREADY FORMATTED (`HH:MM:SS` or `''`) —
+   * container-held React state from `LivebuyPlayer.tsx`'s `onChannelChange` handler, which
+   * derives it from `LBPlayerChannelInfo.liveDurationSeconds` (moment-state-sourced raw seconds)
+   * via the pure `deriveLiveDuration` fold (`channelChrome.ts`, rb-rn-endscreen-live-duration).
+   * Threaded straight down to `MomentsView.liveDuration` — bypasses the `react-native-ui`
+   * template package entirely, mirroring this context's own `live`/`cleanMode` precedent.
+   * Default `''` (renders `MomentsView`/`EndScreenView`'s existing `"--:--:--"` fallback).
+   */
+  readonly liveDuration?: string;
 }
 
 /**
@@ -240,6 +250,7 @@ export const MinimalDesign: ReferenceUIDesign = {
         serviceLink={context.serviceLink}
         subtitleCues={context.subtitleCues}
         liveNow={context.liveNow}
+        liveDuration={context.liveDuration}
       />
     );
   },

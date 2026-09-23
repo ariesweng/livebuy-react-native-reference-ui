@@ -89,6 +89,15 @@ export interface LivebuyPlayerOverlaysProps {
    * `undefined`。
    */
   liveNow?: LBVideoItem | null;
+  /**
+   * EndScreen 空狀態的「直播時長：…」line，已格式化（`HH:MM:SS` 或 `''`；rb-rn-endscreen-live-
+   * duration）——`LivebuyPlayer.tsx` 的 `onChannelChange` 持有的 React state，由
+   * `LBPlayerChannelInfo.liveDurationSeconds`（moment-state-sourced 原始秒數）經純函式
+   * `deriveLiveDuration`（`channelChrome.ts`）算出。直接轉發給 `MomentsView.liveDuration`——
+   * 不經過 `react-native-ui` template 套件，比照本元件既有的 `live` / `cleanMode` 慣例。預設
+   * `''`（渲染 `MomentsView` / `EndScreenView` 既有的 `"--:--:--"` fallback）。
+   */
+  liveDuration?: string;
 }
 
 /**
@@ -110,6 +119,7 @@ export function LivebuyPlayerOverlays(props: LivebuyPlayerOverlaysProps): ReactE
     serviceLink,
     subtitleCues = [],
     liveNow = null,
+    liveDuration = '',
   } = props;
   const template = attachment.template;
 
@@ -487,6 +497,14 @@ export function LivebuyPlayerOverlays(props: LivebuyPlayerOverlaysProps): ReactE
           // cover photo in the 倒數變體 preview card (rb-rn-endscreen-recommended-video-cover;
           // parity with PlayerShellView's `live` above). Standalone / snapshot faces omit it → false.
           live
+          // rb-rn-clean-mode-upcoming-intro-coverage — mirror PlayerShellView's cleanMode the SAME
+          // way it is already mirrored to FeedWinView above (the `cleanMode` state declared near
+          // the top of this component), so the splash-phase StartScreen can hide its「略過介紹」
+          // skip pill while clean mode is on.
+          cleanMode={cleanMode}
+          // rb-rn-endscreen-live-duration — forward the container-held, already-formatted
+          // live-duration string straight through to the EndScreen 空狀態's「直播時長：…」line.
+          liveDuration={liveDuration}
           onWatchNext={onWatchNext}
           onSkip={moment.onSkip}
           onCancel={moment.onCancel}

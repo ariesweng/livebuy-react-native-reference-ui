@@ -203,6 +203,29 @@ export interface MomentsViewProps {
    */
   readonly live?: boolean;
 
+  /**
+   * Whether the host player is currently in 乾淨模式 (clean mode — rb-rn-clean-mode-upcoming-
+   * intro-coverage). Mirrored down from `PlayerShellView`'s own `cleanMode` local state (via its
+   * `onCleanModeChange` callback, the SAME way the turnkey container already mirrors it for the
+   * sibling chat feed — see `LivebuyPlayerOverlays.tsx`), then forwarded BY VALUE to `StartScreen`
+   * on the `splash` phase ONLY (`StartScreenView.tsx`'s `cleanMode` prop hides the「略過介紹」skip
+   * pill while `true`). `false` / omitted (the DEFAULT) is byte-identical to before this change —
+   * every OTHER moment (`EndScreen` / `ErrorScreen`) does not read it at all.
+   */
+  readonly cleanMode?: boolean;
+
+  /**
+   * The EndScreen 空狀態's「直播時長：…」line, ALREADY FORMATTED (`HH:MM:SS` or `''`;
+   * rb-rn-endscreen-live-duration). Mirrored down from `LivebuyPlayer.tsx`'s container-held
+   * React state (via `LivebuyPlayerOverlays`), derived from `LBPlayerChannelInfo.
+   * liveDurationSeconds` (moment-state-sourced raw seconds) through the pure `deriveLiveDuration`
+   * fold (`channelChrome.ts`) — the SAME threading pattern as `live`/`cleanMode` above (bypasses
+   * the `react-native-ui` template package entirely). `''` / omitted (the DEFAULT) forwards
+   * straight through to `EndScreen.liveDuration`'s own default, which renders the existing
+   * `"--:--:--"` fallback — byte-identical to before this change.
+   */
+  readonly liveDuration?: string;
+
   // Host-wired interaction callbacks. The container owns NO core action — each is
   // forwarded to the host (which wires it to the core player exit). All optional; an
   // omitted callback means an inert CTA. The Model carries NO forwarder for these
@@ -259,6 +282,8 @@ export function MomentsView(props: MomentsViewProps): ReactElement | null {
     template = null,
     theme,
     live = false,
+    cleanMode = false,
+    liveDuration = '',
     onSkip,
     onWatchNext,
     onCancel,
@@ -397,6 +422,7 @@ export function MomentsView(props: MomentsViewProps): ReactElement | null {
         countdown={countdown}
         next={model.next}
         live={live}
+        liveDuration={liveDuration}
         onWatchNext={handleWatchNext}
         onCancel={handleCancel}
         onViewCart={handleViewCart}
@@ -413,6 +439,7 @@ export function MomentsView(props: MomentsViewProps): ReactElement | null {
         phase={model.startPhase}
         coverUrl={model.loadingCover}
         live={live}
+        cleanMode={cleanMode}
         onSkip={handleSkip}
       />
     );

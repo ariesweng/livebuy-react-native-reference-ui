@@ -229,6 +229,9 @@ export const LBTestIDs = {
   // ── Family 5 — widget ─────────────────────────────────────────────────────
   widgetCarousel: 'lb_widget_carousel',
   widgetGrid: 'lb_widget_grid',
+  // rb-rn-widget-loading-placeholder — first-load placeholder roots (design D9).
+  widgetCarouselLoading: 'lb_widget_carousel_loading',
+  widgetGridLoading: 'lb_widget_grid_loading',
   widgetSeeMore: 'lb_widget_see_more',
   gridLoadMoreFooter: 'lb_grid_load_more_footer',
   gridEndLabel: 'lb_grid_end_label',

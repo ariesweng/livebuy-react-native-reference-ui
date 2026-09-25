@@ -251,6 +251,20 @@ export class WidgetModel {
     return this.content.productCard;
   }
 
+  /**
+   * "First load in flight" — RAW PASSTHROUGH (`content.isLoading`,
+   * rb-rn-widget-loading-placeholder). `true` while this attachment has never
+   * successfully loaded a page AND a fetch is in progress (host sets this directly
+   * around its own `fetchWidget` call, see `widgetData.ts`'s `loadWidgetPage`) — THIS
+   * layer never derives / detects it, only mirrors. Demo path (`template == null`)
+   * reads {@link WidgetSeeds.content}'s `isLoading` (`false`), so every existing golden
+   * stays byte-identical. Drives the `Carousel` / `VideoShopGrid` first-load placeholder;
+   * the floating / minimized surfaces don't read it (out of scope, design D9).
+   */
+  get isLoading(): boolean {
+    return this.content.isLoading;
+  }
+
   // -- Shared LIVE derivation (single source for ALL family-5 surfaces) ----------
 
   /**
@@ -454,6 +468,9 @@ export const WidgetSeeds = {
     widgetColor: 1,
     widgetBgcolor: null,
     productCard: null,
+    // rb-rn-widget-loading-placeholder — listed EXPLICITLY (same reasoning as
+    // `productCard` above): the demo path never shows the first-load placeholder.
+    isLoading: false,
   } as LBWidgetContent,
 
   /**

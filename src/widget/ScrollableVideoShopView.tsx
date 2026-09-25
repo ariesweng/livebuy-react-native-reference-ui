@@ -96,6 +96,15 @@ export interface ScrollableVideoShopProps {
   readonly widgetColor?: number;
   /** RAW `widget_bgcolor` wire value — the same PASS-THROUGH hop as {@link widgetColor}. */
   readonly widgetBgcolor?: string | null;
+  /**
+   * First-load-in-flight placeholder gate — a PASS-THROUGH parameter (same shape as
+   * `productCard` / `widgetColor` above): this wrapper adds no pixels, it only hands
+   * `WidgetOverlayView`'s `model.isLoading` on to `VideoShopGrid`, which owns the single
+   * placeholder rendering (rb-rn-widget-loading-placeholder, design D9). Grid mode
+   * dispatches through this wrapper ONLY, so without this hop the loading placeholder
+   * would never reach the grid.
+   */
+  readonly initialLoading?: boolean;
   readonly onTapVideo?: (item: LBVideoItem) => void;
   readonly onLoadMore?: () => void;
 }
@@ -116,6 +125,7 @@ export function ScrollableVideoShopView(props: ScrollableVideoShopProps): ReactE
     productCard,
     widgetColor,
     widgetBgcolor,
+    initialLoading,
     onTapVideo,
     onLoadMore,
   } = props;
@@ -172,6 +182,7 @@ export function ScrollableVideoShopView(props: ScrollableVideoShopProps): ReactE
           // (`ReferenceUIWidgetEmbedTheme.derive`); this wrapper draws nothing itself.
           widgetColor={widgetColor}
           widgetBgcolor={widgetBgcolor}
+          initialLoading={initialLoading}
           onTapVideo={onTapVideo}
           onLoadMore={onLoadMore}
           // Render ALL videos (no fixed cap) + drop the manual footer button — the wrapper drives

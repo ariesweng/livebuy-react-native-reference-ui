@@ -93,6 +93,18 @@ export interface LivebuyWidgetConfig {
   /** Carousel「查看更多 ›」header link. Default: `undefined` → inert. */
   onSeeMore?: () => void;
   /**
+   * Carousel header row visibility (`rb-rn-widget-carousel-header-visibility`). Default:
+   * `true` (opt-out) — the header row (title「精選影片」+ the already-gated「查看更多 ›」
+   * link) renders exactly as today. Set `false` to hide the ENTIRE header row (title +
+   * see-more link together — no finer-grained control), e.g. a host that embeds the
+   * carousel as a pure card strip with its own navigation elsewhere. Card row rendering
+   * (`loading` / empty-list handling) is unaffected. No effect on grid / floating /
+   * minimized widget modes (they never had a header). Forwarded verbatim through
+   * `WidgetSurfaceContext.showsHeader` → `MinimalDesign.widgetSurface` →
+   * `WidgetOverlayView` (carousel branch only) → `Carousel`.
+   */
+  showsHeader?: boolean;
+  /**
    * Called after the first load with the ordered video feed, so a host can keep its own
    * list state in sync (e.g. a floating live-entry preview). Default: none.
    */

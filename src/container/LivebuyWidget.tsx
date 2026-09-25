@@ -53,6 +53,7 @@ import {
   lbWidgetDemoSnapshot,
   lbWidgetEffectiveTap,
   lbWidgetResolvedGoodsFor,
+  lbWidgetShouldAnnounceLoading,
   lbWidgetShouldAutoRefreshTick,
   lbWidgetShouldUseDemoFallback,
   loadWidgetPage,
@@ -198,9 +199,29 @@ export function LivebuyWidget(props: LivebuyWidgetProps): ReactElement {
   useEffect(() => {
     if (attachment == null) return;
     let cancelled = false;
+    // "First load in flight" placeholder (rb-rn-widget-loading-placeholder): ONLY the
+    // very first page-1 load — before ANY page has ever loaded for THIS attachment —
+    // should toggle `isLoading`. The periodic 30s refresh below reuses `storePage1()`
+    // too (same `append=false` call shape), so without this guard every refresh tick
+    // would re-cover the already-visible list with the loading placeholder. Local to
+    // this effect (not a ref) so it naturally resets whenever `attachment` / `shopId` /
+    // `mode` change and a fresh attachment starts its own first-load cycle.
+    let hasLoadedOnce = false;
 
     const storePage1 = async (): Promise<readonly LBVideoItem[]> => {
-      const r = await loadWidgetPage({ fetchWidget, attachment, shopId, mode, accumulated: [] }, 1, false);
+      const r = await loadWidgetPage(
+        {
+          fetchWidget,
+          attachment,
+          shopId,
+          mode,
+          accumulated: [],
+          announceLoading: lbWidgetShouldAnnounceLoading(hasLoadedOnce),
+        },
+        1,
+        false,
+      );
+      hasLoadedOnce = true;
       accumulatedRef.current = r.videos;
       pageRef.current = r.currentPage;
       lastPageRef.current = r.lastPage;
@@ -285,7 +306,9 @@ export function LivebuyWidget(props: LivebuyWidgetProps): ReactElement {
     if (pageRef.current >= lastPageRef.current || loadingRef.current) return;
     loadingRef.current = true;
     void loadWidgetPage(
-      { fetchWidget, attachment, shopId, mode, accumulated: accumulatedRef.current },
+      // append === true → loadWidgetPage never touches isLoading regardless of
+      // announceLoading (a grid load-more already has a page showing).
+      { fetchWidget, attachment, shopId, mode, accumulated: accumulatedRef.current, announceLoading: false },
       pageRef.current + 1,
       true,
     )
@@ -333,6 +356,9 @@ export function LivebuyWidget(props: LivebuyWidgetProps): ReactElement {
             onTapVideo: lbWidgetEffectiveTap(config.onTapVideo, (item) => setPresented(item)),
             onSeeMore: config.onSeeMore,
             onLoadMore,
+            // Carousel header row visibility (rb-rn-widget-carousel-header-visibility) —
+            // pure pass-through, default `true` (opt-out) when omitted.
+            showsHeader: config.showsHeader,
           })
         : null}
       {usingDemo ? (

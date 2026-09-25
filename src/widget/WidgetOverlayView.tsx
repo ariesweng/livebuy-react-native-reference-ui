@@ -242,6 +242,15 @@ export interface WidgetOverlayViewProps {
   readonly onExpand?: () => void;
   /** Minimized close → host → core dismiss the minimized pill. */
   readonly onCloseMinimized?: () => void;
+
+  /**
+   * Carousel header row visibility (`rb-rn-widget-carousel-header-visibility`), parity
+   * `LivebuyWidgetConfig.showsHeader`. Default `true` (opt-out) — omitted/`undefined`
+   * forwards `undefined` to {@link Carousel}, i.e. today's behaviour. `false` hides the
+   * carousel's ENTIRE header row (title + 「查看更多 ›」link). Forwarded to the CAROUSEL
+   * branch only — grid / floating / minimized never had a header concept.
+   */
+  readonly showsHeader?: boolean;
 }
 
 /**
@@ -270,6 +279,7 @@ export function WidgetOverlayView(props: WidgetOverlayViewProps): ReactElement |
     onCloseFloating,
     onExpand,
     onCloseMinimized,
+    showsHeader,
   } = props;
 
   // Coalesced re-read tick (parity with the family-1/2/3/4 containers + the Flutter
@@ -321,8 +331,13 @@ export function WidgetOverlayView(props: WidgetOverlayViewProps): ReactElement |
           // floating / minimized from the same `theme`, see the trap note above).
           widgetColor={model.widgetColor}
           widgetBgcolor={model.widgetBgcolor}
+          // rb-rn-widget-loading-placeholder (design D9) — first-load placeholder.
+          loading={model.isLoading}
           onTapVideo={routedTapVideo}
           onSeeMore={onSeeMore}
+          // rb-rn-widget-carousel-header-visibility — carousel branch ONLY (grid /
+          // floating / minimized never had a header concept).
+          showsHeader={showsHeader}
         />
       );
     case LBWidgetContentMode.Grid:
@@ -340,6 +355,8 @@ export function WidgetOverlayView(props: WidgetOverlayViewProps): ReactElement |
           // RAW embed colors — passed through the wrapper to the grid, which derives.
           widgetColor={model.widgetColor}
           widgetBgcolor={model.widgetBgcolor}
+          // rb-rn-widget-loading-placeholder (design D9) — first-load placeholder.
+          initialLoading={model.isLoading}
           onTapVideo={routedTapVideo}
           onLoadMore={onLoadMore}
         />

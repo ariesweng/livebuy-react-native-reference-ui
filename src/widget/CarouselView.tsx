@@ -82,8 +82,9 @@ import type { ReferenceUITheme } from '../theme';
 import { ReferenceUIWidgetEmbedTheme } from '../widgetEmbedTheme';
 import { LBTestIDs, carouselCard } from '../testing/LBTestIDs';
 import { CarouselCardView, DEFAULT_CARD_WIDTH } from './CarouselCardView';
-import { widgetGoodsFromFeatured } from './WidgetModel';
+import { widgetGoodsFromFeatured, WidgetSeeds } from './WidgetModel';
 import type { WidgetGoods } from './WidgetModel';
+import { LoadingMarkAnimation } from '../moments/loading-mark/LoadingMarkAnimation';
 import {
   LivebuyPreviewScrollSignalContext,
   usePreviewScrollSignalEmitter,
@@ -185,6 +186,68 @@ export interface CarouselProps {
    * `videos` (uncapped), so the user can scroll through every video.
    */
   readonly scrollable?: boolean;
+  /**
+   * First-load-in-flight placeholder gate (rb-rn-widget-loading-placeholder, design D9).
+   * `false` (DEFAULT) → existing behaviour: a non-empty `videos` draws the real card row;
+   * an EMPTY `videos` now renders NOTHING at all (see the confirmed-empty return-null
+   * note below — this supersedes the old "empty row + no header" shape). `true` → the
+   * card row is replaced by {@link CarouselLoadingRow} (a same-height placeholder with a
+   * centered brand `LoadingMarkAnimation`), regardless of `videos`; the header row keeps
+   * rendering unchanged (host static copy, independent of data readiness). The container
+   * (`WidgetOverlayView`) passes `model.isLoading`.
+   */
+  readonly loading?: boolean;
+  /**
+   * Header row host opt-out (`rb-rn-widget-carousel-header-visibility`). Default `true`
+   * — omitted behaves exactly as today. The header row (title + optional subtitle +
+   * 「查看更多 ›」link) renders only when BOTH this prop is `true` (host wants it) AND
+   * there is content to draw ({@link DEFAULT_CAROUSEL_TITLE} / a non-empty `title`, or a
+   * `subtitle` — the pre-existing "has content" check, internally `hasHeaderContent`).
+   * `false` hides the ENTIRE header row regardless of `title` / `subtitle` content — no
+   * finer-grained control (title-only / link-only). Card row rendering (`loading` / the
+   * confirmed-empty `null` return) is completely unaffected by this prop.
+   */
+  readonly showsHeader?: boolean;
+}
+
+/**
+ * First-load placeholder for the carousel card row (rb-rn-widget-loading-placeholder,
+ * design `LBPCarouselLoadingRow`). Renders ONE real {@link CarouselCardView} — sized
+ * exactly like a live card via the deterministic {@link WidgetSeeds.vodWithGoods} seed —
+ * with `opacity: 0` + `pointerEvents: 'none'` (RN has no CSS `visibility: hidden`;
+ * `opacity: 0` keeps the SAME measured footprint a real card row would occupy, unlike
+ * `display: 'none'`, which collapses it to zero size) so the placeholder reserves the
+ * real row's height, with the brand {@link LoadingMarkAnimation} (`size={76}`) centered
+ * on top via `position: 'absolute'`. Deterministic — never reads live `videos`, so the
+ * measured height never depends on the videos actually being fetched, and no
+ * network-uri Image is ever pulled in.
+ */
+function CarouselLoadingRow(props: {
+  theme: ReferenceUITheme;
+  cardWidth: number;
+  productCard?: string | null;
+}): ReactElement {
+  const { theme, cardWidth, productCard } = props;
+  return (
+    <View testID={LBTestIDs.widgetCarouselLoading} style={styles.loadingRoot}>
+      <View
+        style={styles.loadingHiddenCard}
+        pointerEvents="none"
+        importantForAccessibility="no-hide-descendants"
+      >
+        <CarouselCardView
+          theme={theme}
+          video={WidgetSeeds.vodWithGoods}
+          goods={WidgetSeeds.vodWithGoodsGoods}
+          width={cardWidth}
+          productCard={productCard}
+        />
+      </View>
+      <View style={styles.loadingMarkWrap} pointerEvents="none">
+        <LoadingMarkAnimation size={76} />
+      </View>
+    </View>
+  );
 }
 
 /**
@@ -193,8 +256,18 @@ export interface CarouselProps {
  * `CarouselCardView`s built from `videos`. Card tap forwards via the host-wired
  * `onTapVideo` exit, the header link via `onSeeMore`; this layer never scrolls /
  * paginates / opens the player itself. Renders correctly with all callbacks omitted.
+ *
+ * First-load placeholder (rb-rn-widget-loading-placeholder, design D9): `loading` true →
+ * the card row is replaced by {@link CarouselLoadingRow} (header unaffected); `loading`
+ * false AND `videos` confirmed empty → the whole surface renders `null` (no header
+ * either) — a widget with nothing to show is equivalent to the host never mounting it.
+ *
+ * Header host opt-out (rb-rn-widget-carousel-header-visibility): `showsHeader` (default
+ * `true`) is ANDed with the pre-existing "has content" check — `showsHeader={false}`
+ * hides the entire header row regardless of `title` / `subtitle`; the card row is
+ * unaffected either way.
  */
-export function Carousel(props: CarouselProps): ReactElement {
+export function Carousel(props: CarouselProps): ReactElement | null {
   const {
     theme: resolvedTheme,
     videos,
@@ -208,6 +281,8 @@ export function Carousel(props: CarouselProps): ReactElement {
     productCard,
     widgetColor = 1,
     widgetBgcolor = null,
+    loading = false,
+    showsHeader = true,
   } = props;
 
   // EMBED COLORS (rb-rn-widget-embed-colors): overlay the two `/sdk/widget` values onto
@@ -221,10 +296,19 @@ export function Carousel(props: CarouselProps): ReactElement {
   // `scrollable` branch below provides / emits it — the windowed plain Row never touches it.
   const previewScroll = usePreviewScrollSignalEmitter();
 
-  // The header row shows when `title` is non-empty OR a `subtitle` exists (mirrors
-  // `LBPCarousel`'s `(title || subtitle) && (...)`, widgets.jsx 208).
+  // Confirmed-empty (not loading, zero videos) → render NOTHING at all, including the
+  // header (rb-rn-widget-loading-placeholder, design D9). MUST come after every
+  // unconditional hook above (rules of hooks) but before anything else is computed.
+  if (!loading && videos.length === 0) return null;
+
+  // Has content to draw: `title` is non-empty OR a `subtitle` exists (mirrors
+  // `LBPCarousel`'s `(title || subtitle) && (...)`, widgets.jsx 208). Distinct from the
+  // `showsHeader` PROP above (host opt-out, rb-rn-widget-carousel-header-visibility) —
+  // this is purely "is there content", not "does the host want it shown". Renamed from
+  // the former same-named internal const to free `showsHeader` for the new host-facing
+  // prop.
   const hasSubtitle = subtitle != null && subtitle.length > 0;
-  const showsHeader = title.length > 0 || hasSubtitle;
+  const hasHeaderContent = title.length > 0 || hasSubtitle;
 
   // Windowed (default): the first N cards in a FIXED non-scroll Row (golden-safe). Turnkey
   // (`scrollable`): ALL videos in a horizontal ScrollView (parity iOS ScrollableCarouselView).
@@ -250,7 +334,7 @@ export function Carousel(props: CarouselProps): ReactElement {
 
   return (
     <View style={[styles.root, { backgroundColor: theme.background }]}>
-      {showsHeader ? (
+      {showsHeader && hasHeaderContent ? (
         // Header row: title (+ optional subtitle) stack leading, 查看更多 › link trailing.
         <View style={styles.header}>
           <View style={styles.headerTextCol}>
@@ -295,8 +379,12 @@ export function Carousel(props: CarouselProps): ReactElement {
 
       {/* Windowed (default): a PLAIN non-scroll Row of the first N cards (golden-safe). Turnkey
           (`scrollable`): a horizontal ScrollView over ALL cards (parity iOS ScrollableCarouselView).
-          gap 12, leading padding 16 (mirrors the design's `padding: '0 16 6'`). */}
-      {cards.length > 0 ? (
+          gap 12, leading padding 16 (mirrors the design's `padding: '0 16 6'`).
+          `loading` (rb-rn-widget-loading-placeholder) takes precedence over both — the
+          real card row (windowed or scrollable) is never drawn while loading. */}
+      {loading ? (
+        <CarouselLoadingRow theme={theme} cardWidth={DEFAULT_CARD_WIDTH} productCard={productCard} />
+      ) : cards.length > 0 ? (
         scrollable ? (
           // The scrollable branch owns this ScrollView, so it also owns the preview scroll signal:
           // throttled on `onScroll`, always on drag / momentum end (see the file header).
@@ -364,5 +452,28 @@ const styles = StyleSheet.create({
   },
   cardGap: {
     marginLeft: 12,
+  },
+  // First-load placeholder (rb-rn-widget-loading-placeholder). `loadingRoot` reuses the
+  // real row's own leading/trailing padding so the placeholder occupies the same
+  // horizontal footprint as `styles.row`.
+  loadingRoot: {
+    position: 'relative',
+    paddingLeft: 16,
+    paddingRight: 16,
+    paddingBottom: 6,
+  },
+  // Reserves the real card's measured footprint without drawing it (RN has no CSS
+  // `visibility: hidden`) — `opacity: 0` keeps layout, unlike `display: 'none'`.
+  loadingHiddenCard: {
+    opacity: 0,
+  },
+  loadingMarkWrap: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

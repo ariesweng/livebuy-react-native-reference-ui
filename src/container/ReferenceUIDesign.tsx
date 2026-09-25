@@ -170,6 +170,13 @@ export interface WidgetSurfaceContext {
   readonly onSeeMore?: () => void;
   /** Grid load-more footer → host fetch + append. */
   readonly onLoadMore: () => void;
+  /**
+   * Carousel header row visibility (`rb-rn-widget-carousel-header-visibility`), parity
+   * `LivebuyWidgetConfig.showsHeader`. Default `true` (opt-out) — omitted/`undefined`
+   * behaves exactly as today. `false` hides the ENTIRE carousel header row (title +
+   * 「查看更多 ›」link). No effect on grid / floating / minimized (no header concept).
+   */
+  readonly showsHeader?: boolean;
 }
 
 /** Inputs for the minimize floating-preview card. */
@@ -266,6 +273,7 @@ export const MinimalDesign: ReferenceUIDesign = {
         onTapVideo={context.onTapVideo}
         onSeeMore={context.onSeeMore}
         onLoadMore={context.onLoadMore}
+        showsHeader={context.showsHeader}
       />
     );
   },

@@ -142,6 +142,17 @@ export interface LoadWidgetPageDeps {
   mode: WidgetContainerMode;
   /** Prior accumulated videos (for grid append). */
   accumulated: readonly LBVideoItem[];
+  /**
+   * Whether THIS call should toggle `isLoading` around the fetch
+   * (rb-rn-widget-loading-placeholder). Has no effect when the caller's `append`
+   * argument to {@link loadWidgetPage} is `true` (a grid load-more never touches
+   * `isLoading`, regardless of this flag). Only the very-first page-1 load — before
+   * ANY page has ever successfully loaded for this attachment — should pass `true`;
+   * a periodic same-page refresh of an already-loaded widget MUST pass `false`, or the
+   * placeholder would re-cover already-visible content. See
+   * {@link lbWidgetShouldAnnounceLoading}.
+   */
+  announceLoading: boolean;
 }
 
 /** Decoded pagination result the container stores to drive load-more / refresh. */
@@ -152,24 +163,69 @@ export interface LoadWidgetPageResult {
 }
 
 /**
+ * Whether a {@link loadWidgetPage} call should announce `isLoading` around its fetch
+ * (rb-rn-widget-loading-placeholder). `true` only while no page has EVER successfully
+ * loaded for the calling attachment — once a page has loaded, later calls (a periodic
+ * same-page refresh, or a grid load-more) MUST NOT re-cover already-visible content
+ * with the first-load placeholder. Pure (parity with the other guards in this file);
+ * the caller tracks `hasLoadedOnce` itself (see `LivebuyWidget.tsx`'s load effect).
+ */
+export function lbWidgetShouldAnnounceLoading(hasLoadedOnce: boolean): boolean {
+  return !hasLoadedOnce;
+}
+
+/**
  * Fetch ONE page of widget content and feed it into the attached template:
  * `fetchWidget` → `decodeWidgetSnapshot` → accumulate → inject `mode` →
  * `handleWidgetSnapshot`; raw ROOT SETTINGS (the two web-embed colors + `product_card`) →
  * `handleWidgetColors`. Returns the decoded pagination so the container updates its page /
  * accumulated state. Pure of React (all side effects injected) so it is unit-testable with
  * fakes.
+ *
+ * `isLoading` (rb-rn-widget-loading-placeholder): when `!append && deps.announceLoading`,
+ * this function toggles `isLoading` around the fetch — `true` right before
+ * `fetchWidget`, merged back to `false` in the SAME `handleWidgetSnapshot` call that
+ * carries the decoded page on success (one coalesced notification), or set back to
+ * `false` (then rethrown) if `fetchWidget` rejects — a failed fetch MUST NOT leave the
+ * placeholder stuck forever. Any other call (`append` — grid load-more — or
+ * `announceLoading === false` — a periodic refresh of an already-loaded page) never
+ * touches `isLoading` at all. The pre-fetch announce ALSO carries `mode: deps.mode` —
+ * without it, a `LivebuyWidget mode="grid"`'s very-first load would dispatch through
+ * `WidgetOverlayView` on the content model's stale default mode (`'carousel'`, until
+ * the first real snapshot arrives) and briefly show the CAROUSEL-shaped placeholder
+ * before flipping to the grid shape once the fetch resolves.
  */
 export async function loadWidgetPage(
   deps: LoadWidgetPageDeps,
   page: number,
   append: boolean,
 ): Promise<LoadWidgetPageResult> {
-  const raw = await deps.fetchWidget(deps.shopId, page);
+  const announce = !append && deps.announceLoading;
+  if (announce) {
+    deps.attachment.handleWidgetSnapshot({ isLoading: true, mode: deps.mode });
+  }
+
+  let raw: Record<string, unknown>;
+  try {
+    raw = await deps.fetchWidget(deps.shopId, page);
+  } catch (error) {
+    if (announce) {
+      deps.attachment.handleWidgetSnapshot({ isLoading: false });
+    }
+    throw error;
+  }
+
   const decoded = decodeWidgetSnapshot(raw);
   const videos = accumulateGridVideos(deps.accumulated, decoded.videos ?? [], append);
   const currentPage = decoded.currentPage ?? page;
   const lastPage = decoded.lastPage ?? currentPage;
-  deps.attachment.handleWidgetSnapshot({ videos, mode: deps.mode, currentPage, lastPage });
+  deps.attachment.handleWidgetSnapshot({
+    videos,
+    mode: deps.mode,
+    currentPage,
+    lastPage,
+    ...(announce ? { isLoading: false } : {}),
+  });
   const settings = buildWidgetSettings(raw);
   if (settings != null) deps.attachment.handleWidgetColors(settings);
   return { videos, currentPage, lastPage };

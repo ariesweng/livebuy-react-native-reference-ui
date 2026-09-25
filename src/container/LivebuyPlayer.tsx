@@ -64,7 +64,7 @@ import type { ReferenceUITheme } from '../theme';
 import { ReferenceUIThemeResolver } from '../theme';
 
 import { useChatComposer, useNicknamePrompt, useLoginPrompt } from './ChatComposerBar';
-import { resolvedLiveNowShopId } from './LivebuyPlayerConfig';
+import { resolvedInitialSeekStartAt, resolvedLiveNowShopId } from './LivebuyPlayerConfig';
 import type { LivebuyPlayerConfig } from './LivebuyPlayerConfig';
 import { resolveDesign } from './ReferenceUIDesign';
 import { buildAwardClaimInjection } from './seams';
@@ -341,6 +341,17 @@ export function LivebuyPlayer(props: LivebuyPlayerProps): ReactElement {
   // change. Refs (not state) so the seam closures read the latest without re-binding.
   const currentVideoIdRef = useRef(videoId);
 
+  // rb-rn-player-initial-seek — ONE-SHOT flag: `config.initialSeekSeconds` is a build-time,
+  // product-page intent that MUST be consumed only the FIRST time the `videoId` effect below runs
+  // (this container instance's initial mount), never on any later re-run caused by the host
+  // changing the `videoId` prop (in-place switch / retry / any other reload). A ref (not state) so
+  // flipping it never re-renders / re-runs any effect — same "read without rebinding" rationale as
+  // `currentVideoIdRef` above. `resolvedInitialSeekStartAt` (`LivebuyPlayerConfig.ts`) is the pure
+  // decision this flag feeds; parity iOS `makeUIViewController`/`updateUIViewController`'s natural
+  // first-build/update split and Android's own explicit one-shot flag (`rb-ios-player-initial-seek`
+  // / `rb-android-player-initial-seek`, both already shipped).
+  const hasAppliedInitialSeekRef = useRef(false);
+
   // Latest `config` for the once-registered (`[]` deps) internal VIDEO_SWITCH listener below
   // (rb-rn-collapsible-autoadvance-switch-sync). `config` (and the `composedConfig` the collapsible
   // presenter passes) is rebuilt every render, so the `[]`-deps listener would otherwise capture a
@@ -427,9 +438,22 @@ export function LivebuyPlayer(props: LivebuyPlayerProps): ReactElement {
   attachmentRef.current = attachment;
 
   // Load the cover video (and reload on `videoId` prop change) once a ref exists.
+  //
+  // rb-rn-player-initial-seek: `config.initialSeekSeconds` is consumed ONLY the first time this
+  // effect runs (this container instance's initial mount) — `resolvedInitialSeekStartAt` resolves
+  // `undefined` on every subsequent run of this SAME effect (the host changing the `videoId`
+  // prop), via `hasAppliedInitialSeekRef`, so a one-time product-page seek intent never leaks into
+  // any later reload. See `LivebuyPlayerConfig.initialSeekSeconds`'s doc comment for the full
+  // contract and the list of call sites (imperative `loadVideo`, `switchVideo`-driven in-place
+  // switches, retry) that deliberately never read this field.
   useEffect(() => {
     currentVideoIdRef.current = videoId;
-    playerRef.current?.load(videoId);
+    const startAt = resolvedInitialSeekStartAt({
+      hasAppliedInitialSeek: hasAppliedInitialSeekRef.current,
+      initialSeekSeconds: config.initialSeekSeconds,
+    });
+    hasAppliedInitialSeekRef.current = true;
+    playerRef.current?.load(videoId, startAt);
   }, [videoId]);
 
   // rb-rn-live-activity-sheet (design.md D3) — ONE-SHOT mount-time backfill so a host that

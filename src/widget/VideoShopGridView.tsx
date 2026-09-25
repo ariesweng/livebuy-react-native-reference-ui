@@ -83,8 +83,9 @@ import type { ReferenceUITheme } from '../theme';
 import { ReferenceUIWidgetEmbedTheme } from '../widgetEmbedTheme';
 import { LBTestIDs, gridCard } from '../testing/LBTestIDs';
 import { CarouselCardView } from './CarouselCardView';
-import { widgetGoodsFromFeatured } from './WidgetModel';
+import { widgetGoodsFromFeatured, WidgetSeeds } from './WidgetModel';
 import type { WidgetGoods } from './WidgetModel';
+import { LoadingMarkAnimation } from '../moments/loading-mark/LoadingMarkAnimation';
 
 import type { LBVideoItem } from 'livebuy-react-native';
 
@@ -236,6 +237,21 @@ export interface VideoShopGridProps {
    * snapshots / callers.
    */
   readonly autoLoadOnScroll?: boolean;
+  /**
+   * First-load-in-flight placeholder gate (rb-rn-widget-loading-placeholder, design D9).
+   * Named DIFFERENTLY from a generic `loading` on purpose — this surface's host
+   * (`ScrollableVideoShopView`) has its OWN unrelated "load more on scroll" concept, and
+   * conflating the two names would be confusing (mirrors the design's `LBPVideoShop`
+   * `initialLoading` vs its internal pagination `loading` state). `false` (DEFAULT) →
+   * existing behaviour, except an EMPTY `videos` now renders NOTHING at all (see the
+   * confirmed-empty return-null note below). `true` → renders ONLY
+   * {@link VideoShopGridLoadingRow} (a single same-height row placeholder with a
+   * centered brand `LoadingMarkAnimation`), regardless of `videos` / `currentPage` /
+   * `lastPage` — the 2-col grid rows and the load-more footer are NOT drawn. The
+   * container (`WidgetOverlayView`, via `ScrollableVideoShopView`) passes
+   * `model.isLoading`.
+   */
+  readonly initialLoading?: boolean;
 }
 
 /** Whether more pages remain (LBPVideoShop's `hasMore`): `currentPage < lastPage`. */
@@ -260,6 +276,41 @@ function chunkRows(videos: readonly LBVideoItem[], maxCards: number | null): LBV
 }
 
 /**
+ * First-load placeholder for the grid (rb-rn-widget-loading-placeholder, design
+ * `LBPVideoShopLoadingRow`). Renders ONE real row (2 cells, the deterministic first two
+ * {@link WidgetSeeds.videos}) with `opacity: 0` + `pointerEvents: 'none'` (RN has no CSS
+ * `visibility: hidden`) so the placeholder reserves the SAME height a real 2-col row
+ * would occupy, with the brand {@link LoadingMarkAnimation} (`size={76}`) centered on
+ * top via `position: 'absolute'`. Deterministic — never reads live `videos`, so the
+ * measured height never depends on the videos actually being fetched.
+ */
+function VideoShopGridLoadingRow(props: {
+  theme: ReferenceUITheme;
+  cellWidth: number;
+  productCard?: string | null;
+}): ReactElement {
+  const { theme, cellWidth, productCard } = props;
+  const seedRow = WidgetSeeds.videos.slice(0, 2);
+  return (
+    <View testID={LBTestIDs.widgetGridLoading} style={styles.loadingRoot}>
+      <View style={styles.row} pointerEvents="none" importantForAccessibility="no-hide-descendants">
+        {seedRow.map((item, i) => (
+          <View
+            key={`grid-loading-cell-${i}`}
+            style={[styles.cell, { width: cellWidth }, styles.loadingHiddenCell]}
+          >
+            <CarouselCardView theme={theme} video={item} width={cellWidth} productCard={productCard} />
+          </View>
+        ))}
+      </View>
+      <View style={styles.loadingMarkWrap} pointerEvents="none">
+        <LoadingMarkAnimation size={76} />
+      </View>
+    </View>
+  );
+}
+
+/**
  * The family-5 影音商城 widget surface (`LBPVideoShop`): a 2-column grid of shared
  * {@link CarouselCardView}s over a FIXED SMALL set of {@link VideoShopGridProps.videos},
  * plus a centered footer that shows「載入更多影片...」(host-wired `onLoadMore`) while
@@ -269,8 +320,12 @@ function chunkRows(videos: readonly LBVideoItem[], maxCards: number | null): LBV
  * SUB-VIEW INPUT PATTERN: `theme` first → bound snapshot values by value (`videos` /
  * `currentPage` / `lastPage` + the per-card `goodsFor` resolver) → trailing action
  * callbacks, each optional (defaulting to a no-op exit).
+ *
+ * First-load placeholder (rb-rn-widget-loading-placeholder, design D9): `initialLoading`
+ * true → renders ONLY {@link VideoShopGridLoadingRow} (no grid rows / footer);
+ * `initialLoading` false AND `videos` confirmed empty → the whole surface renders `null`.
  */
-export function VideoShopGrid(props: VideoShopGridProps): ReactElement {
+export function VideoShopGrid(props: VideoShopGridProps): ReactElement | null {
   const {
     theme: resolvedTheme,
     videos,
@@ -283,6 +338,7 @@ export function VideoShopGrid(props: VideoShopGridProps): ReactElement {
     widgetBgcolor = null,
     onTapVideo,
     onLoadMore,
+    initialLoading = false,
   } = props;
 
   // EMBED COLORS (rb-rn-widget-embed-colors): overlay the two `/sdk/widget` values onto
@@ -300,6 +356,23 @@ export function VideoShopGrid(props: VideoShopGridProps): ReactElement {
   const handleContainerLayout = (e: LayoutChangeEvent): void => {
     setCellWidth(computeCellWidth(e.nativeEvent.layout.width));
   };
+
+  // Confirmed-empty (not loading, zero videos) → render NOTHING at all
+  // (rb-rn-widget-loading-placeholder, design D9). MUST come after the `useState` hook
+  // above (rules of hooks) but before anything else is computed.
+  if (!initialLoading && videos.length === 0) return null;
+
+  if (initialLoading) {
+    return (
+      <View
+        testID={LBTestIDs.widgetGrid}
+        onLayout={handleContainerLayout}
+        style={[styles.container, { backgroundColor: theme.background }]}
+      >
+        <VideoShopGridLoadingRow theme={theme} cellWidth={cellWidth} productCard={productCard} />
+      </View>
+    );
+  }
 
   const maxCards = props.maxCards === undefined ? MAX_GRID_CARDS : props.maxCards;
   const autoLoadOnScroll = props.autoLoadOnScroll ?? false;
@@ -407,5 +480,24 @@ const styles = StyleSheet.create({
     // Dimmed end-of-list label — parity with iOS / Android / Flutter `text.opacity(0.5)`.
     opacity: 0.5,
     textAlign: 'center',
+  },
+  // First-load placeholder (rb-rn-widget-loading-placeholder).
+  loadingRoot: {
+    position: 'relative',
+    width: '100%',
+  },
+  // Reserves the real row's measured footprint without drawing it (RN has no CSS
+  // `visibility: hidden`) — `opacity: 0` keeps layout, unlike `display: 'none'`.
+  loadingHiddenCell: {
+    opacity: 0,
+  },
+  loadingMarkWrap: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

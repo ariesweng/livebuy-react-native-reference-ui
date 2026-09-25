@@ -571,6 +571,29 @@ export interface LivebuyPlayerConfig {
    */
   inset?: { x: number; y: number };
 
+  // -- initial seek (rb-rn-player-initial-seek) -------------------------------
+
+  /**
+   * 一次性初始 seek 秒數（`rb-rn-player-initial-seek`，parity iOS
+   * `LivebuyPlayerConfig.initialSeekSeconds` / Android 同名欄位，兩者皆已 archive）。**Default
+   * （省略）＝ `undefined`（維持既有行為，向後相容）**。
+   *
+   * 純轉發到既有 core 公開 API `LivebuyPlayerCoreRef.load(videoId, startAt)`
+   * （`rn-player-load-initial-seek-core`）的 `startAt` 參數，reference-ui 這層 MUST NOT 重新實作
+   * core 已完成的任何判斷邏輯（intro-aware、直播靜默丟棄、一次性消費、每次 `load()` 覆蓋殘留值）。
+   *
+   * 轉發只發生在「這個 {@link LivebuyPlayer} 容器實例第一次建立」（即容器唯一驅動 `videoId` 的
+   * `useEffect` 第一次執行，也就是這個元件實例的初始 mount）。容器內其餘每一個換片路徑——host 改變
+   * `videoId` prop 觸發同一個 effect 的之後重新執行、「現正直播」pill 換片
+   * ({@link LivebuyPlayerConfig.onGoLive})、立即觀看 ({@link LivebuyPlayerConfig.onWatchNext})、
+   * 熱門卡 ({@link LivebuyPlayerConfig.onPickHot})、串流失敗重試
+   * ({@link LivebuyPlayerConfig.onRetry})、商品明細推薦格切換影片
+   * ({@link LivebuyPlayerConfig.onSwitchProductVideo})、以及容器對外曝露的 imperative
+   * `loadVideo(videoId)` 方法——皆 MUST NOT 套用這個值，確保「容器建立時的一次性產品頁意圖」不會
+   * 外洩到容器存續期間的任何換片。
+   */
+  initialSeekSeconds?: number;
+
   // -- container styling ------------------------------------------------------
 
   /** Optional style for the container's outer `View`. */
@@ -605,4 +628,33 @@ export function resolvedLiveNowShopId(params: {
 }): string | undefined {
   if (!params.showsLiveNowPill) return undefined;
   return params.explicitShopId ?? params.configuredShopId;
+}
+
+/**
+ * Resolves the `startAt` argument for `LivebuyPlayer.tsx`'s sole `videoId`-driven
+ * `playerRef.current?.load(videoId, startAt)` call (`rb-rn-player-initial-seek`) from the two
+ * inputs that jointly decide it: whether this container instance's one-shot
+ * {@link LivebuyPlayerConfig.initialSeekSeconds} has ALREADY been applied once
+ * (`hasAppliedInitialSeek`, tracked by a ref at the call site — see that file's
+ * `hasAppliedInitialSeekRef`), and the config value itself.
+ *
+ * `hasAppliedInitialSeek === true` → `undefined` UNCONDITIONALLY, regardless of
+ * `initialSeekSeconds` — this is what makes every `videoId`-prop-change re-run of that effect
+ * (in-place switch / retry / any later reload) never leak the build-time seek intent.
+ * `hasAppliedInitialSeek === false` (the container instance's first run of that effect) → the
+ * config value verbatim (itself `undefined` when the host never set it, which is byte-identical
+ * to the pre-existing single-argument `load(videoId)` call).
+ *
+ * Deliberately a PURE function with zero `LivebuySDK` / RN-runtime reference (same rationale as
+ * {@link resolvedLiveNowShopId} above, parity iOS/Android's own equivalent one-shot resolver
+ * — `rb-ios-player-initial-seek` / `rb-android-player-initial-seek`, both already shipped) — kept
+ * in this file (rather than `LivebuyPlayer.tsx`) so this function's own unit tests stay runnable
+ * in a plain node/jest environment with zero mock setup, per this module's file-header rationale.
+ */
+export function resolvedInitialSeekStartAt(params: {
+  hasAppliedInitialSeek: boolean;
+  initialSeekSeconds: number | undefined;
+}): number | undefined {
+  if (params.hasAppliedInitialSeek) return undefined;
+  return params.initialSeekSeconds;
 }

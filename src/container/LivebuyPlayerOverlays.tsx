@@ -297,6 +297,9 @@ export function LivebuyPlayerOverlays(props: LivebuyPlayerOverlaysProps): ReactE
   // opens it; the scrim / close button dismisses it (re-openable). Parity iOS
   // `ProductSheetsModel.listPresented` (default false) — no longer auto-presents over the video.
   const [productListPresented, setProductListPresented] = useState(false);
+  // Whether the product-sheet add-to-cart login gate is on screen (reported by ProductSheetsView);
+  // the gap-surface AuthGateModal yields to it (rb-rn-cart-login-gate-gap-authgate-mutual-exclusion).
+  const [cartGatePresented, setCartGatePresented] = useState(false);
   const onRailTap = (kind: LBSideRailKind): void => {
     if (kind === LBSideRailKind.Goods) setProductListPresented(true);
     else shell.onTapRailItem(kind);
@@ -427,6 +430,7 @@ export function LivebuyPlayerOverlays(props: LivebuyPlayerOverlaysProps): ReactE
       {/* Surface 3 — product list / detail / variant / qty / mini-cart / restock. */}
       <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }} pointerEvents="box-none">
         <ProductSheetsView
+          onCartGatePresentedChange={setCartGatePresented}
           template={template}
           theme={theme}
           // Turnkey container composes over a real video surface → load the real product photos
@@ -465,6 +469,7 @@ export function LivebuyPlayerOverlays(props: LivebuyPlayerOverlaysProps): ReactE
       {/* Surface 4 — gap-surface modals (auth-gate / guest-name-edit). */}
       <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }} pointerEvents="box-none">
         <GapSurfacesOverlayView
+          cartGatePresented={cartGatePresented}
           template={template}
           theme={theme}
           // 設定暱稱 modal 由容器本地呈現（parity iOS / Android）：controller 驅動可見性 + runtime

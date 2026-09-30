@@ -210,6 +210,13 @@ export interface GapSurfacesOverlayViewProps {
    * Default unwired → not shown (snapshot-neutral). SEPARATE from the template-driven auth gate.
    */
   readonly loginController?: LoginPromptController;
+  /**
+   * Whether the product-sheet add-to-cart login gate is currently presented (relayed by the container
+   * from `ProductSheetsView.onCartGatePresentedChange`). While true, a CartAdd auth-gate yields to it
+   * (rb-rn-cart-login-gate-gap-authgate-mutual-exclusion). Default false → this family's modal behaves
+   * exactly as before.
+   */
+  readonly cartGatePresented?: boolean;
 }
 
 /**
@@ -236,6 +243,7 @@ export function GapSurfacesOverlayView(
     onSubmitName,
     nicknameController,
     loginController,
+    cartGatePresented = false,
   } = props;
 
   // Coalesced re-read tick (parity with the family-1/2/3/4/5 containers + the Flutter
@@ -265,6 +273,18 @@ export function GapSurfacesOverlayView(
   const nameEditEditable = nicknameController != null;
 
   const model = new GapSurfacesModel(template);
+
+  // Mutual exclusion with the product-sheet cart login gate (rb-rn-cart-login-gate-gap-authgate-
+  // mutual-exclusion): while that gate is actually PRESENTED (`cartGatePresented`, relayed by the
+  // container — NOT the template flag, which stays true after 稍後再說), a CartAdd auth-gate yields
+  // (render guard below) AND the now-redundant `authGate` record is consumed via the public
+  // `template.clearAuthGate()` (the same method the host wires to「稍後再說」), so it cannot resurface
+  // after the cart gate is dismissed. When no cart gate is presented (外部 widget / headless guest,
+  // or a repeat tap after 稍後再說) nothing yields or is cleared — this modal is the user's prompt.
+  const yieldsToCartGate = model.authGateYieldsToCartGate(cartGatePresented);
+  useEffect(() => {
+    if (yieldsToCartGate) template?.clearAuthGate();
+  }, [yieldsToCartGate, template]);
 
   // -- Host-wired action funnels + the ONE core exit --------------------------
   //
@@ -341,7 +361,7 @@ export function GapSurfacesOverlayView(
   const authGate = model.authGate;
   const isLoggedIn = model.isLoggedIn;
 
-  if (authGate != null && !isLoggedIn) {
+  if (authGate != null && !isLoggedIn && !yieldsToCartGate) {
     // 1. 「請先登入」gate — HIGHEST priority (blocking). The surface takes a non-null
     //    gate (the container gates on non-null here).
     return (

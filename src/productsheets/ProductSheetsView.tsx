@@ -281,6 +281,15 @@ export interface ProductSheetsViewProps {
   readonly onRequestLogin?: () => void;
 
   /**
+   * Reports whether the add-to-cart「需登入」gate (the local `cartGatePresented` state below) is
+   * CURRENTLY presented (rb-rn-cart-login-gate-gap-authgate-mutual-exclusion). The container relays
+   * it to `GapSurfacesOverlayView` so the gap-surface `AuthGateModal` yields ONLY while this gate is
+   * actually on screen — not merely while the template flag is set (the flag stays true after
+   * 稍後再說). Optional; default unwired → no report (standalone / snapshot use unchanged).
+   */
+  readonly onCartGatePresentedChange?: (presented: boolean) => void;
+
+  /**
    * Host-wired 推薦卡播放圖示 → 换片 (parity `onSwitchProductVideo` seam,
    * `LivebuyPlayerConfig.ts`). Turnkey default: `playerRef.load(videoId)` then
    * `onVideoSwitched` — 比照容器層既有的 `onPickHot` 模式 (`seams.ts` `buildMomentHandlers`).
@@ -348,6 +357,7 @@ export function ProductSheetsView(props: ProductSheetsViewProps): ReactElement {
     presented = false,
     onDismissList,
     onRequestLogin,
+    onCartGatePresentedChange,
     showStock,
     showFavorite,
     onSwitchRecommendationVideo,
@@ -421,8 +431,10 @@ export function ProductSheetsView(props: ProductSheetsViewProps): ReactElement {
 
   // 加購「需登入」gate (cart-needs-login-gate, parity iOS/Android) — present on the template flag's
   // false→true transition (a LOCAL state, not direct gating on `model.addToCartNeedsLogin`, so
-  // 稍後再說 dismisses without reference-ui resetting the template flag; the next add attempt
-  // re-fires false→true and re-presents). The genuine-failure banner is unaffected (it draws only
+  // 稍後再說 dismisses without reference-ui resetting the template flag). NOTE: the proactive
+  // gate path does NOT reset the flag on a later tap (only a pass-through add / video switch / new
+  // detail does), so after 稍後再說 a repeat tap on the proactive gate does NOT re-present this gate
+  // (no false→true edge); the gap-surface AuthGateModal takes over for that repeat's AUTH_REQUIRED. The genuine-failure banner is unaffected (it draws only
   // on the orthogonal `addToCartFailed`, never set together with needs-login).
   const needsLogin = model.addToCartNeedsLogin;
   const [cartGatePresented, setCartGatePresented] = useState(false);
@@ -431,6 +443,10 @@ export function ProductSheetsView(props: ProductSheetsViewProps): ReactElement {
     if (needsLogin && !prevNeedsLoginRef.current) setCartGatePresented(true);
     prevNeedsLoginRef.current = needsLogin;
   }, [needsLogin]);
+  // Relay the presented state up (container → gap AuthGateModal mutual exclusion).
+  useEffect(() => {
+    onCartGatePresentedChange?.(cartGatePresented);
+  }, [cartGatePresented, onCartGatePresentedChange]);
 
   // 「請選規格」prompt (rn-variant-prompt-overlay-fix + rn-variant-prompt-reprompt-rearm, parity
   // iOS/Android) — a LOCAL presentation state set PER add-to-cart tap in `handleAddToCart` below

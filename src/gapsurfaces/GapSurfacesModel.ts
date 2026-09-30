@@ -68,6 +68,29 @@ import { LBAuthTriggerAction } from 'livebuy-react-native-ui';
 import type { LBAuthGateState, LBIdentityLabel } from 'livebuy-react-native-ui';
 
 /**
+ * Mutual exclusion between the gap-surface `AuthGateModal` and the product-sheet cart login gate
+ * (rb-rn-cart-login-gate-gap-authgate-mutual-exclusion). A drop-in cart-add login gate raises BOTH
+ * signals: the product-sheet cart gate (shown on the template `addToCartNeedsLogin` false→true edge)
+ * AND a `cart_add` `AUTH_REQUIRED` that loops back into `authGate` (this family's modal) — the same
+ * copy twice. The gap modal yields ONLY when `authGate` is a CartAdd gate AND the product-sheet cart
+ * gate is CURRENTLY PRESENTED (reported by `ProductSheetsView`). NOT keyed on the template flag: the
+ * flag stays true after 稍後再說 and a repeat proactive tap has no false→true edge, so the cart gate
+ * is not shown again — the gap modal must then be the user's prompt. A CartAdd `authGate` while no
+ * cart gate is presented (external widget / headless guest, or after 稍後再說) keeps the gap modal;
+ * every other trigger action is never affected. Pure — unit-testable without React.
+ */
+export function authGateYieldsToCartGate(
+  authGate: LBAuthGateState | null,
+  cartGatePresented: boolean,
+): boolean {
+  return (
+    authGate != null &&
+    authGate.triggerAction === LBAuthTriggerAction.CartAdd &&
+    cartGatePresented
+  );
+}
+
+/**
  * Read-only snapshot bridge for the family-6 gap-surface modals. Wraps a live
  * {@link DefaultPlayerTemplate}; every accessor reads the template's public getter
  * each call (no stored mirror). For demos / previews / structural snapshot tests,
@@ -105,6 +128,15 @@ export class GapSurfacesModel {
    */
   get authGate(): LBAuthGateState | null {
     return this.template?.authGateState ?? null;
+  }
+
+  /**
+   * `true` when the auth-gate modal MUST yield to the product-sheet cart login gate — see
+   * {@link authGateYieldsToCartGate}. `cartGatePresented` is reported by the container (this model
+   * holds no state). The template's `authGate` record itself is untouched.
+   */
+  authGateYieldsToCartGate(cartGatePresented: boolean): boolean {
+    return authGateYieldsToCartGate(this.authGate, cartGatePresented);
   }
 
   // -- Surface 2: GuestNameEditModal ← identity label --------------------------

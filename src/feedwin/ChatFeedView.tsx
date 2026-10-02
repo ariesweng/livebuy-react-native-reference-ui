@@ -93,6 +93,7 @@ import type { FeedItem, PinnedMessage } from 'livebuy-react-native-ui';
 import type { ReferenceUITheme } from '../theme';
 import { LBTestIDs, chatLine } from '../testing/LBTestIDs';
 import { BagGlyph } from '../playershell/BagGlyph';
+import { SearchGlyph } from '../productsheets/SearchGlyph';
 import { ArrowDownGlyph } from './ArrowDownGlyph';
 import { CrownGlyph } from './CrownGlyph';
 import { SparklesGlyph } from './SparklesGlyph';
@@ -1108,7 +1109,7 @@ function renderIconSlot(theme: ReferenceUITheme, tier: ActivityTier): ReactEleme
       // 觀眾選購（chat-message-taxonomy ⑤）— 最低調，同 join 的 slot；放大鏡圖示（mirror iOS
       // `magnifyingglass`）。
       fill = JOIN_SLOT_FILL;
-      glyph = '🔍'; // magnifyingglass
+      glyph = ''; // drawn as the vector `SearchGlyph` below (iOS `magnifyingglass`)
       glyphColor = JOIN_GLYPH_COLOR;
       break;
     case ActivityTier.Purchase:
@@ -1140,6 +1141,11 @@ function renderIconSlot(theme: ReferenceUITheme, tier: ActivityTier): ReactEleme
     >
       {tier === ActivityTier.Purchase ? (
         <BagGlyph color={glyphColor} size={14} />
+      ) : tier === ActivityTier.Browse ? (
+        // Vector magnifier (rb-rn-emoji-magnifier-and-row-overlay-fix) instead of the emoji `'🔍'`;
+        // 12 matches Flutter's `Icons.search` size in this slot. The slot itself is currently
+        // gated off, so this only matters once it is turned back on.
+        <SearchGlyph color={glyphColor} size={12} />
       ) : (
         <Text style={{ color: glyphColor, fontSize: 12 }}>{glyph}</Text>
       )}

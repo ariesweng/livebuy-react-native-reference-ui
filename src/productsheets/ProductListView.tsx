@@ -1100,6 +1100,12 @@ function RowLayoutBody(props: {
             overflow: 'hidden',
           }}
         >
+          {/* The product photo comes FIRST so everything below paints ON TOP of it
+              (rb-rn-emoji-magnifier-and-row-overlay-fix). It used to sit after the play / introducing
+              overlays: with a real image loaded (`live === true`) the absolutely-filled photo
+              covered them, so on a device no play button or equalizer mask ever showed. Structural
+              tests render with `live === false` (no image element), which is why they never saw it. */}
+          <RemoteImage live={live} uri={photoUri} borderRadius={12} />
           {/* VOD (rb-rn-product-row-vod-intro-mask, design R36): a DIFFERENT, unified
               three-phase visual — centered play button / full-bleed equalizer mask / no
               overlay — replaces the「看講解」pill below and the「介紹中」banner further down
@@ -1154,7 +1160,6 @@ function RowLayoutBody(props: {
               ) : null}
             </>
           )}
-          <RemoteImage live={live} uri={photoUri} borderRadius={12} />
           {/* 縮圖左上角編號徽章（rb-rn-product-row-number-badge, design R35）：黑底半透明白字，
               外側兩角圓角（對應設計 0.25rem 0 0.25rem 0）。`numberBadge == null`（VOD / 找不到該
               id）→ 不畫。介紹中時內容換成 HotGlyph + "HOT"，不論是否售完（sold_out 與 narrating

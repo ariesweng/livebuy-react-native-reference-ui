@@ -61,6 +61,7 @@ import type { PlayerTemplateAttachment } from 'livebuy-react-native-ui';
 import type { SDKConfig } from 'livebuy-react-native';
 
 import { useSdkConfig } from './sdkConfigResolution';
+import { createPlayerErrorFeed } from './playerErrorFeed';
 
 import type { ReferenceUITheme } from '../theme';
 import { ReferenceUIThemeResolver } from '../theme';
@@ -445,6 +446,15 @@ export function LivebuyPlayer(props: LivebuyPlayerProps): ReactElement {
   // this backfill work regardless of that race (parity `configRef`'s same ref-mirror rationale
   // above).
   const attachmentRef = useRef(attachment);
+  // One feed per container instance (rb-rn-dropin-playback-progress-and-error-wiring). It reads the
+  // CURRENT attachment through the ref, so a re-attach needs no new feed.
+  const errorFeedRef = useRef<ReturnType<typeof createPlayerErrorFeed> | null>(null);
+  if (errorFeedRef.current == null) {
+    errorFeedRef.current = createPlayerErrorFeed((type) =>
+      attachmentRef.current?.template.handleError(type),
+    );
+  }
+  const errorFeed = errorFeedRef.current;
   attachmentRef.current = attachment;
 
   // Load the cover video (and reload on `videoId` prop change) once a ref exists.
@@ -794,6 +804,27 @@ export function LivebuyPlayer(props: LivebuyPlayerProps): ReactElement {
               attachmentRef.current?.template.handleRailEnablement({
                 subtitleAvailable: available,
               }),
+          });
+        }}
+        // rb-rn-dropin-playback-progress-and-error-wiring — feed terminal playback errors into the
+        // template's error-state model (also "host-fed": without this the error screen never
+        // showed and a video that could not be loaded was just a black player). `playerErrorFeed`
+        // keeps chat / cart business errors — which arrive on the same callback — away from it.
+        onError={(error): void => errorFeed.onError(error.type)}
+        onStateChange={(state): void => errorFeed.onStateChange(state)}
+        // rb-rn-dropin-playback-progress-and-error-wiring — feed the native playback progress into the
+        // template. `DefaultPlayerTemplate.handlePlaybackProgress` is "host-fed": nothing else
+        // calls it, and without this prop the container left `playbackProgressState` at its
+        // initial `{ position: 0, duration: 0 }` for the whole session — the VOD / replay
+        // progress bar never moved, the product list's「介紹中」mask stayed on whichever product
+        // covers second 0, and position-driven subtitles never advanced. The core fires this on
+        // its own cadence; the template notifies only when a field actually changed.
+        onPlaybackProgressChange={(progress): void => {
+          attachmentRef.current?.template.handlePlaybackProgress({
+            position: progress.position,
+            duration: progress.duration,
+            isPlaying: progress.isPlaying,
+            isReplay: progress.isReplay,
           });
         }}
         // fix-rn-replay-chat-progressive-reveal-reference-ui — forward the core's PROGRESSIVE

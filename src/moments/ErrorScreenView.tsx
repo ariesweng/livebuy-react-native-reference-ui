@@ -68,6 +68,7 @@ import type { PlayerErrorState } from 'livebuy-react-native-ui';
 import { WifiSlashGlyph } from './WifiSlashGlyph';
 import { ArrowUpCircleGlyph } from './ArrowUpCircleGlyph';
 import { ArrowClockwiseGlyph } from './ArrowClockwiseGlyph';
+import { SearchAlertGlyph } from './SearchAlertGlyph';
 
 // MARK: - Decorative design tokens (literal — lifted verbatim from LBPErrorScreen)
 //
@@ -118,9 +119,10 @@ interface ErrorCopy {
    * pre-scaled size (the caller — `IconBadge` — already applied `theme.fontScale`,
    * since this pure function takes no `theme`) and returns the rendered element.
    * `stream` / `outdated` render self-drawn `View` glyphs (`WifiSlashGlyph` /
-   * `ArrowUpCircleGlyph`); `notFound` still renders a deterministic Text glyph
-   * (`'🔍'`), just wrapped in the same builder shape (rb-rn-icon-parity-errorscreen-icons,
-   * mirrors Flutter's `_ErrorCopy.icon: Widget Function(Color)`).
+   * `ArrowUpCircleGlyph`); `notFound` renders the design's own icon as a vector
+   * (`SearchAlertGlyph`, rb-rn-emoji-magnifier-and-row-overlay-fix — it used to be the emoji
+   * `'🔍'`). Same builder shape for all three (rb-rn-icon-parity-errorscreen-icons, mirrors
+   * Flutter's `_ErrorCopy.icon: Widget Function(Color)`).
    */
   readonly glyph: (color: string, size: number) => ReactElement;
   /** The primary CTA label (重試 / 前往更新), or `null` when retry won't help. */
@@ -163,12 +165,12 @@ export function errorCopyFor(kind: PlayerErrorKind): ErrorCopy {
       return {
         title: NOT_FOUND_TITLE,
         body: NOT_FOUND_BODY,
-        // magnifier — search-off (the video is gone). Kept as a deterministic Text
-        // glyph (not self-drawn) — see design.md D-notFound: iOS / Flutter also
-        // keep `notFound` at system-icon level (SF Symbol / Material Icon) rather
-        // than a self-drawn vector, so there is no cross-platform target shape to
-        // converge RN onto here.
-        glyph: (color, size) => <Text style={{ fontSize: size, color }}>{'🔍'}</Text>,
+        // The design's `notFound` icon: a magnifier with an exclamation mark, drawn from the
+        // design source (`moments.jsx` `LBErrorScreen`). The other platforms each use a
+        // different stand-in (iOS SF Symbol `magnifyingglass`, Flutter Material `search_off`,
+        // Android the stream error's wifi-slash) — RN follows the design rather than any of
+        // them; converging the others is tracked in the parity ledger.
+        glyph: (color, size) => <SearchAlertGlyph color={color} size={size} />,
         primaryLabel: null, // retry won't help → 返回 only
         primaryGlyph: null,
         accentTinted: false,

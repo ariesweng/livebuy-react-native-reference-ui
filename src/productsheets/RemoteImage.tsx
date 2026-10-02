@@ -15,11 +15,32 @@
 //   • `live === true` (host runtime) + a non-empty `uri` → an absolutely-filled
 //     `<Image source={{ uri }}>` over the placeholder; `onError` hides it (fall back).
 //
-// Pure presentation — no animation / randomness. jsx automatic runtime (no React import).
+// DECODE SIZE (rb-rn-remote-image-resize-method, parity Android
+// `rb-android-remote-image-loader-library`): every remote still image in this package goes
+// through THIS component, and it asks the platform to decode at the size of the frame it fills
+// rather than at the source resolution — see `remoteImageDecode.ts` for the policy and for
+// what each platform actually does. Memory + disk caching and cancelling the request when the
+// image unmounts are provided by the platform's image pipeline, not by this component.
+//
+// Pure presentation — no randomness. jsx automatic runtime (no React import).
 
 import { useEffect, useRef, useState, type ReactElement } from 'react';
-import { Animated, StyleSheet, type StyleProp, type ImageStyle, type ImageLoadEvent } from 'react-native';
+import {
+  Animated,
+  Platform,
+  StyleSheet,
+  type StyleProp,
+  type ImageStyle,
+  type ImageLoadEvent,
+  type LayoutChangeEvent,
+} from 'react-native';
 import { referenceUiHttpsUpgraded } from '../referenceUiImageUrl';
+import {
+  needsLargerDecode,
+  remoteImageDecodeProps,
+  type FrameSize,
+  type RemoteImageDecode,
+} from './remoteImageDecode';
 
 /**
  * Fade-in duration (ms) applied once a loaded image is ready to show
@@ -58,12 +79,20 @@ export interface RemoteImageProps {
   readonly intrinsicSize?: { readonly width: number; readonly height: number };
   /**
    * Opt-in load callback (rb-rn-product-detail-main-image-scale-down-letterbox) — fires the
-   * loaded image's NATIVE pixel size (`nativeEvent.source.width` / `.height`) once the
-   * underlying `<Image>` finishes loading, letting the caller compute a scale-down-letterbox
-   * layout (see `resolveScaleDownLetterbox` in `ProductDetailSheetView.tsx`). Omitted
-   * (default) → no behavior change; the underlying `<Image onLoad>` handler is simply absent.
+   * loaded image's pixel size (`nativeEvent.source.width` / `.height`) once the underlying
+   * `<Image>` finishes loading, letting the caller compute a scale-down-letterbox layout (see
+   * `resolveScaleDownLetterbox` in `ProductDetailSheetView.tsx`). The size reported is that of
+   * the DECODED bitmap: it keeps the source's aspect ratio, and with `decode="frame"` it is the
+   * source size only when the source is no larger than the frame asked for (otherwise it is a
+   * downsampled size that still covers the frame). Omitted (default) → nothing is reported.
    */
   readonly onLoad?: (size: { width: number; height: number }) => void;
+  /**
+   * Decode-size policy (rb-rn-remote-image-resize-method). Default `'frame'` — decode at the
+   * size of the frame this image fills. Pass `'source'` ONLY for a surface that draws the image
+   * larger than its layout frame (the zoom lightbox), where a frame-sized decode would blur.
+   */
+  readonly decode?: RemoteImageDecode;
 }
 
 /**
@@ -77,7 +106,15 @@ export interface RemoteImageProps {
  */
 export function RemoteImage(props: RemoteImageProps): ReactElement | null {
   const { live = false, uri, borderRadius = 0, style, resizeMode = 'cover', intrinsicSize, onLoad } = props;
+  const { decode = 'frame' } = props;
   const [failed, setFailed] = useState(false);
+  // Bumped to REMOUNT the native image view when the frame outgrows the decode it asked for
+  // (Android only — see `handleLayout`). A remount is the one way to make RN Android issue a
+  // new request at the new size: its image view does not re-request when only its size changes.
+  const [decodeGeneration, setDecodeGeneration] = useState(0);
+  const latestFrame = useRef<FrameSize | null>(null);
+  const requestedFrame = useRef<FrameSize | null>(null);
+  const loadedAspect = useRef<number | null>(null);
   // Stable across renders (not re-created), so the SAME Animated.Value drives every fade-in for
   // this component instance's lifetime — a fresh `Animated.Value` on every render would reset
   // mid-animation and never settle.
@@ -95,6 +132,9 @@ export function RemoteImage(props: RemoteImageProps): ReactElement | null {
   useEffect(() => {
     setFailed(false);
     opacity.setValue(0);
+    // A new URL is requested at the frame the view has NOW, and its aspect is not known yet.
+    requestedFrame.current = latestFrame.current;
+    loadedAspect.current = null;
   }, [trimmed, opacity]);
   if (!live || trimmed.length === 0 || failed) return null;
   // Fade opacity 0 → 1 on every load completion (rb-rn-product-image-loading-polish). RN cannot
@@ -106,16 +146,38 @@ export function RemoteImage(props: RemoteImageProps): ReactElement | null {
       duration: FADE_IN_DURATION_MS,
       useNativeDriver: true,
     }).start();
-    onLoad?.({ width: e.nativeEvent.source.width, height: e.nativeEvent.source.height });
+    const { width, height } = e.nativeEvent.source;
+    loadedAspect.current = width > 0 && height > 0 ? width / height : null;
+    onLoad?.({ width, height });
+  };
+  // Track the frame the current decode was requested for; when the frame outgrows it, request
+  // a larger one. iOS re-requests by itself when the frame changes, and a `decode="source"`
+  // image is already at the source resolution — neither needs this.
+  const handleLayout = (e: LayoutChangeEvent): void => {
+    const next: FrameSize = { width: e.nativeEvent.layout.width, height: e.nativeEvent.layout.height };
+    latestFrame.current = next;
+    const requested = requestedFrame.current;
+    if (requested == null || requested.width <= 0 || requested.height <= 0) {
+      requestedFrame.current = next;
+      return;
+    }
+    if (Platform.OS !== 'android' || decode !== 'frame') return;
+    if (!needsLargerDecode({ requested, next, aspect: loadedAspect.current, resizeMode })) return;
+    requestedFrame.current = next;
+    loadedAspect.current = null;
+    setDecodeGeneration((generation) => generation + 1);
   };
   // Upgrade a cleartext http:// pic to https:// before handing it to <Image> — RN iOS ATS
   // blocks cleartext so the image would never load → placeholder. https / non-http unchanged.
   return (
     <Animated.Image
+      key={decodeGeneration}
       source={{ uri: referenceUiHttpsUpgraded(trimmed) }}
       onError={() => setFailed(true)}
       onLoad={handleLoad}
+      onLayout={handleLayout}
       resizeMode={resizeMode}
+      {...remoteImageDecodeProps(decode)}
       style={
         intrinsicSize == null
           ? [StyleSheet.absoluteFill, { borderRadius, opacity }, style]

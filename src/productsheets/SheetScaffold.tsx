@@ -21,6 +21,7 @@ import { useEffect, useRef } from 'react';
 import { View, ScrollView, Dimensions } from 'react-native';
 
 import type { ReferenceUITheme } from '../theme';
+import { useLBSafeAreaInsets } from '../safearea/LBSafeArea';
 
 /** Sheet cap height: `fillToCap` uses 0.4 screen (固定同高，產品指定、覆蓋設計 `min(drawerH, 70%)`;
  *  rb-rn-compact-sheet-cap-and-footer); otherwise ½ screen (content-sized cap). Parity iOS / Android / Flutter.
@@ -107,7 +108,14 @@ export interface SheetScaffoldProps {
  */
 export function SheetScaffold(props: SheetScaffoldProps): ReactElement {
   const { theme, header, body, footer, fillToCap = false, capPct, testID, scrollResetKey } = props;
-  const cap = sheetCapHeight(fillToCap, capPct);
+  // rb-rn-edge-to-edge-safe-area — the panel extends to the container's physical bottom edge (the
+  // navigation / gesture bar area shows the sheet's own background), while header / body / footer
+  // stay above it: a bottom spacer of the inset's height is appended, and the SAME amount is added
+  // to the cap so the content's usable height is what it was without an inset. Side insets
+  // (landscape cutout / 3-button bar) become horizontal padding. All of it is zero / absent
+  // without a Tier B container or when the host already handled the edges.
+  const safeArea = useLBSafeAreaInsets();
+  const cap = sheetCapHeight(fillToCap, capPct) + safeArea.bottom;
   const fixedHeight = usesFixedHeight(fillToCap, capPct);
 
   // Scroll-position reset on content swap (rb-rn-recommendation-switch-scroll-reset). `undefined`
@@ -136,6 +144,8 @@ export function SheetScaffold(props: SheetScaffoldProps): ReactElement {
         // `fillToCap` sheets are always fixed; a non-fillToCap sheet ALSO goes fixed once it
         // receives a live `capPct` from the drag gesture (usesFixedHeight, see above).
         ...(fixedHeight ? { height: cap } : { maxHeight: cap }),
+        ...(safeArea.left > 0 ? { paddingLeft: safeArea.left } : null),
+        ...(safeArea.right > 0 ? { paddingRight: safeArea.right } : null),
       }}
     >
       {/* Pinned header (never scrolls). */}
@@ -145,6 +155,8 @@ export function SheetScaffold(props: SheetScaffoldProps): ReactElement {
       <ScrollView ref={scrollRef} style={fixedHeight ? { flex: 1 } : { flexShrink: 1 }}>{body}</ScrollView>
       {/* Pinned footer (never scrolls). */}
       {footer ?? null}
+      {/* Safe-area bottom spacer (sheet background shows through) — absent when the inset is zero. */}
+      {safeArea.bottom > 0 ? <View style={{ height: safeArea.bottom }} /> : null}
     </View>
   );
 }

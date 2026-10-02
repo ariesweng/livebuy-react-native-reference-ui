@@ -60,6 +60,8 @@ import { attachPlayerTemplate, LivebuyUI } from 'livebuy-react-native-ui';
 import type { PlayerTemplateAttachment } from 'livebuy-react-native-ui';
 import type { SDKConfig } from 'livebuy-react-native';
 
+import { useSdkConfig } from './sdkConfigResolution';
+
 import type { ReferenceUITheme } from '../theme';
 import { ReferenceUIThemeResolver } from '../theme';
 
@@ -73,6 +75,8 @@ import { ProvideTightText } from '../TightText';
 import { refreshSubtitleCuesIfUrlChanged, subtitleToggleEnabled } from './subtitlePipeline';
 import type { VTTCue } from '../playershell/VTTSubtitleParser';
 import { liveEntryGate } from './liveEntryLogic';
+import { createMuteIconSeed, muteIconSeedTarget } from './muteIconSeed';
+import type { MuteIconSeed } from './muteIconSeed';
 import {
   deriveHeaderChromeFields,
   deriveServiceLinkAvailable,
@@ -80,6 +84,7 @@ import {
   deriveLiveDuration,
 } from './channelChrome';
 import { overlayChromeVisibleInPip } from './pipChrome';
+import { LBSafeAreaScope, useLBSafeAreaBoundary } from '../safearea/LBSafeArea';
 
 export type { LivebuyPlayerConfig } from './LivebuyPlayerConfig';
 
@@ -88,32 +93,8 @@ export type { LivebuyPlayerConfig } from './LivebuyPlayerConfig';
 // core value import) so the fake-based wiring tests never load the native bridge.
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * Resolve the SDKConfig once: prefer `config.sdkConfig`, else fetch via
- * `LivebuySDK.getSdkConfig()` (the host has already `configure()`d). Returns
- * `null` until the async fetch resolves.
- */
-function useSdkConfig(explicit: SDKConfig | null | undefined): SDKConfig | null {
-  const [resolved, setResolved] = useState<SDKConfig | null>(explicit ?? null);
-  useEffect(() => {
-    if (explicit != null) {
-      setResolved(explicit);
-      return;
-    }
-    let cancelled = false;
-    LivebuySDK.getSdkConfig()
-      .then((c) => {
-        if (!cancelled) setResolved(c);
-      })
-      .catch(() => {
-        /* not configured yet — stay null; the host re-renders after configure() */
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [explicit]);
-  return resolved;
-}
+// `useSdkConfig` lives in ./sdkConfigResolution (shared by the three containers; retries while the
+// host has not finished `configure()` — rb-rn-container-sdk-config-retry).
 
 /**
  * Adapts this package's SDK-event multiplexer ({@link subscribeSdkEvents}) into the plain
@@ -161,6 +142,7 @@ function useTemplateAttachment(
   sdkConfig: SDKConfig | null,
   hostOptions: LivebuyPlayerConfig['hostOptions'],
   playerRef: RefObject<LivebuyPlayerCoreRef | null>,
+  muteIconSeed: MuteIconSeed,
 ): PlayerTemplateAttachment | null {
   const [attachment, setAttachment] = useState<PlayerTemplateAttachment | null>(null);
   useEffect(() => {
@@ -194,13 +176,23 @@ function useTemplateAttachment(
       // Platform.OS guard (dispatchBeginScrub/dispatchEndScrub).
       requestBeginScrub: () => playerRef.current?.beginScrub(),
       requestEndScrub: () => playerRef.current?.endScrub(),
+      // rb-rn-drop-in-mute-icon-seed-wiring: seed the mute icon from the wrapped native Player's
+      // actual mute state (the core keeps the user's mute preference for the whole app session,
+      // so a reopened player starts with the same AUDIO state — without this the icon would say
+      // "sound on" over a silent player). `muteIconSeed` owns the freshness rules; see
+      // `muteIconSeed.ts`.
+      queryIsMuted: muteIconSeed.queryIsMuted,
     });
+    // Bound BEFORE the attachment is published to render: a remembered value is applied here, so
+    // the first overlay frame already shows it.
+    const unbindMuteIconSeed = muteIconSeed.bind(muteIconSeedTarget(att));
     setAttachment(att);
     return () => {
+      unbindMuteIconSeed();
       att.detach();
       setAttachment(null);
     };
-  }, [sdkConfig, hostOptions, playerRef]);
+  }, [sdkConfig, hostOptions, playerRef, muteIconSeed]);
   return attachment;
 }
 
@@ -410,7 +402,25 @@ export function LivebuyPlayer(props: LivebuyPlayerProps): ReactElement {
 
   const sdkConfig = useSdkConfig(config.sdkConfig);
   const theme = useResolvedTheme(sdkConfig, config.hostOptions);
-  const attachment = useTemplateAttachment(sdkConfig, config.hostOptions, playerRef);
+  // rb-rn-drop-in-mute-icon-seed-wiring — ONE seed per container instance (it outlives a
+  // re-attach, so "the native Player exists" is not forgotten when the template is rebuilt).
+  const muteIconSeedRef = useRef<MuteIconSeed | null>(null);
+  if (muteIconSeedRef.current == null) {
+    muteIconSeedRef.current = createMuteIconSeed({
+      queryNative: () => playerRef.current?.isMuted(),
+    });
+  }
+  const muteIconSeed = muteIconSeedRef.current;
+  const attachment = useTemplateAttachment(sdkConfig, config.hostOptions, playerRef, muteIconSeed);
+
+  // rb-rn-edge-to-edge-safe-area — measure how much of the status bar / navigation / gesture bar /
+  // cutout (and keyboard) THIS container's chrome still has to clear. The boundary applies NO
+  // padding itself: the backdrop + `LivebuyPlayerCore` below stay full-bleed, and only the overlay
+  // subtree (wrapped in `LBSafeAreaScope`) reads the value. A host that already inset this
+  // container ends up with zero here (no double padding) — see `safearea/LBSafeArea.tsx`.
+  // `measureProps` is an EMPTY object unless a measurement is actually needed, so with no inset
+  // source the root `View` below carries exactly the props it carried before this existed.
+  const safeAreaBoundary = useLBSafeAreaBoundary(config.safeAreaInsets, true);
   // 「現正直播」LiveNowPillView 輪詢（rb-rn-live-now-pill,
   // rn-live-now-pill-auto-shopid-turnkey-reference-ui）：`useLiveNowPoll` itself is UNCHANGED
   // (still `shopId == null` → 永久 no-op, see its doc comment) — what changed is what value flows
@@ -452,6 +462,9 @@ export function LivebuyPlayer(props: LivebuyPlayerProps): ReactElement {
       hasAppliedInitialSeek: hasAppliedInitialSeekRef.current,
       initialSeekSeconds: config.initialSeekSeconds,
     });
+    // rb-rn-drop-in-mute-icon-seed-wiring: a RELOAD (not the first load) discards any mute query
+    // still in flight; the icon is asked again once the new channel arrives.
+    if (hasAppliedInitialSeekRef.current) muteIconSeed.reset();
     hasAppliedInitialSeekRef.current = true;
     playerRef.current?.load(videoId, startAt);
   }, [videoId]);
@@ -554,6 +567,7 @@ export function LivebuyPlayer(props: LivebuyPlayerProps): ReactElement {
     const to = videoSwitchToId(event.eventName, params);
     if (!shouldSyncAutoAdvance(to, currentVideoIdRef.current)) return;
     currentVideoIdRef.current = to as string;
+    muteIconSeed.reset(); // core auto-advance = in-place switch (rb-rn-drop-in-mute-icon-seed-wiring)
     configRef.current.onVideoSwitchedItem?.(autoAdvanceSwitchedItem(to as string));
   };
 
@@ -626,6 +640,7 @@ export function LivebuyPlayer(props: LivebuyPlayerProps): ReactElement {
   // (rb-rn-collapsible-player-track-switch). `onVideoSwitched(id)` fires unchanged either way.
   const switchVideo = (newId: string, item?: LBVideoItem): void => {
     currentVideoIdRef.current = newId;
+    muteIconSeed.reset(); // in-place switch (rb-rn-drop-in-mute-icon-seed-wiring)
     config.onVideoSwitched?.(newId);
     config.onVideoSwitchedItem?.(
       item ??
@@ -638,7 +653,7 @@ export function LivebuyPlayer(props: LivebuyPlayerProps): ReactElement {
     // for every Text in the player overlay (parity Android `ProvideTightText`). The native
     // `LivebuyPlayerCore` is unaffected (provider only flips a Text-style context).
     <ProvideTightText>
-      <View style={[{ flex: 1 }, config.style]} pointerEvents="box-none">
+      <View style={[{ flex: 1 }, config.style]} pointerEvents="box-none" {...safeAreaBoundary.measureProps}>
       {/* rb-rn-player-open-opaque-backdrop — the bottommost layer, ALWAYS painted, gated on
           NOTHING. The root `View` above has no `backgroundColor` of its own (RN Views are
           transparent by default — same shape as the `Material(type: transparency)` gap Flutter
@@ -661,6 +676,9 @@ export function LivebuyPlayer(props: LivebuyPlayerProps): ReactElement {
         // contextually from `LivebuyPlayerCoreProps.onChannelChange`'s declared signature.
         onChannelChange={(info): void => {
           serviceLinkRef.current = info.serviceLink;
+          // rb-rn-drop-in-mute-icon-seed-wiring: channel info for this view means the wrapped
+          // native Player exists, so a mute query from here on is evidence (see `muteIconSeed.ts`).
+          muteIconSeed.playerReady();
           // player-channel-chrome-wiring-reference-ui-rn — auto-derive the PlayerHeader top-bar
           // chrome (title / hostName / shopLogo / shareUrl / isLive / isFinishedLiveReplay /
           // isFlashSale) on every channel load, parity iOS/Android `ingestChannel`'s auto-feed (RN
@@ -803,23 +821,28 @@ export function LivebuyPlayer(props: LivebuyPlayerProps): ReactElement {
       {/* rn-android-pip-hide-chrome-reference-ui — Android OS PiP in progress hides this ENTIRE
           node (the sole JSX site that composes the overlay chrome); iOS is unaffected
           (`overlayChromeVisibleInPip` only hides for Android — see its doc comment). */}
-      {attachment != null && overlayChromeVisibleInPip(pipActive, Platform.OS)
-        ? resolveDesign(config.design).playerOverlay({
-            attachment,
-            theme,
-            config,
-            composer,
-            nickname,
-            login,
-            playerRef,
-            currentVideoId: (): string => currentVideoIdRef.current,
-            switchVideo,
-            serviceLink: (): string => serviceLinkRef.current,
-            subtitleCues,
-            liveNow,
-            liveDuration,
-          })
-        : null}
+      {/* rb-rn-edge-to-edge-safe-area — `LBSafeAreaScope` is two context providers (no host node):
+          every chrome layer inside the overlay reads the resolved insets and steps clear of the
+          system bars; the backdrop and the native player above are OUTSIDE it and stay full-bleed. */}
+      <LBSafeAreaScope safeArea={safeAreaBoundary.safeArea} imeBottom={safeAreaBoundary.imeBottom}>
+        {attachment != null && overlayChromeVisibleInPip(pipActive, Platform.OS)
+          ? resolveDesign(config.design).playerOverlay({
+              attachment,
+              theme,
+              config,
+              composer,
+              nickname,
+              login,
+              playerRef,
+              currentVideoId: (): string => currentVideoIdRef.current,
+              switchVideo,
+              serviceLink: (): string => serviceLinkRef.current,
+              subtitleCues,
+              liveNow,
+              liveDuration,
+            })
+          : null}
+      </LBSafeAreaScope>
       </View>
     </ProvideTightText>
   );

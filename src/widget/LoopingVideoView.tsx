@@ -391,7 +391,11 @@ export function LoopingVideoView(props: { uri: string; borderRadius?: number }):
   }, []);
 
   return (
-    <View ref={containerRef} onLayout={measure} style={StyleSheet.absoluteFill}>
+    // `pointerEvents="none"` (rb-rn-widget-preview-tap-through): the preview is decoration inside
+    // a tappable card. On Android the native video view (react-native-video's ExoPlayer view)
+    // otherwise claims the touch, so a tap anywhere on the moving preview never reached the
+    // card's `Pressable` — only the title row below the thumbnail opened the player.
+    <View ref={containerRef} onLayout={measure} style={StyleSheet.absoluteFill} pointerEvents="none">
       {videoRendered ? (
         <Video
           key={generation}

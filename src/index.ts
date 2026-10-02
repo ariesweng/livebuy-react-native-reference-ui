@@ -396,6 +396,21 @@ export type {
   LiveEntryRestingInset,
 } from './container/liveEntryLogic';
 
+// rb-rn-edge-to-edge-safe-area — edge-to-edge system insets (status bar / navigation or gesture
+// bar / cutout) for the Tier B containers. `LivebuySafeAreaInsetsProvider` is the host's
+// no-extra-dependency way to inject the window's insets for every container below it; the
+// per-container alternative is `LivebuyPlayerConfig.safeAreaInsets` /
+// `LivebuyLiveEntryConfig.safeAreaInsets` (taken as-is, all-zero = "host already handled it").
+// A host that has `react-native-safe-area-context` installed needs neither — it is picked up
+// automatically (optional peer dependency; needs Metro's `allowOptionalDependencies`, which the
+// standard React Native and Expo Metro configs enable). The read hooks / style helpers stay internal.
+export { LivebuySafeAreaInsetsProvider } from './safearea/LBSafeArea';
+export type {
+  LBSafeAreaInsets,
+  LBSafeAreaFrame,
+  LivebuySafeAreaInsetsProviderProps,
+} from './safearea/LBSafeArea';
+
 // rb-rn-e2e-test-ids — centralized E2E testID registry. Every `testID` string on
 // a production reference-ui component comes from here (CI greps for literals; only
 // `LBTestIDs.ts` + `__tests__` may contain them). Values are 1:1 identical to the

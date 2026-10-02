@@ -47,6 +47,7 @@ import type { ReferenceUITheme } from '../theme';
 import { ShareFillGlyph } from './ShareFillGlyph';
 import { ContactGlyph } from './ContactGlyph';
 import { LBTestIDs } from '../testing/LBTestIDs';
+import { useLBSafeAreaInsets } from '../safearea/LBSafeArea';
 
 /** Grab-handle stroke (`STROKE_STRONG`, matches `VideoInfoPanelView`'s identically-named
  *  constant — the same design token, kept as a local literal rather than a cross-file import
@@ -92,6 +93,10 @@ export interface LiveMoreMenuProps {
  */
 export function LiveMoreMenuView(props: LiveMoreMenuProps): ReactElement {
   const { theme, onShare, onContactMerchant } = props;
+  // rb-rn-edge-to-edge-safe-area — same rule as `SheetScaffold`: the panel reaches the physical
+  // bottom edge, its content stays above the navigation / gesture bar (bottom spacer) and clear of
+  // side insets (horizontal padding). Nothing is added when the insets are zero.
+  const safeArea = useLBSafeAreaInsets();
 
   return (
     <View
@@ -99,6 +104,8 @@ export function LiveMoreMenuView(props: LiveMoreMenuProps): ReactElement {
         backgroundColor: theme.background,
         borderTopLeftRadius: SHELL_RADIUS,
         borderTopRightRadius: SHELL_RADIUS,
+        ...(safeArea.left > 0 ? { paddingLeft: safeArea.left } : null),
+        ...(safeArea.right > 0 ? { paddingRight: safeArea.right } : null),
       }}
     >
       {/* Grab handle (mirrors `VideoInfoPanelView`'s identically-styled handle). */}
@@ -150,6 +157,7 @@ export function LiveMoreMenuView(props: LiveMoreMenuProps): ReactElement {
         <View style={{ width: ROW_GAP }} />
         <View style={{ width: ITEM_WIDTH, opacity: 0 }} pointerEvents="none" />
       </View>
+      {safeArea.bottom > 0 ? <View style={{ height: safeArea.bottom }} /> : null}
     </View>
   );
 }

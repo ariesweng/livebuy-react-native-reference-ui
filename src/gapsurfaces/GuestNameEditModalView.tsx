@@ -68,6 +68,7 @@ import { View, Pressable, TextInput } from 'react-native';
 import { Text } from '../TightText';
 
 import { LBTestIDs } from '../testing/LBTestIDs';
+import { lbSafeAreaPaddingStyle, safeAreaPaddingFor, useLBImeBottomInset, useLBSafeAreaInsets } from '../safearea/LBSafeArea';
 import type { ReferenceUITheme } from '../theme';
 import type { NicknameSubmitFailureKind } from '../container/ChatComposerBar';
 import { GuestNamePersonGlyph } from './GuestNamePersonGlyph';
@@ -196,6 +197,11 @@ export interface GuestNameEditModalProps {
  * existing call site is unaffected.
  */
 export function GuestNameEditModal(props: GuestNameEditModalProps): ReactElement {
+  // rb-rn-edge-to-edge-safe-area — system insets + keyboard overlap from the enclosing Tier B
+  // container (all zero without one → `safeAreaPadding` is an empty object).
+  const safeAreaPadding = lbSafeAreaPaddingStyle(
+    safeAreaPaddingFor(useLBSafeAreaInsets(), useLBImeBottomInset()),
+  );
   const {
     theme,
     displayName,
@@ -261,6 +267,10 @@ export function GuestNameEditModal(props: GuestNameEditModalProps): ReactElement
         backgroundColor: SCRIM,
         alignItems: 'center',
         justifyContent: 'center',
+        // rb-rn-edge-to-edge-safe-area — the scrim stays full-bleed; the card is centered inside the
+        // safe rect minus the keyboard (bottom = the larger of the two, never their sum). No key is
+        // added when everything is zero.
+        ...safeAreaPadding,
       }}
     >
       <Pressable

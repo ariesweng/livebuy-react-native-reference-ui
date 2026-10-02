@@ -127,6 +127,7 @@ import { DetailGlyph } from './DetailGlyph';
 import { GestureSeekToastView } from './GestureSeekToastView';
 
 import { LBTestIDs } from '../testing/LBTestIDs';
+import { lbSafeAreaPaddingStyle, useLBSafeAreaInsets } from '../safearea/LBSafeArea';
 
 import type { LBProduct } from 'livebuy-react-native';
 import type { DefaultPlayerTemplate, LBMiniCartPeek } from 'livebuy-react-native-ui';
@@ -785,10 +786,11 @@ export function captionOverlayRightInset(isFinishedLiveReplay: boolean): number 
  *
  * `lift` is the caller's existing `scrubChromeLift` value (additive, not recomputed here) — both
  * branches keep adding it unchanged; the pure-VOD branch's `isScrubbing` display gate
- * (`shouldShowCaptionOverlay`) is also unaffected by this fix. This file has no `safeAreaBottom`
- * concept (unlike Flutter's same-named function) — verified there is no safe-area API consumed
- * anywhere in this file, so this signature deliberately omits that parameter rather than carrying
- * a dead one.
+ * (`shouldShowCaptionOverlay`) is also unaffected by this fix. This function carries no safe-area
+ * parameter (unlike Flutter's same-named function): it returns the clearance between the caption
+ * and the chrome BELOW it, and the call site adds the safe-area bottom inset on top
+ * (rb-rn-edge-to-edge-safe-area) — the same "each chrome layer adds the edge to its own offset"
+ * rule every other bottom-anchored layer in this file follows.
  */
 export function captionOverlayBottomInset(isFinishedLiveReplay: boolean, lift: number): number {
   return isFinishedLiveReplay ? LIVE_BOTTOM_BAR_HEIGHT + LIVE_BOTTOM_BAR_CLEARANCE_GAP + lift : 92 + lift;
@@ -925,6 +927,16 @@ export function PlayerShellView(props: PlayerShellViewProps): ReactElement {
     onScrubBarExpandedChange,
     subtitleCues = [],
   } = props;
+
+  // rb-rn-edge-to-edge-safe-area — the system insets this shell's CHROME must clear (status bar,
+  // navigation / gesture bar, cutout). Provided by the enclosing Tier B container; ZERO when there
+  // is none (standalone / structural snapshot) or the host already handled the edges, in which case
+  // every expression below reduces to the value it had before this existed. The video gesture
+  // surface, the restriction mask, sheet scrims and centered toasts deliberately do NOT read it —
+  // they stay full-bleed. Each chrome layer adds the relevant edge to its own offset; the flex
+  // column holding the header + side rail takes it as padding.
+  const safeArea = useLBSafeAreaInsets();
+  const safeAreaPadding = lbSafeAreaPaddingStyle(safeArea);
 
   // Coalesced re-read tick. The template's `subscribe()` carries NO diff — on
   // each notify we bump the tick so React re-renders and we re-read every getter
@@ -1470,7 +1482,7 @@ export function PlayerShellView(props: PlayerShellViewProps): ReactElement {
 
         {/* Header pinned top (LIVE pill / viewer count hidden since isLive == false
             for upcoming). The minimize / subscribe handlers forward as usual. */}
-        <View style={{ flex: 1 }}>
+        <View style={{ flex: 1, ...safeAreaPadding }}>
           <PlayerHeaderBar
             theme={theme}
             title={model.title}
@@ -1515,7 +1527,7 @@ export function PlayerShellView(props: PlayerShellViewProps): ReactElement {
             nickname / CC). bag / share / like route through the existing rail wiring by
             kind. NO VOD side rail / floating bag / mini-cart / overlay chrome. 永遠顯示，與乾淨
             模式無關（rb-rn-clean-mode-upcoming-not-triggered）——upcoming 不支援乾淨模式。 */}
-        <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0 }}>
+        <View style={{ position: 'absolute', left: safeArea.left, right: safeArea.right, bottom: safeArea.bottom }}>
           <LiveBottomBarView
             theme={theme}
             bagCount={model.bagCount}
@@ -1539,7 +1551,11 @@ export function PlayerShellView(props: PlayerShellViewProps): ReactElement {
 
         {/* 愛心 burst 錨於 slim 底部 bar 愛心上方（靜止態 render null → snapshot 中立）。永遠顯示，
             與乾淨模式無關（rb-rn-clean-mode-upcoming-not-triggered）——upcoming 不支援乾淨模式。 */}
-        <HeartBurst theme={theme} tick={liveHeartTick} style={{ position: 'absolute', right: 18, bottom: 64 }} />
+        <HeartBurst
+          theme={theme}
+          tick={liveHeartTick}
+          style={{ position: 'absolute', right: 18 + safeArea.right, bottom: 64 + safeArea.bottom }}
+        />
       </View>
     );
   }
@@ -1702,7 +1718,17 @@ export function PlayerShellView(props: PlayerShellViewProps): ReactElement {
           live). Parity iOS/Android/Flutter: usesLiveChrome → LiveOverlayChrome, 純 VOD →
           NowIntroducingCarousel (mutually exclusive branches). */}
       {usesLiveChrome ? (
-        <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}>
+        // rb-rn-edge-to-edge-safe-area — the LIVE overlay chrome (announce / pinned card / host
+        // caption / gesture hints) is laid out inside the safe rect; it paints no full-bleed fill.
+        <View
+          style={{
+            position: 'absolute',
+            top: safeArea.top,
+            left: safeArea.left,
+            right: safeArea.right,
+            bottom: safeArea.bottom,
+          }}
+        >
           <LiveOverlayChrome
             theme={theme}
             // 乾淨模式（cleanMode）時公告 banner 不顯示——LiveOverlayChromeView 既有的
@@ -1766,9 +1792,9 @@ export function PlayerShellView(props: PlayerShellViewProps): ReactElement {
         <View
           style={{
             position: 'absolute',
-            left: 0,
-            right: 0,
-            bottom: 0,
+            left: safeArea.left,
+            right: safeArea.right,
+            bottom: safeArea.bottom,
             paddingLeft: 8,
             paddingRight: railShown ? 60 : 8,
             paddingBottom: 12 + scrubChromeLift,
@@ -1787,8 +1813,10 @@ export function PlayerShellView(props: PlayerShellViewProps): ReactElement {
         </View>
       ) : null}
 
-      {/* Surfaces 1 + 2 — top bar pinned top, side rail pinned trailing. */}
-      <View style={{ flex: 1 }}>
+      {/* Surfaces 1 + 2 — top bar pinned top, side rail pinned trailing. Safe-area padding (empty
+          when zero) keeps the header below the status bar / cutout and the rail clear of the
+          trailing + bottom insets (rb-rn-edge-to-edge-safe-area). */}
+      <View style={{ flex: 1, ...safeAreaPadding }}>
         <PlayerHeaderBar
           theme={theme}
           title={model.title}
@@ -1904,7 +1932,13 @@ export function PlayerShellView(props: PlayerShellViewProps): ReactElement {
         // Additionally hidden while actively dragging the playback-progress bar
         // (rb-rn-vod-playback-progress-bar) or in clean mode (rb-rn-gesture-clean-mode-rewrite,
         // design R23).
-        <View style={{ position: 'absolute', right: 12, bottom: 16 + scrubChromeLift }}>
+        <View
+          style={{
+            position: 'absolute',
+            right: 12 + safeArea.right,
+            bottom: 16 + scrubChromeLift + safeArea.bottom,
+          }}
+        >
           <FloatingBagButton
             theme={theme}
             bagCount={model.bagCount}
@@ -1936,7 +1970,7 @@ export function PlayerShellView(props: PlayerShellViewProps): ReactElement {
           while the on-demand composer is up (`!composerPresented`) so the opaque composer has
           no bottom bar peeking behind it (parity iOS PlayerShellView composerPresented gate). */}
       {((usesLiveChrome && !cleanMode) || model.introPlaying) && !composerPresented && !isScrubbing ? (
-        <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0 }}>
+        <View style={{ position: 'absolute', left: safeArea.left, right: safeArea.right, bottom: safeArea.bottom }}>
           <LiveBottomBarView
             theme={theme}
             bagCount={model.bagCount}
@@ -1991,7 +2025,11 @@ export function PlayerShellView(props: PlayerShellViewProps): ReactElement {
           `usesLiveChrome`（取代先前的窄義 `model.isLive`），並比照上方底部 bar 本身的組裝條件新增
           `!isScrubbing`（拖曳進度條時底部 bar 本身已隱藏，愛心 burst 一併隱藏維持語意一致）。 */}
       {usesLiveChrome && !cleanMode && !isScrubbing ? (
-        <HeartBurst theme={theme} tick={liveHeartTick} style={{ position: 'absolute', right: 18, bottom: 64 }} />
+        <HeartBurst
+          theme={theme}
+          tick={liveHeartTick}
+          style={{ position: 'absolute', right: 18 + safeArea.right, bottom: 64 + safeArea.bottom }}
+        />
       ) : null}
 
       {/* VOD / replay playback-progress transport bar (rb-rn-vod-playback-progress-bar). Composed
@@ -2009,7 +2047,7 @@ export function PlayerShellView(props: PlayerShellViewProps): ReactElement {
           very bottom edge. All interactions forward to `PlayerShellModel`'s EXISTING
           `togglePlayPause()` / `seek()` forwarders — no new core / view-model API. */}
       {showsProgressBar ? (
-        <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0 }}>
+        <View style={{ position: 'absolute', left: safeArea.left, right: safeArea.right, bottom: safeArea.bottom }}>
           <PlaybackProgressBarView
             theme={theme}
             position={model.position}
@@ -2069,9 +2107,9 @@ export function PlayerShellView(props: PlayerShellViewProps): ReactElement {
           testID={LBTestIDs.introProgressBar}
           style={{
             position: 'absolute',
-            left: 0,
-            right: 0,
-            bottom: LIVE_BOTTOM_BAR_HEIGHT + LIVE_BOTTOM_BAR_CLEARANCE_GAP,
+            left: safeArea.left,
+            right: safeArea.right,
+            bottom: LIVE_BOTTOM_BAR_HEIGHT + LIVE_BOTTOM_BAR_CLEARANCE_GAP + safeArea.bottom,
             paddingHorizontal: 12,
           }}
         >
@@ -2106,9 +2144,9 @@ export function PlayerShellView(props: PlayerShellViewProps): ReactElement {
         <View
           style={{
             position: 'absolute',
-            top: 0,
-            right: 0,
-            bottom: 0,
+            top: safeArea.top,
+            right: safeArea.right,
+            bottom: safeArea.bottom,
             justifyContent: 'center',
             alignItems: 'flex-end',
           }}
@@ -2135,9 +2173,9 @@ export function PlayerShellView(props: PlayerShellViewProps): ReactElement {
           pointerEvents="none"
           style={{
             position: 'absolute',
-            left: 8,
-            right: captionOverlayRightInset(model.isFinishedLiveReplay),
-            bottom: captionOverlayBottomInset(model.isFinishedLiveReplay, scrubChromeLift),
+            left: 8 + safeArea.left,
+            right: captionOverlayRightInset(model.isFinishedLiveReplay) + safeArea.right,
+            bottom: captionOverlayBottomInset(model.isFinishedLiveReplay, scrubChromeLift) + safeArea.bottom,
             alignItems: 'center',
           }}
         >
@@ -2157,7 +2195,13 @@ export function PlayerShellView(props: PlayerShellViewProps): ReactElement {
           （`GestureMuteToastView`）——兩者不再被本元件組合（VOD/回放播放暫停改由既有
           `PlaybackProgressBarView` 展開態按鈕承載；頂列新增的靜音鈕直接切換，不需要提示動畫）。 */}
       {cleanMode ? (
-        <View style={{ position: 'absolute', left: 14, bottom: model.isLive ? 16 : 52 }}>
+        <View
+          style={{
+            position: 'absolute',
+            left: 14 + safeArea.left,
+            bottom: (model.isLive ? 16 : 52) + safeArea.bottom,
+          }}
+        >
           <Pressable
             testID={LBTestIDs.cleanModeExitButton}
             onPress={() => setCleanMode(false)}

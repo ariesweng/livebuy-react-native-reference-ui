@@ -71,6 +71,7 @@ import { DetailGlyph } from '../playershell/DetailGlyph';
 import { PlayGlyph } from './PlayGlyph';
 import { CartGlyph } from './CartGlyph';
 import { BellGlyph } from './BellGlyph';
+import { SearchGlyph } from './SearchGlyph';
 import { EqualizerGlyph } from './EqualizerGlyph';
 import { CartFillGlyph } from './CartFillGlyph';
 import { HotGlyph } from './HotGlyph';
@@ -437,7 +438,7 @@ export function ProductList(props: ProductListProps): ReactElement {
   const header = (
     <View>
       <GrabHandle />
-      {/* 收合：🔍 鈕可點展開 · 標題 · 關閉；展開：搜尋膠囊 + 取消（parity iOS/Android/Flutter）。 */}
+      {/* 收合：搜尋鈕可點展開 · 標題 · 關閉；展開：搜尋膠囊 + 取消（parity iOS/Android/Flutter）。 */}
       {searchOpen ? (
         <SearchHeader
           theme={theme}
@@ -593,7 +594,10 @@ function SheetHeader(props: {
         onPress={() => onSearch?.()}
         style={{ width: 32, height: 32, alignItems: 'center', justifyContent: 'center' }}
       >
-        <Text style={{ color: theme.text, fontSize: 15 * theme.fontScale }}>🔍</Text>
+        {/* Vector `SearchGlyph` at 17 (rb-rn-product-list-search-icon-parity) — the size iOS
+            (SF Symbol `magnifyingglass` 17pt) and Android / Flutter (`SearchGlyph` 17) use at this
+            call site; replaces the emoji `'🔍'`. */}
+        <SearchGlyph color={theme.text} size={17} />
       </Pressable>
       <View style={{ width: 8 }} />
       <Text
@@ -618,7 +622,7 @@ function SheetHeader(props: {
 
 // MARK: - Expanded search header (`LBPSheetHeader` 展開態, parity iOS/Android/Flutter)
 
-/** bgSunken 膠囊（🔍 + TextInput「搜尋商品名稱」）+ 取消 accent 文字鈕。清除（x）鈕已移除——
+/** bgSunken 膠囊（搜尋 glyph + TextInput「搜尋商品名稱」）+ 取消 accent 文字鈕。清除（x）鈕已移除——
  *  取消已同時收合搜尋列並清空 query，單獨的清除鈕是多餘的（rb-search-bar-cancel-only）。 */
 function SearchHeader(props: {
   theme: ReferenceUITheme;
@@ -648,7 +652,8 @@ function SearchHeader(props: {
           paddingHorizontal: 14,
         }}
       >
-        <Text style={{ color: TEXT_DIM, fontSize: 14 * theme.fontScale }}>🔍</Text>
+        {/* Vector `SearchGlyph` at 16 (parity iOS 16pt / Android / Flutter 16), text-dim. */}
+        <SearchGlyph color={TEXT_DIM} size={16} />
         <View style={{ width: 8 }} />
         <TextInput
           testID={LBTestIDs.sheetSearchField}

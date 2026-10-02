@@ -32,6 +32,7 @@ import { LBTestIDs } from '../testing/LBTestIDs';
 import type { ReferenceUITheme } from '../theme';
 import { LBAuthTriggerAction } from 'livebuy-react-native-ui';
 import { ArrowUpCircleFillGlyph } from './ArrowUpCircleFillGlyph';
+import { safeAreaPaddingFor, useLBImeBottomInset, useLBSafeAreaInsets } from '../safearea/LBSafeArea';
 
 /**
  * Presentation + focus state for the on-demand chat composer. `open()` shows the
@@ -404,6 +405,11 @@ export interface ChatComposerBarProps {
 export function ChatComposerBar(props: ChatComposerBarProps): ReactElement | null {
   const { theme, controller, onSend, editable = true } = props;
   const [text, setText] = useState('');
+  // rb-rn-edge-to-edge-safe-area — the bar's opaque fill reaches the container's bottom edge while
+  // the field + send button sit above the LARGER of the navigation / gesture bar and the keyboard
+  // (never their sum — the keyboard height already spans the bar below it). All zero without a
+  // Tier B container, or when the host already handled the edges / resized for the keyboard.
+  const safeArea = safeAreaPaddingFor(useLBSafeAreaInsets(), useLBImeBottomInset(), false);
 
   if (!controller.isOpen) return null;
 
@@ -444,7 +450,9 @@ export function ChatComposerBar(props: ChatComposerBarProps): ReactElement | nul
           alignItems: 'center',
           paddingHorizontal: 10,
           paddingTop: 8,
-          paddingBottom: 10,
+          paddingBottom: 10 + safeArea.bottom,
+          ...(safeArea.left > 0 ? { paddingLeft: 10 + safeArea.left } : null),
+          ...(safeArea.right > 0 ? { paddingRight: 10 + safeArea.right } : null),
           // OPAQUE charcoal bar (rgb(20,20,24)) so the video does NOT show through the on-demand
           // composer (parity iOS rb-ios-chat-composer-opaque); the old 0.55 scrim let it bleed.
           backgroundColor: '#141418',

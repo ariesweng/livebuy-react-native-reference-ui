@@ -84,6 +84,8 @@ import { StartScreenPhase } from 'livebuy-react-native-ui';
 
 import type { ReferenceUITheme } from '../theme';
 import { LBTestIDs } from '../testing/LBTestIDs';
+import { useLBSafeAreaInsets } from '../safearea/LBSafeArea';
+import type { LBSafeAreaInsets } from '../safearea/LBSafeArea';
 import { ChevronForwardGlyph } from './ChevronForwardGlyph';
 import { LoadingMarkAnimation } from './loading-mark/LoadingMarkAnimation';
 import { RemoteImage } from '../productsheets/RemoteImage';
@@ -190,6 +192,10 @@ export interface StartScreenProps {
  */
 export function StartScreen(props: StartScreenProps): ReactElement | null {
   const { theme, phase, coverUrl, live } = props;
+  // rb-rn-edge-to-edge-safe-area — system insets from the enclosing Tier B container (zero without
+  // one, or when the host already handled the edges). Only the skip pill reads it; the loading
+  // backdrop / cover stay full-bleed.
+  const safeArea = useLBSafeAreaInsets();
   switch (phase) {
     case StartScreenPhase.Loading:
       return renderLoading(theme, coverUrl, live);
@@ -200,7 +206,7 @@ export function StartScreen(props: StartScreenProps): ReactElement | null {
       // feedback is the Loading full-bleed brand loader.
       return null;
     case StartScreenPhase.Splash:
-      return renderSplash(props);
+      return renderSplash(props, safeArea);
     case StartScreenPhase.Done:
     default:
       // `done`: no overlay. The container short-circuits this branch, but the
@@ -259,7 +265,7 @@ function renderLoading(theme: ReferenceUITheme, coverUrl?: string, live?: boolea
  *  brand backdrop / lower-third title card / progress bar (all removed per the latest
  *  design `LBPSkipIntroButton`). The overlay is transparent so the chrome behind shows
  *  through. Plain `View` + absolute-positioned skip pill. */
-function renderSplash(props: StartScreenProps): ReactElement {
+function renderSplash(props: StartScreenProps, safeArea: LBSafeAreaInsets): ReactElement {
   const { theme, onSkip, cleanMode } = props;
   return (
     <View testID={LBTestIDs.momentStart} style={{ flex: 1 }}>
@@ -268,7 +274,7 @@ function renderSplash(props: StartScreenProps): ReactElement {
           pre-existing (no `cleanMode` prop passed) call sites keep drawing the pill exactly as
           before this change. */}
       {!cleanMode ? (
-        <View style={{ position: 'absolute', right: 12, bottom: 16 }}>
+        <View style={{ position: 'absolute', right: 12 + safeArea.right, bottom: 16 + safeArea.bottom }}>
           {renderSkipPill(theme, onSkip)}
         </View>
       ) : null}

@@ -19,6 +19,7 @@ import type { LBUIOptions, LBSideRailKind, PlayerTemplateAttachment } from 'live
 import type { SDKConfig } from 'livebuy-react-native';
 import type { HotRow } from '../moments/MomentsModel';
 import type { ReferenceUIDesign } from './ReferenceUIDesign';
+import type { LBSafeAreaInsets } from '../safearea/LBSafeArea';
 
 /**
  * Per-instance wiring for {@link LivebuyPlayer}. All callbacks optional; each has
@@ -593,6 +594,24 @@ export interface LivebuyPlayerConfig {
    * 外洩到容器存續期間的任何換片。
    */
   initialSeekSeconds?: number;
+
+  // -- safe area (rb-rn-edge-to-edge-safe-area) --------------------------------
+
+  /**
+   * 這個容器的 chrome 要內縮多少，以**容器自己的四邊**為基準（缺的邊視為零）。影片與背景不受影響，
+   * 永遠滿版。**Default（省略）＝ 由 SDK 自行判斷**：依序取
+   * `LivebuySafeAreaInsetsProvider` 注入的值、host 已安裝的 `react-native-safe-area-context`，
+   * 並依容器在視窗中的實際位置只補「還沒被 host 處理」的那一段；兩者皆無則為零（與本欄位存在前
+   * 相同）。
+   *
+   * 明確傳值時 SDK **原樣採用、不做位置修正**——這是保證可用的路徑（不受任何量測影響，包含 host
+   * 以動畫移動容器的情形），也是明確的關閉方式：host 已用 `SafeAreaView`／padding 自行處理邊距時傳
+   * `{ top: 0, left: 0, right: 0, bottom: 0 }`，SDK 就不會再加任何邊距。
+   *
+   * 在 {@link CollapsibleLivebuyPlayer} 下同一個值同時決定縮小後浮窗卡片的靜止位置與拖曳邊界
+   * （safe rect 的角落再內縮 {@link inset}）。
+   */
+  safeAreaInsets?: Partial<LBSafeAreaInsets>;
 
   // -- container styling ------------------------------------------------------
 

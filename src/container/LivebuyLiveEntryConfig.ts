@@ -12,6 +12,7 @@
 import type { ViewStyle } from 'react-native';
 import type { LBVideoItem, SDKConfig } from 'livebuy-react-native';
 import type { LBUIOptions } from 'livebuy-react-native-ui';
+import type { LBSafeAreaInsets } from '../safearea/LBSafeArea';
 
 /**
  * Per-instance wiring for {@link LivebuyLiveEntry}. All fields optional; each has a
@@ -134,6 +135,36 @@ export interface LivebuyLiveEntryConfig {
    * Android `inset: DpOffset`.
    */
   inset?: { x: number; y: number };
+
+  // -- safe area (rb-rn-edge-to-edge-safe-area) --------------------------------
+
+  /**
+   * 浮動入口要避開的系統邊距，以**入口所在的 host 容器四邊**為基準（缺的邊視為零）。入口的靜止位置
+   * 是「safe rect 的角落再內縮 {@link inset}」，拖曳邊界也以 safe rect 為準。**Default（省略）＝ 由
+   * SDK 自行判斷**（`LivebuySafeAreaInsetsProvider` 注入的值 → host 已安裝的
+   * `react-native-safe-area-context`，並依 host 容器在視窗中的實際位置只補還沒被處理的那一段 →
+   * 皆無則為零，與本欄位存在前相同）。明確傳值時原樣採用；傳全零即「host 已自行處理」。
+   */
+  safeAreaInsets?: Partial<LBSafeAreaInsets>;
+
+  /**
+   * 預設點擊開啟的全螢幕播放器（未接 {@link onTapVideo} 時由 SDK 以自己的 `<Modal>` 呈現）的 chrome
+   * 內縮量，原樣轉給該播放器的 `LivebuyPlayerConfig.safeAreaInsets`。與 {@link safeAreaInsets}（浮動入口自己的值）分開。
+   *
+   * Modal 是獨立視窗，host 主視窗的 inset 不一定適用，所以規則是「拿得到 Modal 視窗自己的 inset 才
+   * 讓 Modal 延伸到系統列後方」：
+   * - **省略**：host 有安裝 `react-native-safe-area-context` 時，SDK 在 Modal 內重新量測並讓 Modal
+   *   延伸到系統列後方；沒有安裝時 Modal 維持原樣（Android 上 `LivebuySafeAreaInsetsProvider` 注入的
+   *   主視窗值不會被套用到 Modal 內；iOS 的全螢幕 Modal 與主視窗佔同一塊螢幕，直向且 provider 未帶
+   *   `frame` 時會沿用，橫向或帶 `frame` 時不沿用）。
+   * - **有任一邊非零**：這個值就是「Modal 延伸到系統列後方時」的內縮量，Modal 會延伸。
+   * - **四邊皆零**：明確關閉——Modal 不延伸、chrome 不內縮。
+   *
+   * host 的 Android app 若已啟用 React Native 的 edge-to-edge（該設定會強制所有 Modal 延伸到系統列
+   * 後方）而又沒有安裝 `react-native-safe-area-context`，必須傳這個值，否則 chrome 會被系統列蓋住
+   * （本欄位存在前就是如此）。
+   */
+  playerSafeAreaInsets?: Partial<LBSafeAreaInsets>;
 
   /** Optional style merged onto the container's outer (absolutely-positioned) view. */
   style?: ViewStyle;

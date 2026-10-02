@@ -38,6 +38,8 @@ import type { LivebuyPlayerConfig } from './LivebuyPlayerConfig';
 
 import { LivebuySDK, registerListener } from 'livebuy-react-native';
 import type { LBVideoItem, SDKConfig } from 'livebuy-react-native';
+
+import { useSdkConfig } from './sdkConfigResolution';
 import { attachWidgetTemplate, LivebuyUI } from 'livebuy-react-native-ui';
 import type { WidgetTemplateAttachment } from 'livebuy-react-native-ui';
 
@@ -48,6 +50,13 @@ import { useContainerEventListener } from './containerEventListener';
 import { resolveDesign } from './ReferenceUIDesign';
 import { LivebuyRouteVisibilityContext } from '../widget/livebuyRouteVisibility';
 import type { LivebuyWidgetConfig } from './LivebuyWidgetConfig';
+import {
+  LBPlayerModalSafeAreaRoot,
+  lbPlayerModalEdgeToEdgeProps,
+  lbPlayerModalCanMeasureOwnInsets,
+  lbPlayerModalExtendsBehindSystemBars,
+} from '../safearea/LBSafeArea';
+import type { LBSafeAreaInsets } from '../safearea/LBSafeArea';
 import type { WidgetContainerMode } from './widgetData';
 import {
   lbWidgetDemoSnapshot,
@@ -67,28 +76,8 @@ export type { LivebuyWidgetConfig } from './LivebuyWidgetConfig';
 // change stays self-contained and touches NO player-container code.
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Resolve the SDKConfig once: prefer `config.sdkConfig`, else `LivebuySDK.getSdkConfig()`. */
-function useSdkConfig(explicit: SDKConfig | null | undefined): SDKConfig | null {
-  const [resolved, setResolved] = useState<SDKConfig | null>(explicit ?? null);
-  useEffect(() => {
-    if (explicit != null) {
-      setResolved(explicit);
-      return;
-    }
-    let cancelled = false;
-    LivebuySDK.getSdkConfig()
-      .then((c) => {
-        if (!cancelled) setResolved(c);
-      })
-      .catch(() => {
-        /* not configured yet — stay null; the host re-renders after configure() */
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [explicit]);
-  return resolved;
-}
+// `useSdkConfig` lives in ./sdkConfigResolution (shared by the three containers; retries while the
+// host has not finished `configure()` — rb-rn-container-sdk-config-retry).
 
 /** Resolve the reference-ui theme from the core theme + host options (existing resolver). */
 function useResolvedTheme(
@@ -191,6 +180,12 @@ export function LivebuyWidget(props: LivebuyWidgetProps): ReactElement {
   // so the player is full-screen regardless of how small the widget is embedded (design D1). Stays
   // null when the host set `onTapVideo` (override) → the Modal never opens.
   const [presented, setPresented] = useState<LBVideoItem | null>(null);
+  // rb-rn-edge-to-edge-safe-area — whether the SDK-owned default-open player Modal extends behind
+  // the system bars: only when the Modal window's OWN insets are obtainable.
+  const playerModalExtendsBehindSystemBars = lbPlayerModalExtendsBehindSystemBars(
+    config.playerSafeAreaInsets,
+    lbPlayerModalCanMeasureOwnInsets(),
+  );
 
   const fetchWidget = (id: string, page: number): Promise<Record<string, unknown>> =>
     LivebuySDK.fetchWidget(id, page);
@@ -330,7 +325,11 @@ export function LivebuyWidget(props: LivebuyWidgetProps): ReactElement {
 
   // Config for the default-open player (dropin-widget-default-open-player-rn): inherits the widget's
   // design; dismiss / minimize close the Modal.
-  const defaultPlayerConfig = makeDefaultPlayerConfig(config.design, () => setPresented(null));
+  const defaultPlayerConfig = makeDefaultPlayerConfig(
+    config.design,
+    () => setPresented(null),
+    config.playerSafeAreaInsets,
+  );
 
   const body = (
     // rb-rn-refui-text-tighten-line-spacing: tighten line spacing (Android includeFontPadding=false)
@@ -373,9 +372,17 @@ export function LivebuyWidget(props: LivebuyWidgetProps): ReactElement {
         presentationStyle="fullScreen"
         animationType="slide"
         onRequestClose={() => setPresented(null)}
+        // rb-rn-edge-to-edge-safe-area — the SDK's OWN full-screen window. It extends behind the
+        // status / navigation bars (Android; a no-op on iOS) ONLY when the Modal window's own
+        // insets are obtainable; otherwise the spread is empty and the props are unchanged.
+        {...lbPlayerModalEdgeToEdgeProps(playerModalExtendsBehindSystemBars)}
       >
         {presented != null ? (
-          <LivebuyPlayer videoId={presented.id} config={defaultPlayerConfig} />
+          // A Modal is a separate window: re-measure the insets inside it when the host has
+          // `react-native-safe-area-context` (otherwise this renders its children as-is).
+          <LBPlayerModalSafeAreaRoot>
+            <LivebuyPlayer videoId={presented.id} config={defaultPlayerConfig} />
+          </LBPlayerModalSafeAreaRoot>
         ) : null}
       </Modal>
       </View>
@@ -400,8 +407,16 @@ export function LivebuyWidget(props: LivebuyWidgetProps): ReactElement {
 function makeDefaultPlayerConfig(
   design: LivebuyWidgetConfig['design'],
   dismiss: () => void,
+  playerSafeAreaInsets?: Partial<LBSafeAreaInsets>,
 ): LivebuyPlayerConfig {
-  return { design, onDismiss: dismiss, onMinimize: dismiss };
+  return {
+    design,
+    onDismiss: dismiss,
+    onMinimize: dismiss,
+    // rb-rn-edge-to-edge-safe-area — only when the host set it (an absent key leaves the player to
+    // resolve its insets by itself, and keeps this object what it was before the field existed).
+    ...(playerSafeAreaInsets != null ? { safeAreaInsets: playerSafeAreaInsets } : null),
+  };
 }
 
 const styles = StyleSheet.create({

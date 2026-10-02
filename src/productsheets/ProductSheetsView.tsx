@@ -139,6 +139,7 @@ import { DRAG_HIT_HEIGHT, DRAG_HIT_SIDE_INSET, useSheetDragGesture } from './she
 import type { ReferenceUITheme } from '../theme';
 import { ProductSheetsModel } from './ProductSheetsModel';
 import { LBTestIDs } from '../testing/LBTestIDs';
+import { useLBSafeAreaInsets } from '../safearea/LBSafeArea';
 
 import { ProductList } from './ProductListView';
 import { ProductDetail } from './ProductDetailSheetView';
@@ -337,6 +338,9 @@ export function sheetKindFor(
 }
 
 export function ProductSheetsView(props: ProductSheetsViewProps): ReactElement {
+  // rb-rn-edge-to-edge-safe-area — system insets from the enclosing Tier B container (zero without
+  // one, or when the host already handled the edges).
+  const safeArea = useLBSafeAreaInsets();
   const {
     template = null,
     theme,
@@ -955,9 +959,10 @@ export function ProductSheetsView(props: ProductSheetsViewProps): ReactElement {
           pointerEvents="none"
           style={{
             position: 'absolute',
-            left: 0,
-            right: 0,
-            bottom: 96,
+            // rb-rn-edge-to-edge-safe-area — the toast stays inside the safe rect.
+            left: safeArea.left,
+            right: safeArea.right,
+            bottom: 96 + safeArea.bottom,
             alignItems: 'center',
           }}
         >

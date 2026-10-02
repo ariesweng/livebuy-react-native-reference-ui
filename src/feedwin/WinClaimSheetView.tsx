@@ -87,6 +87,7 @@ import {
 import type { AwardClaimResultState } from 'livebuy-react-native-ui';
 import type { LBWinner } from 'livebuy-react-native';
 import { LBTestIDs } from '../testing/LBTestIDs';
+import { lbSafeAreaMarginStyle, useLBSafeAreaInsets } from '../safearea/LBSafeArea';
 import { AlertCircleGlyph } from './AlertCircleGlyph';
 import { GIFT_OUTER_D, GIFT_INNER_D, GLYPH_INNER_COLOR } from './GiftGlyphPaths';
 import { MailGlyph } from './MailGlyph';
@@ -402,6 +403,10 @@ export interface WinClaimSheetProps {
  * `resultState` 呈現送出中 / 領獎完成 / 領獎失敗。
  */
 export function WinClaimSheet(props: WinClaimSheetProps): ReactElement {
+  // rb-rn-edge-to-edge-safe-area — the scrim stays full-bleed; the CARD carries the system insets
+  // as margins, so it is centered inside the safe rect (empty object when the insets are zero).
+  // The keyboard stays with the existing `KeyboardAvoidingView` below (unchanged).
+  const safeAreaMargin = lbSafeAreaMarginStyle(useLBSafeAreaInsets());
   const {
     theme,
     winner,
@@ -537,7 +542,7 @@ export function WinClaimSheet(props: WinClaimSheetProps): ReactElement {
         {/* 底卡外殼：外層不 clip（讓徽章浮出卡頂外），內層才 clip。 */}
         <View
           pointerEvents={isBusy ? 'none' : 'auto'}
-          style={{ width: '84%', maxWidth: 320, opacity: isBusy ? 0.55 : 1 }}
+          style={{ width: '84%', maxWidth: 320, opacity: isBusy ? 0.55 : 1, ...safeAreaMargin }}
         >
           <View
             testID={LBTestIDs.winClaimSheet}

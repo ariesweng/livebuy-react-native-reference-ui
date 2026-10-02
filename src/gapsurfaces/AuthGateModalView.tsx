@@ -61,6 +61,7 @@ import { View, Pressable } from 'react-native';
 import { Text } from '../TightText';
 
 import { LBTestIDs } from '../testing/LBTestIDs';
+import { lbSafeAreaPaddingStyle, useLBSafeAreaInsets } from '../safearea/LBSafeArea';
 import type { ReferenceUITheme } from '../theme';
 import { LBAuthTriggerAction } from 'livebuy-react-native-ui';
 import type { LBAuthGateState } from 'livebuy-react-native-ui';
@@ -156,6 +157,9 @@ export interface AuthGateModalProps {
  * Renders correctly with the default no-op actions (snapshot / preview safe).
  */
 export function AuthGateModal(props: AuthGateModalProps): ReactElement | null {
+  // rb-rn-edge-to-edge-safe-area — system insets from the enclosing Tier B container (zero without
+  // one, or when the host already handled the edges → `safeAreaPadding` is an empty object).
+  const safeAreaPadding = lbSafeAreaPaddingStyle(useLBSafeAreaInsets());
   const { theme, gate, isLoggedIn = false, onLogin, onDismiss } = props;
 
   // Read-only visibility guard (spec GATE RULE): logged-in OR no pending gate → nothing.
@@ -175,6 +179,9 @@ export function AuthGateModal(props: AuthGateModalProps): ReactElement | null {
         backgroundColor: SCRIM,
         alignItems: 'center',
         justifyContent: 'center',
+        // rb-rn-edge-to-edge-safe-area — the fill stays full-bleed; the content is laid out inside
+        // the safe rect (no key is added when the insets are zero).
+        ...safeAreaPadding,
       }}
     >
       <Pressable

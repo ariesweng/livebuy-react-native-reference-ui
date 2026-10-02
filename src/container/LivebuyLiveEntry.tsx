@@ -70,10 +70,12 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactElement } from 'react';
-import { Animated, Dimensions, Easing, Modal, PanResponder, StyleSheet } from 'react-native';
+import { Animated, Dimensions, Easing, Modal, PanResponder, StyleSheet, View } from 'react-native';
 
 import { LivebuySDK } from 'livebuy-react-native';
 import type { LBVideoItem, SDKConfig } from 'livebuy-react-native';
+
+import { useSdkConfig } from './sdkConfigResolution';
 import { LivebuyUI } from 'livebuy-react-native-ui';
 
 import type { ReferenceUITheme } from '../theme';
@@ -114,6 +116,17 @@ import {
   type LiveEntryState,
 } from './liveEntryLogic';
 
+import {
+  LBPlayerModalSafeAreaRoot,
+  isZeroInsets,
+  lbFloatingDragContainerSize,
+  lbFloatingRestingInsetInSafeArea,
+  lbPlayerModalEdgeToEdgeProps,
+  lbPlayerModalCanMeasureOwnInsets,
+  lbPlayerModalExtendsBehindSystemBars,
+  useLBSafeAreaBoundary,
+} from '../safearea/LBSafeArea';
+
 export type { LivebuyLiveEntryConfig } from './LivebuyLiveEntryConfig';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -122,28 +135,8 @@ export type { LivebuyLiveEntryConfig } from './LivebuyLiveEntryConfig';
 // NO sibling-container code.
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Resolve the SDKConfig once: prefer `config.sdkConfig`, else `LivebuySDK.getSdkConfig()`. */
-function useSdkConfig(explicit: SDKConfig | null | undefined): SDKConfig | null {
-  const [resolved, setResolved] = useState<SDKConfig | null>(explicit ?? null);
-  useEffect(() => {
-    if (explicit != null) {
-      setResolved(explicit);
-      return;
-    }
-    let cancelled = false;
-    LivebuySDK.getSdkConfig()
-      .then((c) => {
-        if (!cancelled) setResolved(c);
-      })
-      .catch(() => {
-        /* not configured yet — stay null; the host re-renders after configure() */
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [explicit]);
-  return resolved;
-}
+// `useSdkConfig` lives in ./sdkConfigResolution (shared by the three containers; retries while the
+// host has not finished `configure()` — rb-rn-container-sdk-config-retry).
 
 /** Resolve the reference-ui theme from the core theme + host options (existing resolver). */
 function useResolvedTheme(
@@ -272,6 +265,25 @@ export function LivebuyLiveEntry({ shopId, config = {} }: LivebuyLiveEntryProps)
   const theme = useResolvedTheme(sdkConfig, config.hostOptions);
   const { state, dismiss } = useLiveEntry(shopId, pollInterval, config.liveEndedSignal);
 
+  // rb-rn-edge-to-edge-safe-area — the system insets the entry still has to clear inside the HOST
+  // container it floats in. This container renders no root view of its own (the card is absolutely
+  // positioned in the host's parent), so the frame is measured through an invisible absolute-fill
+  // probe — rendered ONLY when a measurement is needed (see `safeAreaProbe` below); with no inset
+  // source nothing is added and the tree is exactly what it was. The same resolved value drives the
+  // resting position and the drag bound, so the two cannot drift. `safeAreaRef` /
+  // `probeSizeRef` mirror the latest values for the once-built PanResponder.
+  const safeAreaBoundary = useLBSafeAreaBoundary(config.safeAreaInsets, false);
+  const safeArea = safeAreaBoundary.safeArea;
+  const safeAreaRef = useRef(safeArea);
+  safeAreaRef.current = safeArea;
+  const probeSizeRef = useRef<{ width: number; height: number } | null>(null);
+  // Whether the SDK-owned default-open player Modal extends behind the system bars — only when the
+  // Modal window's OWN insets are obtainable (see `lbPlayerModalExtendsBehindSystemBars`).
+  const playerModalExtendsBehindSystemBars = lbPlayerModalExtendsBehindSystemBars(
+    config.playerSafeAreaInsets,
+    lbPlayerModalCanMeasureOwnInsets(),
+  );
+
   // Default-open player presentation (dropin-live-entry-default-open-player-rn): a tap sets this ONLY
   // when the host did NOT wire `config.onTapVideo`; the `<Modal>` then presents a full-screen
   // `<LivebuyPlayer>` (design D1, mirrors widget). Independent of the entry's live state so the player
@@ -305,7 +317,13 @@ export function LivebuyLiveEntry({ shopId, config = {} }: LivebuyLiveEntryProps)
             committed: liveFloatCommitted.current,
             translation: { x: g.dx, y: g.dy },
             cardSize: liveFloatCardSize.current,
-            containerSize: { width, height },
+            // rb-rn-edge-to-edge-safe-area — the drag container is the safe rect. With zero insets
+            // this is the same window-sized object as before; with insets it is the measured host
+            // container (the frame the insets were resolved against) minus those insets.
+            containerSize: lbFloatingDragContainerSize(
+              isZeroInsets(safeAreaRef.current) ? { width, height } : (probeSizeRef.current ?? { width, height }),
+              safeAreaRef.current,
+            ),
             inset: liveFloatInset,
             position, // source-pinned by liveEntryPositionTiming.test.ts — clamp must follow the corner
           });
@@ -386,6 +404,9 @@ export function LivebuyLiveEntry({ shopId, config = {} }: LivebuyLiveEntryProps)
   const defaultPlayerConfig: LivebuyPlayerConfig = {
     onDismiss: () => setPresented(null),
     onMinimize: () => setPresented(null),
+    // rb-rn-edge-to-edge-safe-area — only when the host set it: an absent key keeps this object
+    // exactly what it was, and leaves the player to resolve its insets by itself.
+    ...(config.playerSafeAreaInsets != null ? { safeAreaInsets: config.playerSafeAreaInsets } : null),
   };
 
   // Default-open player Modal (dropin-live-entry-default-open-player-rn). `<Modal>` is a top-level
@@ -397,18 +418,56 @@ export function LivebuyLiveEntry({ shopId, config = {} }: LivebuyLiveEntryProps)
       presentationStyle="fullScreen"
       animationType="slide"
       onRequestClose={() => setPresented(null)}
+      // rb-rn-edge-to-edge-safe-area — this Modal is the SDK's OWN full-screen window. It extends
+      // behind the status / navigation bars (Android; a no-op on iOS, whose full-screen Modal
+      // already does) ONLY when the Modal window's own insets are obtainable — otherwise the
+      // spread is an empty object and the props are unchanged.
+      {...lbPlayerModalEdgeToEdgeProps(playerModalExtendsBehindSystemBars)}
     >
       {presented != null ? (
-        <LivebuyPlayer videoId={presented.id} config={defaultPlayerConfig} />
+        // A Modal is a separate window: re-measure the insets inside it when the host has
+        // `react-native-safe-area-context` (otherwise this renders its children as-is).
+        <LBPlayerModalSafeAreaRoot>
+          <LivebuyPlayer videoId={presented.id} config={defaultPlayerConfig} />
+        </LBPlayerModalSafeAreaRoot>
       ) : null}
     </Modal>
   );
+
+  // rb-rn-edge-to-edge-safe-area — the measurement probe: an invisible, touch-transparent view that
+  // fills the host container the entry floats in, so the boundary can tell how much of the system
+  // insets that container still overlaps. `measureProps.ref` exists only while a measurement is
+  // needed, so with no inset source (or all-zero insets) NO node is added. It is rendered even while
+  // the entry itself is not shown (no live yet / dismissed / still counting down), so the container's
+  // position is already known when the card appears — the card never spends a frame at an offset
+  // that a later measurement then corrects.
+  const safeAreaProbe =
+    safeAreaBoundary.measureProps.ref != null ? (
+      <View
+        pointerEvents="none"
+        style={styles.safeAreaProbe}
+        {...safeAreaBoundary.measureProps}
+        onLayout={(e) => {
+          probeSizeRef.current = {
+            width: e.nativeEvent.layout.width,
+            height: e.nativeEvent.layout.height,
+          };
+          safeAreaBoundary.measureProps.onLayout?.(e);
+        }}
+      />
+    ) : null;
 
   // dismissed / no live / still inside the `'delay'` countdown → render only the player Modal if one
   // is open (parity iOS EmptyView / Android early-return, but keep an open default player alive).
   // `appeared` is permanently `true` on the `'immediate'` path, so that path is unchanged.
   if (state.dismissed || state.live == null || !appeared) {
-    return presented != null ? playerModal : null;
+    if (safeAreaProbe == null) return presented != null ? playerModal : null;
+    return (
+      <>
+        {safeAreaProbe}
+        {presented != null ? playerModal : null}
+      </>
+    );
   }
   const live = state.live;
 
@@ -473,7 +532,12 @@ export function LivebuyLiveEntry({ shopId, config = {} }: LivebuyLiveEntryProps)
   // hugs `right` at `'right_bottom'`, `left` at `'left_bottom'`); `config.style` comes AFTER so a
   // host can still override (preserves the original override semantics). Both render branches share
   // this ONE object — source-pinned by liveEntryPositionTiming.test.ts.
-  const restingInset = lbLiveEntryRestingInset(position, { x: insetX, y: insetY });
+  // rb-rn-edge-to-edge-safe-area — then pushed inside the safe rect; with zero insets the helper
+  // returns the very same object, so both branches below still share ONE resting style.
+  const restingInset = lbFloatingRestingInsetInSafeArea(
+    lbLiveEntryRestingInset(position, { x: insetX, y: insetY }),
+    safeArea,
+  );
 
   const entry = !draggable ? (
     <Animated.View style={[styles.floatingLive, restingInset, config.style]}>{shownCard}</Animated.View>
@@ -494,6 +558,7 @@ export function LivebuyLiveEntry({ shopId, config = {} }: LivebuyLiveEntryProps)
 
   return (
     <>
+      {safeAreaProbe}
       {entry}
       {playerModal}
     </>
@@ -505,4 +570,6 @@ const styles = StyleSheet.create({
   // applied inline from `config.position` + `config.inset` via `lbLiveEntryRestingInset`
   // (defaults: right_bottom + `LIVE_ENTRY_DEFAULT_INSET` = 12 / bottom 24) so both stay configurable.
   floatingLive: { position: 'absolute' },
+  // rb-rn-edge-to-edge-safe-area — fills the host container; invisible and touch-transparent.
+  safeAreaProbe: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
 });

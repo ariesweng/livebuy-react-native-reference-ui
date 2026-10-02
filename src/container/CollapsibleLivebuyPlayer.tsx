@@ -64,6 +64,11 @@ import {
   lbLiveEntryRestingInset,
   normalizeFloatingPosition,
 } from './liveEntryLogic';
+import {
+  lbFloatingDragContainerSize,
+  lbFloatingRestingInsetInSafeArea,
+  useLBSafeAreaBoundary,
+} from '../safearea/LBSafeArea';
 
 /** Props for the turnkey collapsible player {@link CollapsibleLivebuyPlayer}. */
 export interface CollapsibleLivebuyPlayerProps {
@@ -111,6 +116,18 @@ export function CollapsibleLivebuyPlayer(props: CollapsibleLivebuyPlayerProps): 
   // THE ONLY place the resolved corner becomes style — same helper + call shape `LivebuyLiveEntry`
   // uses for its own resting card, source-pinned by collapsibleFloatingPositionInset.test.ts.
   const restingInset = lbLiveEntryRestingInset(position, { x: insetX, y: insetY });
+
+  // rb-rn-edge-to-edge-safe-area — the presenter is a Tier B container of its own: it measures the
+  // system insets its OWN frame still has to clear, so the minimized floating card rests at "the
+  // safe rect's corner, then `config.inset` further in" and can only be dragged inside the safe
+  // rect. Nothing else is shifted while minimized (the hidden full player is invisible; the nested
+  // `LivebuyPlayer` re-measures for itself and does not stack on top of this value).
+  // `safeAreaRef` mirrors the latest value for the once-built PanResponder (same pattern as
+  // `isMinimizedRef`), so a rotation does not have to rebuild it.
+  const safeAreaBoundary = useLBSafeAreaBoundary(config.safeAreaInsets, false);
+  const safeArea = safeAreaBoundary.safeArea;
+  const safeAreaRef = useRef(safeArea);
+  safeAreaRef.current = safeArea;
 
   // rb-rn-player-direct-close-button — resolved the SAME way `LivebuyPlayerOverlays` resolves the
   // header icon (shared pure function), so the icon and this presenter's actual `onMinimize`
@@ -273,7 +290,9 @@ export function CollapsibleLivebuyPlayer(props: CollapsibleLivebuyPlayerProps): 
             committed: committedRef.current,
             translation: { x: g.dx, y: g.dy },
             cardSize: cardSizeRef.current,
-            containerSize: containerSizeRef.current,
+            // rb-rn-edge-to-edge-safe-area — the drag container is the safe rect (full container
+            // minus the insets); `inset` keeps defining both the resting gap and the drag bound.
+            containerSize: lbFloatingDragContainerSize(containerSizeRef.current, safeAreaRef.current),
             inset: { x: insetX, y: insetY },
             position, // rb-rn-collapsible-player-floating-position-inset — clamp bound follows the corner
           });
@@ -326,9 +345,13 @@ export function CollapsibleLivebuyPlayer(props: CollapsibleLivebuyPlayerProps): 
     <View
       style={StyleSheet.absoluteFill}
       pointerEvents="box-none"
+      {...safeAreaBoundary.measureProps}
       onLayout={(e: LayoutChangeEvent): void => {
         const { width, height } = e.nativeEvent.layout;
         containerSizeRef.current = { width, height };
+        // rb-rn-edge-to-edge-safe-area — keep the boundary's own layout hook (re-measure) alive;
+        // it is `undefined` whenever no measurement is needed.
+        safeAreaBoundary.measureProps.onLayout?.(e);
       }}
     >
       {/* KEEP-ALIVE full player: mounted the whole time `video != null`. Minimize only HIDES it
@@ -348,7 +371,9 @@ export function CollapsibleLivebuyPlayer(props: CollapsibleLivebuyPlayerProps): 
         <Animated.View
           style={[
             styles.floating,
-            restingInset,
+            // rb-rn-edge-to-edge-safe-area — `restingInset` pushed inside the safe rect; with zero
+            // insets the helper returns the very same `restingInset` object.
+            lbFloatingRestingInsetInSafeArea(restingInset, safeArea),
             { transform: [{ translateX: pan.x }, { translateY: pan.y }] },
           ]}
           onLayout={(e: LayoutChangeEvent): void => {

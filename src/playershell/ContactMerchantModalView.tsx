@@ -29,6 +29,7 @@ import { Text } from '../TightText';
 
 import type { ReferenceUITheme } from '../theme';
 import { LBTestIDs } from '../testing/LBTestIDs';
+import { lbSafeAreaPaddingStyle, useLBSafeAreaInsets } from '../safearea/LBSafeArea';
 
 /** Full-bleed dim scrim (`rgba(0,0,0,0.55)` — design `LBPAlertModal` backdrop). */
 const SCRIM = 'rgba(0,0,0,0.55)';
@@ -64,6 +65,9 @@ export interface ContactMerchantModalProps {
  * `onCancel` (or a scrim tap) just closes the modal. Renders with the default no-op actions.
  */
 export function ContactMerchantModal(props: ContactMerchantModalProps): ReactElement {
+  // rb-rn-edge-to-edge-safe-area — system insets from the enclosing Tier B container (zero without
+  // one, or when the host already handled the edges → `safeAreaPadding` is an empty object).
+  const safeAreaPadding = lbSafeAreaPaddingStyle(useLBSafeAreaInsets());
   const { theme, onConfirm, onCancel } = props;
 
   // Full-bleed ABSOLUTE-FILL dim scrim (so the container can overlay it on the shell). Tap =
@@ -82,6 +86,9 @@ export function ContactMerchantModal(props: ContactMerchantModalProps): ReactEle
         backgroundColor: SCRIM,
         alignItems: 'center',
         justifyContent: 'center',
+        // rb-rn-edge-to-edge-safe-area — the fill stays full-bleed; the content is laid out inside
+        // the safe rect (no key is added when the insets are zero).
+        ...safeAreaPadding,
       }}
     >
       <Pressable onPress={() => {}} style={{ width: '100%', maxWidth: 320, alignItems: 'center' }}>

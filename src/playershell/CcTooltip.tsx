@@ -50,6 +50,8 @@
 import { useCallback, useRef, useState } from 'react';
 import type { ComponentRef, ReactElement } from 'react';
 import { Dimensions, View } from 'react-native';
+
+import { LB_SAFE_AREA_ZERO, useLBSafeAreaInsets } from '../safearea/LBSafeArea';
 import type { LayoutChangeEvent } from 'react-native';
 
 import { Text } from '../TightText';
@@ -255,6 +257,10 @@ export function CcTooltip(props: CcTooltipProps): ReactElement | null {
   // the first `measureInWindow` callback lands, and `0` forever for 'left' placement.
   const [clampDeltaX, setClampDeltaX] = useState(0);
   const containerRef = useRef<ComponentRef<typeof View> | null>(null);
+  // Latest safe-area insets for the layout callback below (a ref, so the memoized callback keeps
+  // its identity).
+  const safeAreaRef = useRef(LB_SAFE_AREA_ZERO);
+  safeAreaRef.current = useLBSafeAreaInsets();
 
   const handleLayout = useCallback(
     (e: LayoutChangeEvent): void => {
@@ -268,10 +274,14 @@ export function CcTooltip(props: CcTooltipProps): ReactElement | null {
       const node = containerRef.current;
       if (node == null) return;
       node.measureInWindow((x) => {
+        // rb-rn-edge-to-edge-safe-area — clamp inside the horizontal SAFE range (landscape cutout /
+        // 3-button bar) instead of the raw window: shifting both the origin and the width by the
+        // side insets keeps the pure clamp function unchanged. Zero insets → the same call as before.
+        const { left: safeLeft, right: safeRight } = safeAreaRef.current;
         const delta = ccTooltipHorizontalClampDelta({
-          idealLeft: x,
+          idealLeft: x - safeLeft,
           bubbleWidth: width,
-          viewportWidth: Dimensions.get('window').width,
+          viewportWidth: Dimensions.get('window').width - safeLeft - safeRight,
         });
         setClampDeltaX((prev) => prev + delta);
       });

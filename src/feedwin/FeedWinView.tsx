@@ -109,6 +109,7 @@ import type { ReactElement } from 'react';
 import { Linking, View } from 'react-native';
 
 import type { ReferenceUITheme } from '../theme';
+import { lbPercentTopOffsetInSafeArea, useLBSafeAreaInsets } from '../safearea/LBSafeArea';
 import { FeedWinModel } from './FeedWinModel';
 
 import { ChatFeed } from './ChatFeedView';
@@ -470,7 +471,15 @@ export interface FeedWinViewProps {
  * `template == null` → the container reads the deterministic demo seeds (nothing
  * to subscribe to); the host normally supplies a live {@link DefaultPlayerTemplate}.
  */
+/** The activity / win entries column's vertical anchor as a fraction of the height (`top: '25%'`). */
+const ENTRIES_TOP_FRACTION = 0.25;
+
 export function FeedWinView(props: FeedWinViewProps): ReactElement {
+  // rb-rn-edge-to-edge-safe-area — system insets the feed / entry chrome must clear (zero without a
+  // Tier B container, or when the host already handled the edges). The claim / activity modals
+  // below keep their full-bleed scrims; their cards inset themselves.
+  const safeArea = useLBSafeAreaInsets();
+  const entriesTopOffset = lbPercentTopOffsetInSafeArea(ENTRIES_TOP_FRACTION, safeArea);
   const {
     template = null,
     theme,
@@ -698,11 +707,12 @@ export function FeedWinView(props: FeedWinViewProps): ReactElement {
         <View
           style={{
             position: 'absolute',
-            left: 10,
-            right: 120,
+            left: 10 + safeArea.left,
+            right: 120 + safeArea.right,
             // rb-rn-scrub-expanded-chrome-lift: 疊加進度條展開暫留期間的額外上移量（scrubBottomInset），
             // 與既有公告避讓量（liveChatBottomInset）獨立相加，見 chatBottomInsetWithScrubLift。
-            bottom: chatBottomInsetWithScrubLift(model.hasAnnounce, scrubBottomInset),
+            // rb-rn-edge-to-edge-safe-area: 再加上底部系統邊距（與上述兩者同樣獨立相加）。
+            bottom: chatBottomInsetWithScrubLift(model.hasAnnounce, scrubBottomInset) + safeArea.bottom,
           }}
         >
           {/* rb-rn-activity-toast — 群組②「炒氣氛提示」(進場/選購/搶購/中獎) now surfaces HERE,
@@ -753,8 +763,12 @@ export function FeedWinView(props: FeedWinViewProps): ReactElement {
       <View
         style={{
           position: 'absolute',
-          right: 12,
+          right: 12 + safeArea.right,
           top: '25%',
+          // rb-rn-edge-to-edge-safe-area — `25%` must resolve against the SAFE RECT, not the full
+          // container: the difference is added as a margin (no wrapper node, so the entries are
+          // never remounted when the insets change). No key is added when there is no offset.
+          ...(entriesTopOffset !== 0 ? { marginTop: entriesTopOffset } : null),
           flexDirection: 'column',
           gap: 10,
         }}

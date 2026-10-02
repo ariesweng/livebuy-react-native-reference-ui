@@ -73,6 +73,7 @@ import Svg, { Path } from 'react-native-svg';
 import type { ReferenceUITheme } from '../theme';
 import type { LBActiveEvent } from 'livebuy-react-native';
 import { LBTestIDs } from '../testing/LBTestIDs';
+import { lbSafeAreaMarginStyle, useLBSafeAreaInsets } from '../safearea/LBSafeArea';
 import { GIFT_OUTER_D, GIFT_INNER_D, GLYPH_INNER_COLOR } from './GiftGlyphPaths';
 // rb-rn-activity-sheet-pagination (activity-sheet-pagination-reference-ui-rn) — reuse the SAME
 // swipe-threshold pure function `WinClaimSheetView.tsx` already exports for its own R27 pagination
@@ -197,6 +198,9 @@ export interface ActivitySheetProps {
  * Scrim tap ALWAYS dismisses (no alert layer, unlike the four-stage win-claim sheet).
  */
 export function ActivitySheet(props: ActivitySheetProps): ReactElement {
+  // rb-rn-edge-to-edge-safe-area — the scrim stays full-bleed; the CARD carries the system insets
+  // as margins, so it is centered inside the safe rect (empty object when the insets are zero).
+  const safeAreaMargin = lbSafeAreaMarginStyle(useLBSafeAreaInsets());
   const {
     theme,
     activity,
@@ -261,7 +265,7 @@ export function ActivitySheet(props: ActivitySheetProps): ReactElement {
 
       {/* Card outer wrapper — unclipped, so the badge below can float above the card's top edge
           (parity `WinClaimSheetView`'s "outer doesn't clip, inner does" badge-overflow pattern). */}
-      <View style={{ width: CARD_WIDTH, maxWidth: CARD_MAX_WIDTH }}>
+      <View style={{ width: CARD_WIDTH, maxWidth: CARD_MAX_WIDTH, ...safeAreaMargin }}>
         <View
           testID={LBTestIDs.activitySheet}
           style={{

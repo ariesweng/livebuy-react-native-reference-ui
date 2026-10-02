@@ -51,6 +51,8 @@ import {
   type PanResponderInstance,
 } from 'react-native';
 
+import { useLBSafeAreaInsets } from '../safearea/LBSafeArea';
+
 /** Shared height-resize CEILING across every bottom sheet — dragging the handle UP never grows
  *  the card past 80% of the screen, regardless of the sheet's own floor height
  *  (`rb-rn-sheetkit-resize-ceiling-eighty-percent` — product decision, lowered from 90%). */
@@ -200,6 +202,23 @@ export function gestureStartFloor(
   return committedHeightFraction ?? mountFloorFraction;
 }
 
+/**
+ * PURE: the floor fraction latched from a measured sheet height — `null` when nothing usable was
+ * measured. The sheet shell is taller than its content by the bottom safe-area inset
+ * (`SheetScaffold`'s spacer, rb-rn-edge-to-edge-safe-area); the fraction describes the CONTENT
+ * height (what `capPct` feeds back into `SheetScaffold`, which adds the inset on top again), so
+ * the inset is taken back out here. With a zero inset this is the measurement as-is.
+ */
+export function sheetFloorFraction(
+  measuredHeight: number,
+  safeAreaBottom: number,
+  screenHeight: number,
+): number | null {
+  const contentHeight = measuredHeight - safeAreaBottom;
+  if (screenHeight <= 0 || contentHeight <= 0) return null;
+  return Math.min(RESIZE_CEILING_FRACTION, contentHeight / screenHeight);
+}
+
 export interface UseSheetDragGestureOptions {
   /** Whether the sheet is currently presented — a `false → true` transition resets the
    *  latched floor (fresh measurement for the new presentation, "關閉重開回預設"). */
@@ -248,6 +267,11 @@ export interface UseSheetDragGestureResult {
 export function useSheetDragGesture(options: UseSheetDragGestureOptions): UseSheetDragGestureResult {
   const { visible, onDismiss, onHeightPctChange } = options;
 
+  // Latest bottom safe-area inset for `cardOnLayout` (rb-rn-edge-to-edge-safe-area) — a ref for
+  // the same "read the current value without recreating anything" reason as the refs below.
+  const safeAreaBottomRef = useRef(0);
+  safeAreaBottomRef.current = useLBSafeAreaInsets().bottom;
+
   // Latest callback refs — so the once-created PanResponder always reads the current callback
   // without needing to be recreated (mirrors the existing PlayerShellView / NowIntroducingCarousel
   // "refs so the once-created PanResponder reads current state" pattern in this package).
@@ -292,10 +316,12 @@ export function useSheetDragGesture(options: UseSheetDragGestureOptions): UseShe
     // down) are deliberately ignored so this never becomes a measure → setState → re-render →
     // re-measure feedback loop (design.md Decision 2).
     if (floorFractionRef.current != null) return;
-    const screenHeight = Dimensions.get('window').height;
-    const measured = e.nativeEvent.layout.height;
-    if (screenHeight <= 0 || measured <= 0) return;
-    const fraction = Math.min(RESIZE_CEILING_FRACTION, measured / screenHeight);
+    const fraction = sheetFloorFraction(
+      e.nativeEvent.layout.height,
+      safeAreaBottomRef.current,
+      Dimensions.get('window').height,
+    );
+    if (fraction == null) return;
     setFloorFraction(fraction);
     heightPctRef.current = fraction;
     gestureBaseRef.current = fraction;

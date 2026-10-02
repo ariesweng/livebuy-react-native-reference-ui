@@ -76,6 +76,7 @@ import { Text } from '../TightText';
 
 import type { ReferenceUITheme } from '../theme';
 import { LBTestIDs } from '../testing/LBTestIDs';
+import { lbSafeAreaPaddingStyle, useLBSafeAreaInsets } from '../safearea/LBSafeArea';
 import { RemoteImage } from '../productsheets/RemoteImage';
 import { CartFillGlyph } from '../productsheets/CartFillGlyph';
 import type { EndScreenCountdown, EndScreenNavRow } from 'livebuy-react-native-ui';
@@ -218,6 +219,9 @@ export interface EndScreenProps {
  * Renders correctly with all callbacks omitted (demo / snapshot safe).
  */
 export function EndScreen(props: EndScreenProps): ReactElement {
+  // rb-rn-edge-to-edge-safe-area — system insets from the enclosing Tier B container (zero without
+  // one, or when the host already handled the edges → `safeAreaPadding` is an empty object).
+  const safeAreaPadding = lbSafeAreaPaddingStyle(useLBSafeAreaInsets());
   const {
     theme,
     countdown,
@@ -258,6 +262,9 @@ export function EndScreen(props: EndScreenProps): ReactElement {
         backgroundColor: SCRIM,
         alignItems: 'center',
         justifyContent: 'center',
+        // rb-rn-edge-to-edge-safe-area — the fill stays full-bleed; the content is laid out inside
+        // the safe rect (no key is added when the insets are zero).
+        ...safeAreaPadding,
       }}
     >
       {showCountdown ? (

@@ -37,15 +37,29 @@
 // EXISTING resolver call, not a second resolution path. Omitted / blank → unchanged behaviour
 // (falls back to `resolveProductPhoto(...).primaryPhoto`, byte-identical to before this prop
 // existed).
+//
+// PHOTO LAYOUT ON iOS (rb-rn-zoom-lightbox-ios-decode): RN iOS decodes an image for its LAYOUT
+// frame, and the zoom is a `transform` (not layout) — so a photo laid out at the card's size is a
+// card-sized bitmap stretched 2.4× when zoomed. On iOS the photo is therefore laid out larger
+// than the card and drawn back at the card's rect with the inverse scale (see
+// `zoomLightboxLayout.ts`). What is drawn, the card, the gestures and every other platform's
+// tree are unchanged.
 
 import { useRef, useState } from 'react';
 import type { ReactElement } from 'react';
-import { PanResponder, Pressable, View } from 'react-native';
+import { Dimensions, PanResponder, Platform, Pressable, View } from 'react-native';
 import { Text } from '../TightText';
 
 import { RemoteImage } from './RemoteImage';
 import { resolveProductPhoto } from './resolvedProductPhoto';
+import {
+  ZOOM_MAX_SCALE,
+  zoomImageBorderRadius,
+  zoomImageLayoutScale,
+  zoomImageOversizeStyle,
+} from './zoomLightboxLayout';
 import { LBTestIDs } from '../testing/LBTestIDs';
+import { useLBSafeAreaInsets } from '../safearea/LBSafeArea';
 import type { ReferenceUITheme } from '../theme';
 
 import type { LBProductDetailState } from 'livebuy-react-native-ui';
@@ -55,7 +69,9 @@ import type { LBSpec } from 'livebuy-react-native';
  *  `PHOTO_FILL`; rb-rn-product-image-loading-polish, was warm `'#E27D5A'`). */
 const PHOTO_FILL = '#8E8E93';
 /** The design's toggled zoom factor (`ZOOMED = 2.4`). */
-const ZOOMED = 2.4;
+const ZOOMED = ZOOM_MAX_SCALE;
+/** Corner radius of the image card (and of the photo as drawn). */
+const CARD_RADIUS = 16;
 const HINT_IDLE = '點圖片放大';
 const HINT_ZOOMED = '拖曳檢視細節 · 點一下還原';
 /** Close affordance glyph (mirrors ProductDetailSheetView `GLYPH_CLOSE`). */
@@ -121,6 +137,9 @@ export interface ProductImageZoomOverlayProps {
 export function ProductImageZoomOverlay(
   props: ProductImageZoomOverlayProps,
 ): ReactElement {
+  // rb-rn-edge-to-edge-safe-area — system insets from the enclosing Tier B container (zero without
+  // one, or when the host already handled the edges).
+  const safeArea = useLBSafeAreaInsets();
   const { theme, detail, selectedSpec = null, overridePhotoURL, live = false, onClose } = props;
   const [z, setZ] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
@@ -131,6 +150,13 @@ export function ProductImageZoomOverlay(
   const panRef = useRef({ x: 0, y: 0 });
   panRef.current = pan;
   const panStart = useRef({ x: 0, y: 0 });
+  // How much larger than the card the photo is laid out (rb-rn-zoom-lightbox-ios-decode).
+  // Resolved ONCE per mount: it must not change while the lightbox is open, so toggling the
+  // zoom never changes the photo's layout frame (a frame change makes iOS request a new decode).
+  const [photoLayoutScale] = useState(() => {
+    const win = Dimensions.get('window');
+    return zoomImageLayoutScale({ os: Platform.OS, windowWidth: win.width, pixelRatio: win.scale });
+  });
 
   const toggleZoom = (): void => {
     if (zRef.current > 1) {
@@ -213,7 +239,7 @@ export function ProductImageZoomOverlay(
           style={{
             width: '84%',
             aspectRatio: 1,
-            borderRadius: 16,
+            borderRadius: CARD_RADIUS,
             overflow: 'hidden',
             backgroundColor: PHOTO_FILL,
             alignItems: 'center',
@@ -239,7 +265,19 @@ export function ProductImageZoomOverlay(
           >
             {monogram(detail.name)}
           </Text>
-          <RemoteImage live={live} uri={photoUri} borderRadius={16} />
+          {/* This photo is drawn up to `ZOOMED`× the card by the `transform` above, so a
+              card-sized decode would blur when zoomed. Android: `decode="source"` decodes at the
+              source resolution whatever the frame (rb-rn-remote-image-resize-method). iOS decodes
+              for the layout frame, so there the photo is laid out `photoLayoutScale`× the card and
+              scaled back to the card's rect (rb-rn-zoom-lightbox-ios-decode); the radius is
+              scaled up with it so it is still drawn as `CARD_RADIUS`. */}
+          <RemoteImage
+            live={live}
+            uri={photoUri}
+            borderRadius={zoomImageBorderRadius(CARD_RADIUS, photoLayoutScale)}
+            decode="source"
+            style={zoomImageOversizeStyle(photoLayoutScale)}
+          />
         </View>
       </View>
 
@@ -249,8 +287,9 @@ export function ProductImageZoomOverlay(
         onPress={onClose}
         style={{
           position: 'absolute',
-          top: 14,
-          right: 14,
+          // rb-rn-edge-to-edge-safe-area — the close button clears the status bar / cutout.
+          top: 14 + safeArea.top,
+          right: 14 + safeArea.right,
           width: 36,
           height: 36,
           borderRadius: 18,
@@ -266,7 +305,16 @@ export function ProductImageZoomOverlay(
 
       {/* Bottom caption: product name + hint (changes when zoomed). */}
       <View
-        style={{ position: 'absolute', left: 0, right: 0, bottom: 0, paddingHorizontal: 20, paddingTop: 18, paddingBottom: 22 }}
+        // rb-rn-edge-to-edge-safe-area — the caption block (no fill of its own) sits inside the safe rect.
+        style={{
+          position: 'absolute',
+          left: safeArea.left,
+          right: safeArea.right,
+          bottom: safeArea.bottom,
+          paddingHorizontal: 20,
+          paddingTop: 18,
+          paddingBottom: 22,
+        }}
         pointerEvents="none"
       >
         <Text style={{ color: '#FFFFFF', fontSize: 15 * theme.fontScale, fontWeight: '700' }}>

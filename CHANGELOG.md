@@ -13,6 +13,187 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.12.1] - 2026-10-02
+
+> **reference-ui，patch。** 只發 `livebuy-react-native-reference-ui`；`livebuy-react-native`（`2.9.2`）與
+> `livebuy-react-native-ui`（`1.12.2`）不發。純缺陷修正，無公開符號新增／移除／改簽章。
+> peer `livebuy-react-native-ui: ^1.9.0` 不變。
+
+### Fixed
+
+- **drop-in 播放器的進度條會隨播放前進**（`rb-rn-dropin-playback-progress-and-error-wiring`）：`LivebuyPlayer`
+  容器原本沒有把播放進度交給 template，進度條一直停在起點。**`1.12.0` 及更早版本都有此問題。**
+- **影片不存在或播放失敗時顯示錯誤畫面**（同上）：容器原本沒有把播放錯誤交給 template，失敗時只剩黑畫面。
+  載入階段的終局錯誤（影片不存在、SDK 版本不支援、受限、簽章無效）立即顯示；其餘錯誤在播放器進入 `error`
+  狀態時顯示。聊天限流、暱稱重複、需登入才能留言、尚未開播、重複加購這類**非播放錯誤不會**觸發錯誤畫面。
+- **商品列縮圖上的播放／介紹中疊層看得到了**（`rb-rn-emoji-magnifier-and-row-overlay-fix`）：原本畫在商品圖
+  底下被蓋住。
+- **錯誤畫面「找不到影片」與聊天活動列「瀏覽」的圖示改為向量圖**（同上）：原為 emoji `🔍`，不吃主題色。
+
+> **行為變更提醒**：先前自行監聽 `onError`／狀態並在播放器上方疊自家錯誤 UI 的 host，升級後會同時看到 SDK
+> 的錯誤畫面。
+> **驗證範圍**：Android API 35 與 iOS 26.5 模擬器以範例 host 的 release build 對真實後端實跑（進度條前進、
+> 無效影片 ID 顯示錯誤畫面、縮圖疊層、新圖示）。**未經真機驗證**；直播路徑與「播放中途斷線」的錯誤畫面未驗。
+
+## [1.12.0] - 2026-10-02
+
+> **reference-ui，minor。** 只發 `livebuy-react-native-reference-ui`；`livebuy-react-native`（`2.9.2`）與
+> `livebuy-react-native-ui`（`1.12.2`）不發。無公開符號移除、無簽章破壞；新增公開元件／選用 prop 與一個
+> **optional** peer 相依，並含行為變更。peer `livebuy-react-native-ui: ^1.9.0` 不變。
+
+### Fixed
+
+- **容器先掛載、host 後 `configure()` 時不再永久空白**（`rb-rn-dropin-release-blockers`）：`LivebuyWidget` /
+  `LivebuyPlayer` / `LivebuyLiveEntry` 原本掛載時只查一次 `getSdkConfig()`，SDK 尚未 configure 就拿不到、之後
+  不再查。現在依固定排程重試（100／200／400／800 ms，之後每 1 秒，最多約 31.5 秒）直到取得或卸載。**`1.11.1`
+  及更早版本都有此問題**；先前要自己等 `configure()` 完成才掛載容器的 host 不受影響。
+- **點卡片的預覽影片區域現在可開啟播放器**（`rb-rn-dropin-release-blockers`）：Android 上預覽影片的原生視圖
+  會攔下觸控，只有縮圖下方的標題列點得動；預覽層改為不接收觸控。`1.11.1` 及更早版本都有此問題。
+- **drop-in 播放器重開時靜音圖示對齊實際狀態**（`rb-rn-drop-in-mute-icon-seed-wiring`）：容器把
+  `queryIsMuted` 接上 core 的 `isMuted()`；使用者操作不會被過期的查詢結果覆蓋。沒有記憶值時圖示可能晚一拍
+  才正確（需等原生 Player 建立）。
+- **商品列表的搜尋圖示改為向量圖**（`rb-rn-product-list-search-icon-parity`）：原為 emoji `🔍`，不吃主題色且
+  與 iOS／Android／Flutter 不同；現為設計稿 `Icons.search` 的線條放大鏡。
+
+### Added
+
+- **drop-in 容器自行處理系統邊距**（`rb-rn-edge-to-edge-safe-area`）：chrome 避開狀態列／導覽或手勢列／
+  cutout／鍵盤，影片與背景維持滿版；host 已把容器往內推時不重複套用。inset 來源依序為：容器 config 新欄位
+  `safeAreaInsets`、新公開元件 `LivebuySafeAreaInsetsProvider`、host 已安裝的
+  `react-native-safe-area-context`（自動取用）；**三者皆無時輸出與先前相同（不會被修正），需 host 接線**。
+  另新增 `playerSafeAreaInsets`（SDK 自有全螢幕播放器 Modal 用）。不改 host 的系統列外觀。
+- **optional peer 相依 `react-native-safe-area-context` `>=4.0.0`**：未安裝不影響執行。⚠️ 需要 Metro 的
+  `allowOptionalDependencies`（`@react-native/metro-config` 與 Expo 預設已開）；自訂 Metro 設定且關閉該選項、
+  又未安裝該套件的 host 會在 bundle 階段失敗。
+
+### Changed
+
+- **遠端靜態圖依顯示框尺寸解碼**（`rb-rn-remote-image-resize-method`）：Android 帶 `resizeMethod="resize"`，
+  框變大時重新請求較大的圖；`RemoteImage` 新增 `decode` prop（放大燈箱以來源解析度解碼）。
+- **放大燈箱在 iOS 上依放大後尺寸解碼**（`rb-rn-zoom-lightbox-ios-decode`）：把商品圖版面框鋪成
+  「圖卡 × 最大放大倍率」（像素邊長上限 4096）再以反向 transform 縮回，繪製結果不變；Android 輸出不變。
+
+> **驗證範圍**：Android API 35 模擬器以範例 host 的 release build 對真實後端實跑（未安裝選用套件可啟動、
+> widget 載入、點預覽區開播放器、播放、商品列表與圖片、搜尋圖示）；iOS 26.5 模擬器同樣以 release build
+> 看過啟動、widget 載入、點預覽區開播放器、播放、商品列表與圖片、搜尋圖示。**未經真機驗證**；host 有安裝
+> `react-native-safe-area-context` 的畫面未驗；**放大燈箱在 iOS 的畫質與記憶體未驗**（範例 host 會攔截商品
+> 點擊，到不了 SDK 的商品詳情）。範例 host 沒有提供任何 inset 來源，在 iOS 上播放器 header 會與狀態列重疊——
+> 這是「無 inset 來源時輸出與先前相同」的既有情形，host 需接線。
+> 撰寫 `rb-rn-edge-to-edge-safe-area` 時的實作在 host 未安裝該選用套件時 release build 會啟動即崩潰，已於
+> `rb-rn-dropin-release-blockers` 修正，該缺陷從未隨任何已發佈版本出貨。
+
+## [1.11.1] - 2026-09-30
+
+> **reference-ui，patch，純 bug fix，零 BREAKING。** 只發 `livebuy-react-native-reference-ui`；
+> `livebuy-react-native`（`2.9.0`）與 `livebuy-react-native-ui`（`1.12.0`）不發。原生 pin 與 peer 範圍不需動
+> （本修復純 reference-ui 層；使用的 `template.clearAuthGate()` 為 `livebuy-react-native-ui` 既有公開方法，
+> 早於 peer 下限 `^1.9.0`）。
+
+### Fixed
+
+- **drop-in 主動加購閘觸發時不再疊出兩個「請先登入」**（`rb-rn-cart-login-gate-gap-authgate-mutual-
+  exclusion`）：開了 `requireLoginForAddToCart`、訪客點加購時，商品面板 cart 登入閘與 gap-surface
+  `AuthGateModal(cartAdd)`（經 `AUTH_REQUIRED(cart_add)` 回流的 template `authGate`）原本會同時顯示。現在 gap
+  層在「商品面板 cart 閘目前正在畫面上呈現」時讓位，並以既有 `template.clearAuthGate()` 消耗殘留 authGate。
+  cart 閘不在畫面上（按「稍後再說」後再點、外部 widget／headless 訪客）時 gap modal 仍顯示，其他 trigger
+  不受影響。新增兩個**可選** prop（additive，既有呼叫端不受影響）：`ProductSheetsView.onCartGatePresentedChange`、
+  `GapSurfacesOverlayView.cartGatePresented`（預設 `false`）；另新增 `GapSurfacesModel.authGateYieldsToCartGate()`
+  方法。已知取捨：被動 401 時序 gap modal 可能閃現約一格（一個 render）才讓位；未經真機驗證，僅單元／
+  整合測試與讀碼推演。
+
+## [1.11.0] - 2026-09-25
+
+> **reference-ui，minor，零 BREAKING。** 自 `1.10.0`（發版準備，尚未實際 publish）以來累積 1
+> 個內容 commit。
+
+### Added
+
+- **drop-in 容器 `LivebuyPlayerConfig` 新增 `initialSeekSeconds`**（`rb-rn-player-initial-
+  seek`，depends `rn-player-load-initial-seek-core`）：`LivebuyPlayerConfig` 新增可選
+  `initialSeekSeconds?: number`，只在容器首次 mount 套用一次（透過一次性旗標 ref
+  `hasAppliedInitialSeekRef`）轉發到 `playerRef.current?.load(videoId, startAt)`，換片路徑、
+  imperative `loadVideo`、`seams.ts` 各預設分支皆不套用，避免「產品頁指定的初始 seek 意圖」外洩
+  到之後任何使用者手勢換片 / 重試路徑。讓 host 不用繞過容器直接拿底層 `playerRef` 也能用到 core
+  剛補上的 `startAt` 能力，維持容器「不用碰 core API 也能跑」的 turnkey 定位。
+
+## [1.10.0] - 2026-09-23
+
+> **reference-ui，minor，零 BREAKING。** 自 `1.9.1` 以來累積 7 個內容 commit（3 個新增能力 + 4
+> 個修復）。
+
+### Added
+
+- 直播預告單擊訂正真實封面圖疊加（`rb-rn-upcoming-live-wiring-fix`，parity
+  `rb-android-upcoming-cover-real-image`；同批訂正主 spec 一句誤述 RN/Flutter 為 headless
+  bridge 的過期敘述，解決 `parity-debt-ledger` #42）。
+- 開場影片乾淨模式隱藏略過鈕、展開進度條改為完全可互動（可暫停/播放/拖曳 seek）
+  （`rb-rn-clean-mode-upcoming-intro-coverage`、`rb-rn-intro-progress-bar-interactive`）。
+- 直播結束畫面顯示真實直播時長（`rb-rn-endscreen-live-duration`）。
+
+### Fixed
+
+- 直播預告單擊訂正為完全不觸發乾淨模式（`rb-rn-clean-mode-upcoming-not-triggered`）。
+- 開場影片乾淨模式展開進度條拖動放開後失去與播放進度同步、播放/暫停按鈕熱區太小
+  （`rb-rn-intro-progress-bar-followup-fix`）。
+
+## [1.9.1] - 2026-09-21
+
+> **reference-ui，patch，零 BREAKING。** 自 `1.9.0` 以來累積 3 個內容 commit：2 個 widget 卡片
+> 預覽 Android 解碼器資源管理（route-cover 釋放 + 離屏釋放）+ 1 個新增 Android PiP 進行中隱藏
+> overlay chrome。
+
+### Added
+
+- **Android PiP 進行中隱藏 overlay chrome**（`rn-android-pip-hide-chrome-reference-ui`，
+  reference-ui 層，僅 Android）：`livebuy-react-native-reference-ui` 的 drop-in 容器
+  `LivebuyPlayer` 在 Android OS Picture-in-Picture 進行中只保留底層影片，隱藏整層 overlay
+  chrome（header / 操作列 / 商品卡 / 字幕 / 合流聊天 / composer / 活動通知），退出 PiP 立即
+  復原，對齊 Android 原生 `:livebuy-reference-ui` 既有行為。iOS 完全不受影響
+  （`AVPictureInPictureController` 天生 video-layer-based，chrome 本來就進不去 PiP 視窗）。
+- **widget 卡片預覽新增 per-subtree route 軸**（`rb-rn-widget-preview-route-cover-release`）：
+  host 以 `react-navigation` 的 `useIsFocused()` 餵入 `LivebuyRouteVisibilityContext` /
+  `LivebuyWidget.routeVisible`，Android 被 stack push 蓋住時卸載 `<Video>` 釋放解碼器、回來
+  重掛，`onError` 有上限重試；iOS 維持既有 keep-alive（`<Video>` 常駐、只由 `paused` 控制）。
+- **widget 卡片預覽 Android 離屏釋放解碼器**（`rb-rn-widget-preview-offscreen-decoder-release`）：
+  reference-ui 自持的 Grid ScrollView 與 scrollable 輪播發捲動訊號、卡片訂閱重量，離屏 1 秒後
+  卸載釋放解碼器、滾入重掛、從未量到可見不掛載；iOS 維持既有 keep-alive。
+
+## [1.9.0] - 2026-09-20
+
+> **minor，零 BREAKING。** 自 `1.8.0` 以來累積 12 個內容 commit，皆為像素/行為缺口修復與
+> design 批次 parity。
+
+### Added
+
+- **MiniCartPeek 補原價劃線渲染**（`vod-now-introducing-original-price-reference-ui-rn`），
+  parity iOS/Android 已完成、Flutter 待補。
+- **`PlaybackProgressBarView` 新增 `onScrubBegin`/`onScrubEnd`**（`rn-vod-scrub-seek-tolerance-
+  reference-ui`），串接 `PlayerShellModel`/`PlayerShellView`/`LivebuyPlayer.tsx` 到 RN core
+  scrub-tolerance 橋接；RN 是繼 Flutter/Android 之後第三個完成全鏈路串接的平台（parity-debt-
+  ledger #34 收斂），iOS 待真機驗證後續補。
+
+### Fixed
+
+- **Design R39/R45/D8/R46/R47 五輪視覺批次**（reference-ui）：商品列名稱前標籤改行內
+  `View`-in-`Text` 修正換行擠壓（R39 parity）、商品列表 row 排版重分組 + 新增折扣百分比
+  （R45）、商品明細「更多商品」grid 原價改用 `flex-wrap` 換行、雙擊快進/快退提示改半螢幕
+  漸層、`AddToCartSheet` 主圖旁價格區改垂直堆疊（原價移到現價上方）；商品明細 sheet 原價
+  劃線色票統一 `#A0A0A0`。皆為純視覺/排版修正，parity iOS/Android/Flutter。
+- **`VideoInfoPanel` 三態文案改版**（`rb-rn-video-info-panel-replay-copy`，R44 parity，四端
+  完成）。
+- **修復 scrub 結算 seek 順序 bug**：release/terminate 路徑此前最終強制 `onScrub` 早於
+  `onScrubEnd` 送出，導致監聽 scrub-end 的一方來不及生效；同時修復 release/terminate 從未讀取
+  事件自身觸控位置的缺口（`rn-vod-scrub-seek-tolerance-reference-ui`）。
+- **修復 `LivebuyPlayer.tsx` drop-in container 從未注入 `requestTogglePlayPause`/`requestSeek`/
+  `requestSeekBy`**：`useTemplateAttachment` 只注入了 `loadVideo`/`requestEventJoin`/
+  `requestAwardClaim`，導致 VOD/回放進度條的播放/暫停鈕、拖曳 seek，以及雙擊 ±10 秒/長按 2 倍速
+  （同一條 request 鏈）視覺上有反應但從未真正送達 player——靜默 no-op、無任何錯誤訊息
+  （`fix-rn-livebuyplayer-scrub-control-wiring-reference-ui`）。
+- **widget 卡片預覽在 Android 不再參與 audio focus 仲裁**（reference-ui）：parity Android
+  原生 ExoPlayer 預設行為 / iOS `AVQueuePlayer`，四端全數對齊。
+- **EndScreen 快照測試清理**：清除 `EndScreen.test.tsx.snap` 4 個 obsolete 快照鍵，測試
+  維護，無行為變化。
+
 ## [1.8.0] - 2026-09-13
 
 > **minor，零 BREAKING。** 自 `1.7.0` 以來累積 4 個內容 commit，皆為像素/行為缺口修復。

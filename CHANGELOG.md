@@ -13,6 +13,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.12.2] - 2026-10-03
+
+> **reference-ui，patch。** 只發 `livebuy-react-native-reference-ui`；`livebuy-react-native`（`2.9.2`）與
+> `livebuy-react-native-ui`（`1.12.2`）不發。純圖示替換，無公開符號新增／移除／改簽章、無行為變更。
+> peer `livebuy-react-native-ui: ^1.9.0` 不變。
+
+### Fixed
+
+- **聊天列置頂留言的圖示改為向量圖釘**（`rb-rn-feed-emoji-glyph-parity`）：原為 emoji `📌`，不吃主題色；現與
+  iOS／Android／Flutter 同款，顏色跟隨 accent。
+- 活動列圖示槽位（目前隱藏）的 `👤`／`🛍`／`📣`／`🏆` 也改為向量圖示，日後打開時不再是 emoji。
+
+> **驗證範圍**：`npm run typecheck` 通過；`npx jest` 全套 202 suites／3010 tests／98 snapshots 通過，快照差異只有置頂圖示。
+> **未經真機或模擬器實測。**
+
 ## [1.12.1] - 2026-10-02
 
 > **reference-ui，patch。** 只發 `livebuy-react-native-reference-ui`；`livebuy-react-native`（`2.9.2`）與

@@ -93,9 +93,12 @@ import type { FeedItem, PinnedMessage } from 'livebuy-react-native-ui';
 import type { ReferenceUITheme } from '../theme';
 import { LBTestIDs, chatLine } from '../testing/LBTestIDs';
 import { BagGlyph } from '../playershell/BagGlyph';
+import { MegaphoneGlyph } from '../playershell/MegaphoneGlyph';
 import { SearchGlyph } from '../productsheets/SearchGlyph';
 import { ArrowDownGlyph } from './ArrowDownGlyph';
+import { PersonBadgePlusGlyph, TrophyGlyph } from './ActivityTierGlyphs';
 import { CrownGlyph } from './CrownGlyph';
+import { PinFillGlyph } from './PinFillGlyph';
 import { SparklesGlyph } from './SparklesGlyph';
 
 // MARK: - Decorative design tokens (literal hex / rgba from moments.jsx)
@@ -809,7 +812,8 @@ function roleTag(theme: ReferenceUITheme, label: string, solid: boolean): ReactE
 // MARK: - PinnedBanner — 置頂留言橫幅 (chat-pinned-message-render ⑤c)
 //
 // Parity iOS `PinnedMessageBanner`：pin 標 + 名前綴（comment 且 name 非空 →「{name}：」、host →
-// 無前綴）+ 置頂文字，圓角暗底橫幅，固定於 feed 上緣。RN 沿用 emoji-glyph 慣例（📌）。
+// 無前綴）+ 置頂文字，圓角暗底橫幅，固定於 feed 上緣。圖示為向量 `PinFillGlyph`（同 iOS／Android／Flutter，
+// rb-rn-feed-emoji-glyph-parity；原為 emoji 📌）。
 
 /** 置頂橫幅底 `rgba(0,0,0,0.55)`（parity iOS black 0.55）。 */
 const PINNED_FILL = 'rgba(0,0,0,0.55)';
@@ -831,7 +835,9 @@ function PinnedBanner(props: { theme: ReferenceUITheme; pinned: PinnedMessage })
         maxWidth: '100%',
       }}
     >
-      <Text style={{ color: theme.accent, fontSize: 10, fontWeight: 'bold', marginTop: 1 }}>📌</Text>
+      <View style={{ marginTop: 1 }}>
+        <PinFillGlyph color={theme.accent} size={11} />
+      </View>
       <View style={{ width: 6 }} />
       <Text
         numberOfLines={2}
@@ -1093,38 +1099,31 @@ export function ActivityLineRow(props: {
 
 /** 24×24 round icon slot (shared rail with the chat avatar). Slot fill + icon tint by
  *  tier: Join = white 0.16 slot / white 0.85 person-add; purchase/intro/win = accent slot
- *  / white bag / megaphone / trophy. RN has no svg — the icon is a deterministic Text glyph
- *  (parity to iOS SF Symbols / Android vector glyphs / Flutter Icons). */
+ *  / white bag / megaphone / trophy, all drawn as `react-native-svg` vectors (no emoji). */
 function renderIconSlot(theme: ReferenceUITheme, tier: ActivityTier): ReactElement {
   let fill: string;
-  let glyph: string;
   let glyphColor: string;
   switch (tier) {
     case ActivityTier.Join:
       fill = JOIN_SLOT_FILL;
-      glyph = '👤'; // person.fill.badge.plus
       glyphColor = JOIN_GLYPH_COLOR;
       break;
     case ActivityTier.Browse:
       // 觀眾選購（chat-message-taxonomy ⑤）— 最低調，同 join 的 slot；放大鏡圖示（mirror iOS
       // `magnifyingglass`）。
       fill = JOIN_SLOT_FILL;
-      glyph = ''; // drawn as the vector `SearchGlyph` below (iOS `magnifyingglass`)
       glyphColor = JOIN_GLYPH_COLOR;
       break;
     case ActivityTier.Purchase:
       fill = theme.accent;
-      glyph = '🛍'; // bag.fill
       glyphColor = ON_GLASS;
       break;
     case ActivityTier.Intro:
       fill = theme.accent;
-      glyph = '📣'; // megaphone.fill / loudspeaker
       glyphColor = ON_GLASS;
       break;
     case ActivityTier.Win:
       fill = theme.accent;
-      glyph = '🏆'; // trophy.fill
       glyphColor = ON_GLASS;
       break;
   }
@@ -1139,15 +1138,18 @@ function renderIconSlot(theme: ReferenceUITheme, tier: ActivityTier): ReactEleme
         justifyContent: 'center',
       }}
     >
+      {/* All vector (rb-rn-emoji-magnifier-and-row-overlay-fix / rb-rn-feed-emoji-glyph-parity) —
+          no emoji. The slot itself is currently gated off (SHOW_FEED_ICON_SLOT). */}
       {tier === ActivityTier.Purchase ? (
         <BagGlyph color={glyphColor} size={14} />
       ) : tier === ActivityTier.Browse ? (
-        // Vector magnifier (rb-rn-emoji-magnifier-and-row-overlay-fix) instead of the emoji `'🔍'`;
-        // 12 matches Flutter's `Icons.search` size in this slot. The slot itself is currently
-        // gated off, so this only matters once it is turned back on.
         <SearchGlyph color={glyphColor} size={12} />
+      ) : tier === ActivityTier.Intro ? (
+        <MegaphoneGlyph color={glyphColor} size={12} />
+      ) : tier === ActivityTier.Win ? (
+        <TrophyGlyph color={glyphColor} size={12} />
       ) : (
-        <Text style={{ color: glyphColor, fontSize: 12 }}>{glyph}</Text>
+        <PersonBadgePlusGlyph color={glyphColor} size={12} />
       )}
     </View>
   );

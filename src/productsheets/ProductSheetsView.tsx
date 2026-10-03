@@ -291,6 +291,13 @@ export interface ProductSheetsViewProps {
   readonly onCartGatePresentedChange?: (presented: boolean) => void;
 
   /**
+   * rb-rn-skip-intro-under-product-sheets: reports whether ANY product sheet is presented (the list drawer `presented`, or the
+   * detail / restock sheet). The container forwards it to the moments layer so the opening-video
+   * skip pill hides while a sheet covers it (design layering). Optional; default unwired.
+   */
+  readonly onSheetsPresentedChange?: (presented: boolean) => void;
+
+  /**
    * Host-wired 推薦卡播放圖示 → 换片 (parity `onSwitchProductVideo` seam,
    * `LivebuyPlayerConfig.ts`). Turnkey default: `playerRef.load(videoId)` then
    * `onVideoSwitched` — 比照容器層既有的 `onPickHot` 模式 (`seams.ts` `buildMomentHandlers`).
@@ -362,6 +369,7 @@ export function ProductSheetsView(props: ProductSheetsViewProps): ReactElement {
     onDismissList,
     onRequestLogin,
     onCartGatePresentedChange,
+    onSheetsPresentedChange,
     showStock,
     showFavorite,
     onSwitchRecommendationVideo,
@@ -529,6 +537,12 @@ export function ProductSheetsView(props: ProductSheetsViewProps): ReactElement {
   );
 
   const detail = model.detail;
+  // rb-rn-skip-intro-under-product-sheets — relay "any product sheet presented" (list drawer or
+  // detail / restock sheet) so the moments layer can hide the opening-video skip pill.
+  const anySheetPresented = presented || detail != null;
+  useEffect(() => {
+    onSheetsPresentedChange?.(anySheetPresented);
+  }, [anySheetPresented, onSheetsPresentedChange]);
 
   // -- Interaction funnels (container owns NO core action) --------------------
 

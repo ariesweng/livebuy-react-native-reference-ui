@@ -177,6 +177,14 @@ export interface StartScreenProps {
    */
   readonly cleanMode?: boolean;
 
+  /**
+   * rb-rn-skip-intro-under-product-sheets: `true` while any product sheet is presented. The design layers the sheets ABOVE the
+   * skip pill (`LBPBottomSheet` zBase 30 > `LBPSkipIntroButton` zIndex 23), so the pill is covered;
+   * this surface paints above the sheets, so it hides the pill instead. Default `false`/omitted keeps
+   * every existing call site unchanged.
+   */
+  readonly sheetsPresented?: boolean;
+
   // -- 3. optional action callback (LAST, defaulting to a no-op) -------------
   /** Splash「略過介紹」open intent → host → core `Player.skipStart()`. This surface
    *  does NOT own the skip; omitted → the pill renders correctly but is inert. */
@@ -266,14 +274,14 @@ function renderLoading(theme: ReferenceUITheme, coverUrl?: string, live?: boolea
  *  design `LBPSkipIntroButton`). The overlay is transparent so the chrome behind shows
  *  through. Plain `View` + absolute-positioned skip pill. */
 function renderSplash(props: StartScreenProps, safeArea: LBSafeAreaInsets): ReactElement {
-  const { theme, onSkip, cleanMode } = props;
+  const { theme, onSkip, cleanMode, sheetsPresented } = props;
   return (
     <View testID={LBTestIDs.momentStart} style={{ flex: 1 }}>
       {/* rb-rn-clean-mode-upcoming-intro-coverage: the skip pill hides while `cleanMode` is on —
           `!cleanMode` covers both the explicit `false` and the default `undefined`, so the
           pre-existing (no `cleanMode` prop passed) call sites keep drawing the pill exactly as
           before this change. */}
-      {!cleanMode ? (
+      {!cleanMode && !sheetsPresented ? (
         <View style={{ position: 'absolute', right: 12 + safeArea.right, bottom: 16 + safeArea.bottom }}>
           {renderSkipPill(theme, onSkip)}
         </View>

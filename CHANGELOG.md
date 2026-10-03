@@ -13,6 +13,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.13.0] - 2026-10-03
+
+> **reference-ui，minor。** 只發 `livebuy-react-native-reference-ui`；`livebuy-react-native`（`2.9.2`）與
+> `livebuy-react-native-ui`（`1.12.2`）不發。`ProductSheetsView` 新增選填 prop `onSheetsPresentedChange`（向後相容的公開
+> API 新增），故為 minor、無 BREAKING。peer `livebuy-react-native-ui: ^1.9.0` 不變。
+
+### Added
+
+- `ProductSheetsView` 新增選填 `onSheetsPresentedChange(presented: boolean)`：商品列表或詳情任一開著時回報 `true`，
+  全部關閉時回報 `false`。
+
+### Fixed
+
+- **開場影片播放中打開商品面板，「略過介紹」鈕仍顯示在面板上方**（`rb-rn-skip-intro-under-product-sheets`）：依設計稿
+  層級（商品面板高於略過鈕），任一商品面板開著時隱藏略過鈕，關閉後恢復。
+
+> **驗證範圍**：`npm run typecheck` 通過；`npx jest` 全套通過（新增 `StartScreenSheetsPresented` 測試）。**未經真機或
+> 模擬器實測、未用有開場影片的頻道驗證。**
+
 ## [1.12.2] - 2026-10-03
 
 > **reference-ui，patch。** 只發 `livebuy-react-native-reference-ui`；`livebuy-react-native`（`2.9.2`）與

@@ -214,6 +214,10 @@ export interface MomentsViewProps {
    */
   readonly cleanMode?: boolean;
 
+  /** rb-rn-skip-intro-under-product-sheets: forwarded to `StartScreen.sheetsPresented` (splash skip pill hides while a product
+   *  sheet is presented). Default `false`. */
+  readonly sheetsPresented?: boolean;
+
   /**
    * The EndScreen 空狀態's「直播時長：…」line, ALREADY FORMATTED (`HH:MM:SS` or `''`;
    * rb-rn-endscreen-live-duration). Mirrored down from `LivebuyPlayer.tsx`'s container-held
@@ -283,6 +287,7 @@ export function MomentsView(props: MomentsViewProps): ReactElement | null {
     theme,
     live = false,
     cleanMode = false,
+    sheetsPresented = false,
     liveDuration = '',
     onSkip,
     onWatchNext,
@@ -440,6 +445,7 @@ export function MomentsView(props: MomentsViewProps): ReactElement | null {
         coverUrl={model.loadingCover}
         live={live}
         cleanMode={cleanMode}
+        sheetsPresented={sheetsPresented}
         onSkip={handleSkip}
       />
     );

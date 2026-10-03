@@ -300,6 +300,9 @@ export function LivebuyPlayerOverlays(props: LivebuyPlayerOverlaysProps): ReactE
   // Whether the product-sheet add-to-cart login gate is on screen (reported by ProductSheetsView);
   // the gap-surface AuthGateModal yields to it (rb-rn-cart-login-gate-gap-authgate-mutual-exclusion).
   const [cartGatePresented, setCartGatePresented] = useState(false);
+  // rb-rn-skip-intro-under-product-sheets — mirrored from ProductSheetsView; hides the opening-video
+  // skip pill while a sheet is presented (design: sheet z30 covers skip z23).
+  const [sheetsPresented, setSheetsPresented] = useState(false);
   const onRailTap = (kind: LBSideRailKind): void => {
     if (kind === LBSideRailKind.Goods) setProductListPresented(true);
     else shell.onTapRailItem(kind);
@@ -431,6 +434,7 @@ export function LivebuyPlayerOverlays(props: LivebuyPlayerOverlaysProps): ReactE
       <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }} pointerEvents="box-none">
         <ProductSheetsView
           onCartGatePresentedChange={setCartGatePresented}
+          onSheetsPresentedChange={setSheetsPresented}
           template={template}
           theme={theme}
           // Turnkey container composes over a real video surface → load the real product photos
@@ -507,6 +511,7 @@ export function LivebuyPlayerOverlays(props: LivebuyPlayerOverlaysProps): ReactE
           // the top of this component), so the splash-phase StartScreen can hide its「略過介紹」
           // skip pill while clean mode is on.
           cleanMode={cleanMode}
+          sheetsPresented={sheetsPresented}
           // rb-rn-endscreen-live-duration — forward the container-held, already-formatted
           // live-duration string straight through to the EndScreen 空狀態's「直播時長：…」line.
           liveDuration={liveDuration}

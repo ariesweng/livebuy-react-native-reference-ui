@@ -684,6 +684,20 @@ export function buildFeedHandlers(deps: SeamDeps): {
   };
 }
 
+/**
+ * PURE：容器唯一的「關閉播放器」解析——host 的 `config.onDismiss` 優先，否則 core `unload()`。
+ * 由 {@link buildMomentHandlers}（EndScreen「取消」與 `onClosePlayer`）與容器的
+ * `VodEndedCloseGate`（rb-rn-vod-ended-no-next-close，`LivebuyPlayer.tsx`）共用，確保同一份
+ * `LivebuyPlayerConfig` 下所有關閉出口一致（parity iOS `resolvedPlayerDismiss` / Android
+ * `resolvePlayerClose`）。
+ */
+export function resolveClosePlayer(
+  onDismiss: (() => void) | undefined,
+  unload: () => void,
+): () => void {
+  return onDismiss ?? unload;
+}
+
 /** moments seam defaults (pick-hot / skip / cancel / retry / dismiss / close). `onWatchNext`
  *  is built by {@link buildWatchNextHandler} (it needs the moment model's next id). */
 export function buildMomentHandlers(deps: SeamDeps): {
@@ -703,7 +717,7 @@ export function buildMomentHandlers(deps: SeamDeps): {
   // gate (`MomentsView.shouldCloseInsteadOfEndScreen`): a VOD with nothing to recommend has
   // nothing to show (EndScreen is now LIVE-only), so the player closes directly. DISTINCT from
   // `onDismiss` below (ErrorScreen's 返回/前往更新, no-op unless host-wired) — NOT the same action.
-  const closePlayer = config.onDismiss ?? ((): void => playerRef.unload());
+  const closePlayer = resolveClosePlayer(config.onDismiss, (): void => playerRef.unload());
   return {
     onPickHot:
       config.onPickHot ??

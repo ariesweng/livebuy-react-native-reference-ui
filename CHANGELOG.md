@@ -13,6 +13,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.14.0] - 2026-10-14
+
+> **reference-ui，minor，無 BREAKING。** 新增 drop-in 自動關閉行為（只在 host 以 `vodEndBehavior: 'advance'`
+> 選回舊行為時才會發生）。peer `livebuy-react-native-ui` 由 `^1.9.0` 提高到 `^1.13.0`，以傳遞地要求 core `2.10.0`。
+
+### Added
+
+- **`'advance'` 模式下 VOD／回放播完且沒有下一支時，drop-in 播放器自動關閉**（`rb-rn-vod-ended-no-next-close`，
+  parity iOS／Android `4.28.0`）：播放狀態進入 `ended` 約 400ms 後，若有影片資料、不是直播中（`liveStatus != 1`，
+  已結束直播的回放也算）、沒有下一支，且 `LivebuySDK.getVodEndBehavior() === 'advance'`，就關閉播放器（走與
+  其他關閉入口相同的出口）。預設 `'loop'` 會重播、不會關閉。host 若裝的是沒有 `getVodEndBehavior` 的舊 core，
+  一律視為 `'loop'`、不關閉。
+
+### Changed
+
+- peer `livebuy-react-native-ui` `^1.9.0` → `^1.13.0`（傳遞地要求 `livebuy-react-native` `^2.10.0`）。⚠️ 升到
+  reference-ui `1.14.0` 的 host 需同時升級 core `2.10.0` 與 ui `1.13.0`，並使用原生 iOS／Android
+  `4.28.0`（CocoaPods host 的 `LivebuySDK` `:podspec =>` URL 必須指向 `v4.28.0` 或更新的 release）。
+
+> **驗證範圍**：`npm run typecheck` 與 `npx jest` 全套通過（新增 `vodEndedCloseGate`／`LivebuyPlayerVodEndedClose`
+> 測試）。**未經真機或模擬器實測。**
+
 ## [1.13.0] - 2026-10-03
 
 > **reference-ui，minor。** 只發 `livebuy-react-native-reference-ui`；`livebuy-react-native`（`2.9.2`）與

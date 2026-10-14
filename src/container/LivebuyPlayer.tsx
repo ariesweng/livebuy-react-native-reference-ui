@@ -70,7 +70,9 @@ import { useChatComposer, useNicknamePrompt, useLoginPrompt } from './ChatCompos
 import { resolvedInitialSeekStartAt, resolvedLiveNowShopId } from './LivebuyPlayerConfig';
 import type { LivebuyPlayerConfig } from './LivebuyPlayerConfig';
 import { resolveDesign } from './ReferenceUIDesign';
-import { buildAwardClaimInjection } from './seams';
+import { buildAwardClaimInjection, resolveClosePlayer } from './seams';
+import { createVodEndedCloseGate, readVodEndBehavior, vodEndedInputsOf } from './vodEndedCloseGate';
+import type { VodEndedChannelSnapshot, VodEndedCloseGate } from './vodEndedCloseGate';
 import { shouldSyncAutoAdvance, videoSwitchToId } from './swipeTarget';
 import { ProvideTightText } from '../TightText';
 import { refreshSubtitleCuesIfUrlChanged, subtitleToggleEnabled } from './subtitlePipeline';
@@ -457,6 +459,39 @@ export function LivebuyPlayer(props: LivebuyPlayerProps): ReactElement {
   const errorFeed = errorFeedRef.current;
   attachmentRef.current = attachment;
 
+  // rb-rn-vod-ended-no-next-close — VOD／回放播完、無下一支、host 選 `vodEndBehavior: 'advance'`
+  // → 400ms debounce 後自動關閉（parity iOS / Android `VodEndedCloseGate`）。core v4.28.0 起
+  // `advance` 無 next 只停在 `ended`、不再給 `endScreenVisible`，所以 `MomentsView` 的
+  // end-moment 關閉路徑對這個情境永遠不會觸發，必須由容器直接看播放狀態。
+  //   • 狀態：`<LivebuyPlayerCore onStateChange>`（與 `errorFeed` 同一條既有管道，不另開訂閱）。
+  //   • channel：`onChannelChange` 每次送來的 `liveStatus` / `next`（容器既有資料，不另發 API），
+  //     記在 `vodEndedChannelRef`；容器發起的 load（`videoId` effect / `switchVideo`）先清成 `null`，
+  //     所以新影片的 channel 到達前收到的 `ended` 不會沿用上一支的資料。
+  //   • behavior：`LivebuySDK.getVodEndBehavior()`，只在新的 `ended` 段開始那一刻讀。
+  //   • 關閉出口：`resolveClosePlayer(config.onDismiss, unload)`，與 `MomentsView.onClosePlayer`／
+  //     EndScreen「取消」同一個解析（`seams.ts` `buildMomentHandlers`），讀最新的 `configRef`。
+  // unmount 時 `cancel()` 並把 `vodEndedMountedRef` 設為 `false`：待執行的關閉不再觸發，就算
+  // 排程 callback 仍在 unmount 後到期也只是 no-op。
+  const vodEndedChannelRef = useRef<VodEndedChannelSnapshot | null>(null);
+  const vodEndedMountedRef = useRef(false);
+  const vodEndedGateRef = useRef<VodEndedCloseGate | null>(null);
+  if (vodEndedGateRef.current == null) {
+    vodEndedGateRef.current = createVodEndedCloseGate({
+      onClose: (): void => {
+        if (!vodEndedMountedRef.current) return;
+        resolveClosePlayer(configRef.current.onDismiss, (): void => playerRef.current?.unload())();
+      },
+    });
+  }
+  const vodEndedGate = vodEndedGateRef.current;
+  useEffect(() => {
+    vodEndedMountedRef.current = true;
+    return () => {
+      vodEndedMountedRef.current = false;
+      vodEndedGate.cancel();
+    };
+  }, [vodEndedGate]);
+
   // Load the cover video (and reload on `videoId` prop change) once a ref exists.
   //
   // rb-rn-player-initial-seek: `config.initialSeekSeconds` is consumed ONLY the first time this
@@ -476,6 +511,7 @@ export function LivebuyPlayer(props: LivebuyPlayerProps): ReactElement {
     // still in flight; the icon is asked again once the new channel arrives.
     if (hasAppliedInitialSeekRef.current) muteIconSeed.reset();
     hasAppliedInitialSeekRef.current = true;
+    vodEndedChannelRef.current = null; // rb-rn-vod-ended-no-next-close: new load, channel not yet known
     playerRef.current?.load(videoId, startAt);
   }, [videoId]);
 
@@ -651,6 +687,7 @@ export function LivebuyPlayer(props: LivebuyPlayerProps): ReactElement {
   const switchVideo = (newId: string, item?: LBVideoItem): void => {
     currentVideoIdRef.current = newId;
     muteIconSeed.reset(); // in-place switch (rb-rn-drop-in-mute-icon-seed-wiring)
+    vodEndedChannelRef.current = null; // rb-rn-vod-ended-no-next-close: new load, channel not yet known
     config.onVideoSwitched?.(newId);
     config.onVideoSwitchedItem?.(
       item ??
@@ -686,6 +723,8 @@ export function LivebuyPlayer(props: LivebuyPlayerProps): ReactElement {
         // contextually from `LivebuyPlayerCoreProps.onChannelChange`'s declared signature.
         onChannelChange={(info): void => {
           serviceLinkRef.current = info.serviceLink;
+          // rb-rn-vod-ended-no-next-close — latest channel for the VOD-ended close gate.
+          vodEndedChannelRef.current = { liveStatus: info.liveStatus, next: info.next };
           // rb-rn-drop-in-mute-icon-seed-wiring: channel info for this view means the wrapped
           // native Player exists, so a mute query from here on is evidence (see `muteIconSeed.ts`).
           muteIconSeed.playerReady();
@@ -811,7 +850,13 @@ export function LivebuyPlayer(props: LivebuyPlayerProps): ReactElement {
         // showed and a video that could not be loaded was just a black player). `playerErrorFeed`
         // keeps chat / cart business errors — which arrive on the same callback — away from it.
         onError={(error): void => errorFeed.onError(error.type)}
-        onStateChange={(state): void => errorFeed.onStateChange(state)}
+        onStateChange={(state): void => {
+          errorFeed.onStateChange(state);
+          // rb-rn-vod-ended-no-next-close — inputs are read only when a new `ended` episode opens.
+          vodEndedGate.handleStateChange(state, () =>
+            vodEndedInputsOf(vodEndedChannelRef.current, readVodEndBehavior(LivebuySDK)),
+          );
+        }}
         // rb-rn-dropin-playback-progress-and-error-wiring — feed the native playback progress into the
         // template. `DefaultPlayerTemplate.handlePlaybackProgress` is "host-fed": nothing else
         // calls it, and without this prop the container left `playbackProgressState` at its

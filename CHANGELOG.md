@@ -13,6 +13,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.15.0] - 2026-10-15
+
+> **reference-ui，minor，無 BREAKING。** 文案改走五語系字串表並可在執行中切換語言；新增兩個依語言取值的函式、舊常數
+> 標 `@deprecated`（仍保留）。peer `livebuy-react-native-ui` 由 `^1.13.0` 提高到 `^1.14.0`，以傳遞地要求 core `2.11.0`
+> （提供 `getLanguage`／`addLanguageListener`）。
+
+### Added
+
+- **文案改走自帶五語系字串表**（`rb-rn-i18n-string-table`，zh-TW／zh-CN／en／ms-MY／id-ID，134 key＝iOS 133＋RN 獨有 1，
+  譯文與 iOS 逐字一致並有跨平台比對測試）：經 core `addLanguageListener` 訂閱，**執行中切換語言即時重繪**；直播預告月日依
+  語言格式化。zh-TW 畫面除下方 3 處統一外逐字不變。
+- 新增依目前語言取值的 `defaultCarouselTitle()`（`widget/CarouselView`）、`ccUnavailableTooltipText()`
+  （`playershell/OperationRailView`）。
+- 縮小鈕補無障礙標籤 `player_minimize_a11y`；中獎入口補 `win_entry_a11y`＋`accessibilityRole="button"`
+  （`rb-rn-parity-debt-closure`）。
+
+### Changed
+
+- 缺 key fallback 改「目前語言 → `en` → key」；未知語言碼與取不到 core 語言 API 時一律視為 `en`（`rb-rn-i18n-fallback-en`）。
+  五張表的 key 集合由測試把關為完全相同，正式畫面不受影響。
+- ⚠️ zh-TW 文案 3 處統一為 iOS 寫法（`rb-rn-parity-debt-closure`）：`nickname_retryable_error`「暱稱設定失敗，請稍後再試」、
+  `variant_prompt_body` 逗號改全形、`widget_demo_data_caption`「（示範資料 — 未取得直播列表）」。
+- peer `livebuy-react-native-ui` `^1.13.0` → `^1.14.0`（傳遞地要求 `livebuy-react-native` `^2.11.0`）。⚠️ 升到
+  reference-ui `1.15.0` 的 host 需同時升級 core `2.11.0` 與 ui `1.14.0`，並使用原生 iOS／Android `4.29.0`。若繞過 peer 鏈搭配沒有
+  `addLanguageListener` 的舊 core，偵測不到語言 API，畫面退回 `en`、不崩潰。
+
+### Deprecated
+
+- `DEFAULT_CAROUSEL_TITLE`、`CC_UNAVAILABLE_TOOLTIP_TEXT`：固定為 zh-TW 值、不隨語言變；改用 `defaultCarouselTitle()`、
+  `ccUnavailableTooltipText()`。仍保留匯出，未移除。
+
+> **驗證範圍**：`npm run typecheck` 與 `npx jest --ci` 全套通過（jest snapshot 零改動）。**未經真機或模擬器實測。**
+
 ## [1.14.0] - 2026-10-14
 
 > **reference-ui，minor，無 BREAKING。** 新增 drop-in 自動關閉行為（只在 host 以 `vodEndBehavior: 'advance'`

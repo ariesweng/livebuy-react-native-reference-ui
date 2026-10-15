@@ -75,6 +75,7 @@ import {
   GLYPH_OUTER_COLOR,
   GLYPH_INNER_COLOR,
 } from './GiftGlyphPaths';
+import { text, useReferenceUILanguage } from '../i18n';
 
 // MARK: - Design tokens (lifted from moments.jsx · LBWinEntry, R24)
 
@@ -107,7 +108,14 @@ const LABEL_FONT_SIZE = 9;
  * — a SEPARATE component, not a runtime variant switch on this one, sharing only the
  * glyph path data via `GiftGlyphPaths.ts`).
  */
-const LABEL_TEXT = '領獎';
+const LABEL_TEXT = (): string => text('win_entry_label');
+
+/**
+ * Accessibility label (mirrors the design source's `aria-label`「查看中獎」) — string-table
+ * `win_entry_a11y` (rb-rn-parity-debt-closure, parity iOS `WinEntryView.winAccessibilityLabel` /
+ * Android `WinEntry` content description; same pattern as `ActivityEntryView`'s `A11Y_LABEL`).
+ */
+const A11Y_LABEL = (): string => text('win_entry_a11y');
 
 /** Props for the {@link WinEntry} surface. */
 export interface WinEntryProps {
@@ -147,6 +155,8 @@ export interface WinEntryProps {
  * Renders correctly with the default no-op `onOpen` (snapshot / preview safe).
  */
 export function WinEntry(props: WinEntryProps): ReactElement | null {
+  // rb-rn-i18n-string-table: subscribe to the reference-ui language so a runtime switch re-renders this surface.
+  useReferenceUILanguage();
   const { theme, unclaimedCount, unclaimedWinners = [], onOpen } = props;
 
   // Visibility rule (D-3): nothing to claim → draw nothing.
@@ -161,7 +171,12 @@ export function WinEntry(props: WinEntryProps): ReactElement | null {
   };
 
   return (
-    <Pressable onPress={handleTap} testID={LBTestIDs.winEntry}>
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={A11Y_LABEL()}
+      onPress={handleTap}
+      testID={LBTestIDs.winEntry}
+    >
       <View
         style={{
           width: ENTRY_SIZE,
@@ -204,7 +219,7 @@ export function WinEntry(props: WinEntryProps): ReactElement | null {
               fontWeight: '600',
             }}
           >
-            {LABEL_TEXT}
+            {LABEL_TEXT()}
           </Text>
         </View>
       </View>

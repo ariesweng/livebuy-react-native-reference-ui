@@ -20,6 +20,7 @@ import { Text } from '../TightText';
 import type { ReferenceUITheme } from '../theme';
 import { LBTestIDs } from '../testing/LBTestIDs';
 import { SpeakerSlashGlyph, SpeakerWaveGlyph } from './SpeakerGlyphs';
+import { text, useReferenceUILanguage } from '../i18n';
 
 export interface GestureMuteToastViewProps {
   readonly theme: ReferenceUITheme;
@@ -28,13 +29,15 @@ export interface GestureMuteToastViewProps {
   readonly muted: boolean;
 }
 
-const MUTED_LABEL = '靜音';
-const UNMUTED_LABEL = '聲音開啟';
+const MUTED_LABEL = (): string => text('player_muted');
+const UNMUTED_LABEL = (): string => text('player_unmuted');
 /** Dark-glass pill surface (design `rgba(20,20,24,0.78)`, parity iOS/Android `glass`). */
 const TOAST_GLASS = 'rgba(20,20,24,0.78)';
 
 /** The centred mute toast: a dark-glass pill with a speaker glyph + a state label. */
 export function GestureMuteToastView(props: GestureMuteToastViewProps): ReactElement {
+  // rb-rn-i18n-string-table: subscribe to the reference-ui language so a runtime switch re-renders this surface.
+  useReferenceUILanguage();
   const { theme, muted } = props;
   return (
     <View
@@ -61,7 +64,7 @@ export function GestureMuteToastView(props: GestureMuteToastViewProps): ReactEle
           fontWeight: '600',
         }}
       >
-        {muted ? MUTED_LABEL : UNMUTED_LABEL}
+        {muted ? MUTED_LABEL() : UNMUTED_LABEL()}
       </Text>
     </View>
   );

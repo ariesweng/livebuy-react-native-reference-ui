@@ -72,6 +72,7 @@ import { lbSafeAreaPaddingStyle, safeAreaPaddingFor, useLBImeBottomInset, useLBS
 import type { ReferenceUITheme } from '../theme';
 import type { NicknameSubmitFailureKind } from '../container/ChatComposerBar';
 import { GuestNamePersonGlyph } from './GuestNamePersonGlyph';
+import { text, useReferenceUILanguage } from '../i18n';
 
 // MARK: - Max nickname length (design `slice(0, 10)`).
 
@@ -79,16 +80,16 @@ export const MAX_NICKNAME_LENGTH = 10;
 
 // MARK: - Fixed localized copy (static presentation strings, 繁中 — parity verbatim)
 
-const TITLE = '設定暱稱';
-const SUBTITLE = '請輸入直播留言的暱稱';
-const INPUT_PLACEHOLDER = '暱稱字數上限 10 個字';
-const SUBMIT_LABEL = '送出';
+const TITLE = (): string => text('nickname_title');
+const SUBTITLE = (): string => text('nickname_subtitle');
+const INPUT_PLACEHOLDER = (): string => text('nickname_placeholder');
+const SUBMIT_LABEL = (): string => text('common_submit');
 /** CTA label while a checkName-gated submit is in flight (rb-rn-nickname-taken-inline-error). */
-const SUBMITTING_LABEL = '送出中…';
+const SUBMITTING_LABEL = (): string => text('common_submitting');
 /** Inline error copy when checkName rejects the name (`error.code === 'guestNameTaken'`). */
-const TAKEN_ERROR_MESSAGE = '此暱稱已被使用，請換一個';
+const TAKEN_ERROR_MESSAGE = (): string => text('nickname_taken_error');
 /** Inline error copy for any other submit rejection (network / server — retryable). */
-const GENERIC_ERROR_MESSAGE = '發生錯誤，請稍後再試';
+const GENERIC_ERROR_MESSAGE = (): string => text('nickname_retryable_error');
 
 // MARK: - Decorative design tokens (literal minimal hex — NOT theme-resolved)
 //
@@ -197,6 +198,8 @@ export interface GuestNameEditModalProps {
  * existing call site is unaffected.
  */
 export function GuestNameEditModal(props: GuestNameEditModalProps): ReactElement {
+  // rb-rn-i18n-string-table: subscribe to the reference-ui language so a runtime switch re-renders this surface.
+  useReferenceUILanguage();
   // rb-rn-edge-to-edge-safe-area — system insets + keyboard overlap from the enclosing Tier B
   // container (all zero without one → `safeAreaPadding` is an empty object).
   const safeAreaPadding = lbSafeAreaPaddingStyle(
@@ -240,9 +243,9 @@ export function GuestNameEditModal(props: GuestNameEditModalProps): ReactElement
   // it clears the moment the container's `beginSubmit()` runs (the next 送出 tap).
   const errorMessage: string | null =
     submitFailure === 'taken'
-      ? TAKEN_ERROR_MESSAGE
+      ? TAKEN_ERROR_MESSAGE()
       : submitFailure === 'other'
-        ? GENERIC_ERROR_MESSAGE
+        ? GENERIC_ERROR_MESSAGE()
         : null;
 
   // Forward the trimmed name on 送出 (guarded by canSubmit AND submitting — no double-fire while
@@ -308,7 +311,7 @@ export function GuestNameEditModal(props: GuestNameEditModalProps): ReactElement
               textAlign: 'center',
             }}
           >
-            {TITLE}
+            {TITLE()}
           </Text>
           <View style={{ height: 16 }} />
           <Text
@@ -318,7 +321,7 @@ export function GuestNameEditModal(props: GuestNameEditModalProps): ReactElement
               textAlign: 'center',
             }}
           >
-            {SUBTITLE}
+            {SUBTITLE()}
           </Text>
           <View style={{ height: 16 }} />
           <InputRow
@@ -461,7 +464,7 @@ function LiveField(props: {
       onChangeText={onChangeText}
       testID={LBTestIDs.guestNameField}
       maxLength={MAX_NICKNAME_LENGTH}
-      placeholder={INPUT_PLACEHOLDER}
+      placeholder={INPUT_PLACEHOLDER()}
       placeholderTextColor={TEXT_FAINT}
       style={{
         padding: 0,
@@ -488,7 +491,7 @@ function StaticField(props: { theme: ReferenceUITheme; text: string }): ReactEle
         fontSize: 13 * theme.fontScale,
       }}
     >
-      {isEmpty ? INPUT_PLACEHOLDER : text}
+      {isEmpty ? INPUT_PLACEHOLDER() : text}
     </Text>
   );
 }
@@ -569,7 +572,7 @@ function SubmitButton(props: {
           fontWeight: '700',
         }}
       >
-        {submitting ? SUBMITTING_LABEL : SUBMIT_LABEL}
+        {submitting ? SUBMITTING_LABEL() : SUBMIT_LABEL()}
       </Text>
     </Pressable>
   );

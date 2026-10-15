@@ -48,6 +48,7 @@ import { ShareFillGlyph } from './ShareFillGlyph';
 import { ContactGlyph } from './ContactGlyph';
 import { LBTestIDs } from '../testing/LBTestIDs';
 import { useLBSafeAreaInsets } from '../safearea/LBSafeArea';
+import { text, useReferenceUILanguage } from '../i18n';
 
 /** Grab-handle stroke (`STROKE_STRONG`, matches `VideoInfoPanelView`'s identically-named
  *  constant — the same design token, kept as a local literal rather than a cross-file import
@@ -66,8 +67,8 @@ const ITEM_WIDTH = 64;
 /** Horizontal gap between the 4 cells (design `gap: 20`). */
 const ROW_GAP = 20;
 
-const SHARE_LABEL = '分享';
-const CONTACT_LABEL = '客服';
+const SHARE_LABEL = (): string => text('common_share');
+const CONTACT_LABEL = (): string => text('live_more_contact');
 
 /** Props for the {@link LiveMoreMenuView} surface. */
 export interface LiveMoreMenuProps {
@@ -92,6 +93,8 @@ export interface LiveMoreMenuProps {
  * preview safe).
  */
 export function LiveMoreMenuView(props: LiveMoreMenuProps): ReactElement {
+  // rb-rn-i18n-string-table: subscribe to the reference-ui language so a runtime switch re-renders this surface.
+  useReferenceUILanguage();
   const { theme, onShare, onContactMerchant } = props;
   // rb-rn-edge-to-edge-safe-area — same rule as `SheetScaffold`: the panel reaches the physical
   // bottom edge, its content stays above the navigation / gesture bar (bottom spacer) and clear of
@@ -124,7 +127,7 @@ export function LiveMoreMenuView(props: LiveMoreMenuProps): ReactElement {
         <MenuItem
           testID={LBTestIDs.liveMoreMenuShare}
           theme={theme}
-          label={SHARE_LABEL}
+          label={SHARE_LABEL()}
           onTap={onShare}
         >
           {/* Design draws `Icons.shareFill` (a solid-fill variant introduced specifically for
@@ -140,7 +143,7 @@ export function LiveMoreMenuView(props: LiveMoreMenuProps): ReactElement {
         <MenuItem
           testID={LBTestIDs.liveMoreMenuContact}
           theme={theme}
-          label={CONTACT_LABEL}
+          label={CONTACT_LABEL()}
           onTap={onContactMerchant}
         >
           {/* 客服 (customer service / contact merchant) 改設計稿自繪雙泡泡+問號 ContactGlyph

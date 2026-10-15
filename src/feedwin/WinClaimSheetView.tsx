@@ -92,6 +92,7 @@ import { AlertCircleGlyph } from './AlertCircleGlyph';
 import { GIFT_OUTER_D, GIFT_INNER_D, GLYPH_INNER_COLOR } from './GiftGlyphPaths';
 import { MailGlyph } from './MailGlyph';
 import { GiftOutlineGlyph } from './GiftOutlineGlyph';
+import { text, useReferenceUILanguage } from '../i18n';
 
 // MARK: - Stage 機（型別 + 純函式推導）
 
@@ -239,44 +240,44 @@ const CONFETTI_COUNT = 20;
 /** 分頁滑動判定閾值（px，對齊設計稿 `LBWinSheet` 的 `Math.abs(dx) < 40`）。 */
 const SWIPE_THRESHOLD = 40;
 
-// MARK: - Fixed localized copy (static presentation strings — parity to iOS/Android)
+// MARK: - Localized copy (reference-ui string table — parity to iOS/Android)
 //
-// 本層全層寫死中文常數，**不使用**任何 i18n API（與 `TEXT_DIM` 等 design-literal 同慣例）。
+// 文案經 reference-ui 自帶字串表依目前語言查表（rb-rn-i18n-string-table；不使用 core 的 i18n）。
 
-const CONGRATS_TITLE = '恭喜中獎';
-const AWARD_NAME_FALLBACK = '直播間限定獎品';
-const EMAIL_PLACEHOLDER = '電子郵件';
-const CTA_SUBMIT = '確認領獎';
-const FOOTER_TERMS = '使用條款';
+const CONGRATS_TITLE = (): string => text('win_congrats_title');
+const AWARD_NAME_FALLBACK = (): string => text('win_award_fallback');
+const EMAIL_PLACEHOLDER = (): string => text('win_email_placeholder');
+const CTA_SUBMIT = (): string => text('win_claim_confirm');
+const FOOTER_TERMS = (): string => text('common_terms');
 const FOOTER_SEPARATOR = ' | ';
-const FOOTER_PRIVACY = '隱私政策';
+const FOOTER_PRIVACY = (): string => text('common_privacy');
 
-const SUBMIT_ALERT_TITLE = '確認領獎';
-const SUBMIT_ALERT_BODY_PREFIX = '請確認 ';
-const SUBMIT_ALERT_BODY_SUFFIX = ' 填寫正確，送出後將不可變更，確定要送出領獎資料嗎？';
-const SUBMIT_ALERT_NOTE_DISCOUNT = '※結帳折扣碼將會寄送到您的信箱內。';
-const SUBMIT_ALERT_NOTE_PRODUCT = '※獎品將自動加入為待結帳商品。';
+const SUBMIT_ALERT_TITLE = (): string => text('win_claim_confirm');
+/** 「請確認 {email} 填寫正確…」confirm-alert body (single key + named placeholder). */
+const SUBMIT_ALERT_BODY = (email: string): string => text('win_submit_alert_body', { email });
+const SUBMIT_ALERT_NOTE_DISCOUNT = (): string => text('win_submit_note_discount');
+const SUBMIT_ALERT_NOTE_PRODUCT = (): string => text('win_submit_note_product');
 
-const ALERT_CANCEL_LABEL = '取消';
-const ALERT_CONFIRM_LABEL = '確定';
+const ALERT_CANCEL_LABEL = (): string => text('common_cancel');
+const ALERT_CONFIRM_LABEL = (): string => text('common_confirm');
 
-const SUBMITTING_LABEL = '送出中…';
+const SUBMITTING_LABEL = (): string => text('common_submitting');
 
-const DONE_TITLE = '領獎完成';
-const DONE_SUBLINE_DISCOUNT = '結帳折扣碼已寄送到以下電子郵件';
-const DONE_SUBLINE_PRODUCT = '獎品已加入待結帳商品，結帳前完成訂購';
-const COPY_LABEL = '複製';
-const COPIED_LABEL = '已複製';
-const PENDING_ITEM_CAPTION = '待結帳商品';
+const DONE_TITLE = (): string => text('win_done_title');
+const DONE_SUBLINE_DISCOUNT = (): string => text('win_done_subline_discount');
+const DONE_SUBLINE_PRODUCT = (): string => text('win_done_subline_product');
+const COPY_LABEL = (): string => text('common_copy');
+const COPIED_LABEL = (): string => text('common_copied');
+const PENDING_ITEM_CAPTION = (): string => text('win_pending_item_caption');
 
-const FAIL_TITLE = '領獎失敗';
-const FAIL_SUBLINE = '領獎過程發生錯誤，你的中獎資格仍保留，請稍後再試一次。';
+const FAIL_TITLE = (): string => text('win_fail_title');
+const FAIL_SUBLINE = (): string => text('win_fail_subline');
 /**
  * 🔴 通用文案 —— **MUST NOT** 換成 `CLAIM_TIMEOUT` 之類捏造的錯誤代碼，理由見 `failNoticeRow`
  * 的註解（R13 刻意分歧 2/2）。
  */
-const FAIL_NOTICE = '若持續發生，請聯繫客服';
-const RETRY_LABEL = '重新領獎';
+const FAIL_NOTICE = (): string => text('win_fail_notice');
+const RETRY_LABEL = (): string => text('win_claim_retry');
 
 // MARK: - Pure color / confetti helpers
 
@@ -403,6 +404,8 @@ export interface WinClaimSheetProps {
  * `resultState` 呈現送出中 / 領獎完成 / 領獎失敗。
  */
 export function WinClaimSheet(props: WinClaimSheetProps): ReactElement {
+  // rb-rn-i18n-string-table: subscribe to the reference-ui language so a runtime switch re-renders this surface.
+  useReferenceUILanguage();
   // rb-rn-edge-to-edge-safe-area — the scrim stays full-bleed; the CARD carries the system insets
   // as margins, so it is centered inside the safe rect (empty object when the insets are zero).
   // The keyboard stays with the existing `KeyboardAvoidingView` below (unchanged).
@@ -447,7 +450,7 @@ export function WinClaimSheet(props: WinClaimSheetProps): ReactElement {
    * 第二份規則，這樣「畫面說可以送」與「view-model 願意送」永遠同一條判定。
    */
   const emailValid = isValidClaimEmail(email);
-  const awardName = winner.award.name.length === 0 ? AWARD_NAME_FALLBACK : winner.award.name;
+  const awardName = winner.award.name.length === 0 ? AWARD_NAME_FALLBACK() : winner.award.name;
   const isAlert = stage === 'confirmSubmit';
   /** 底卡是否應被壓暗且不可互動（alert 或送出中）。 */
   const isBusy = isAlert || stage === 'submitting';
@@ -662,7 +665,7 @@ function ClaimCardBody(props: {
             textAlign: 'center',
           }}
         >
-          {CONGRATS_TITLE}
+          {CONGRATS_TITLE()}
         </Text>
         <Text
           style={{
@@ -696,7 +699,7 @@ function ClaimCardBody(props: {
           testID={LBTestIDs.winClaimEmailField}
           value={email}
           onChangeText={onChangeEmail}
-          placeholder={EMAIL_PLACEHOLDER}
+          placeholder={EMAIL_PLACEHOLDER()}
           placeholderTextColor={TEXT_FAINT}
           keyboardType="email-address"
           autoCapitalize="none"
@@ -731,7 +734,7 @@ function ClaimCardBody(props: {
           <Text
             style={{ color: '#FFFFFF', fontSize: 15.5 * theme.fontScale, fontWeight: '900' }}
           >
-            {CTA_SUBMIT}
+            {CTA_SUBMIT()}
           </Text>
         </Pressable>
       </View>
@@ -777,9 +780,9 @@ function AlertLayer(props: {
   onConfirm: () => void;
 }): ReactElement {
   const { theme, isDiscount, email, onCancel, onConfirm } = props;
-  const title = SUBMIT_ALERT_TITLE;
-  const body = `${SUBMIT_ALERT_BODY_PREFIX}${email}${SUBMIT_ALERT_BODY_SUFFIX}`;
-  const note = isDiscount ? SUBMIT_ALERT_NOTE_DISCOUNT : SUBMIT_ALERT_NOTE_PRODUCT;
+  const title = SUBMIT_ALERT_TITLE();
+  const body = SUBMIT_ALERT_BODY(email);
+  const note = isDiscount ? SUBMIT_ALERT_NOTE_DISCOUNT() : SUBMIT_ALERT_NOTE_PRODUCT();
   return (
     <View
       style={{
@@ -861,7 +864,7 @@ function AlertLayer(props: {
             <Text
               style={{ color: theme.accent, fontSize: 15 * theme.fontScale, fontWeight: '900' }}
             >
-              {ALERT_CANCEL_LABEL}
+              {ALERT_CANCEL_LABEL()}
             </Text>
           </Pressable>
           <Pressable
@@ -880,7 +883,7 @@ function AlertLayer(props: {
             <Text
               style={{ color: '#FFFFFF', fontSize: 15 * theme.fontScale, fontWeight: '900' }}
             >
-              {ALERT_CONFIRM_LABEL}
+              {ALERT_CONFIRM_LABEL()}
             </Text>
           </Pressable>
         </View>
@@ -947,7 +950,7 @@ function SubmittingLayer(props: { theme: ReferenceUITheme }): ReactElement {
             fontWeight: 'bold',
           }}
         >
-          {SUBMITTING_LABEL}
+          {SUBMITTING_LABEL()}
         </Text>
       </View>
     </View>
@@ -989,7 +992,7 @@ function DoneCardBody(props: {
             textAlign: 'center',
           }}
         >
-          {DONE_TITLE}
+          {DONE_TITLE()}
         </Text>
         <Text
           style={{
@@ -1001,7 +1004,7 @@ function DoneCardBody(props: {
             textAlign: 'center',
           }}
         >
-          {isDiscount ? DONE_SUBLINE_DISCOUNT : DONE_SUBLINE_PRODUCT}
+          {isDiscount ? DONE_SUBLINE_DISCOUNT() : DONE_SUBLINE_PRODUCT()}
         </Text>
         {isDiscount ? (
           <Text
@@ -1059,7 +1062,7 @@ function DoneCardBody(props: {
                 fontWeight: '900',
               }}
             >
-              {copied ? COPIED_LABEL : COPY_LABEL}
+              {copied ? COPIED_LABEL() : COPY_LABEL()}
             </Text>
           </Pressable>
         </View>
@@ -1096,7 +1099,7 @@ function DoneCardBody(props: {
             <Text
               style={{ color: TEXT_DIM, fontSize: 11 * theme.fontScale, fontWeight: '600' }}
             >
-              {PENDING_ITEM_CAPTION}
+              {PENDING_ITEM_CAPTION()}
             </Text>
             <Text
               style={{
@@ -1141,7 +1144,7 @@ function FailCardBody(props: {
             textAlign: 'center',
           }}
         >
-          {FAIL_TITLE}
+          {FAIL_TITLE()}
         </Text>
         <Text
           style={{
@@ -1153,7 +1156,7 @@ function FailCardBody(props: {
             textAlign: 'center',
           }}
         >
-          {FAIL_SUBLINE}
+          {FAIL_SUBLINE()}
         </Text>
       </View>
 
@@ -1192,7 +1195,7 @@ function FailCardBody(props: {
             fontWeight: '600',
           }}
         >
-          {FAIL_NOTICE}
+          {FAIL_NOTICE()}
         </Text>
       </View>
 
@@ -1211,7 +1214,7 @@ function FailCardBody(props: {
           }}
         >
           <Text style={{ color: '#FFFFFF', fontSize: 15.5 * theme.fontScale, fontWeight: '900' }}>
-            {RETRY_LABEL}
+            {RETRY_LABEL()}
           </Text>
         </Pressable>
       </View>
@@ -1327,7 +1330,7 @@ function FooterRow(props: {
         <Text
           style={{ color: TEXT_DIM, fontSize: 12.5 * theme.fontScale, fontWeight: '500' }}
         >
-          {FOOTER_TERMS}
+          {FOOTER_TERMS()}
         </Text>
       </Pressable>
       <Text
@@ -1348,7 +1351,7 @@ function FooterRow(props: {
         <Text
           style={{ color: TEXT_DIM, fontSize: 12.5 * theme.fontScale, fontWeight: '500' }}
         >
-          {FOOTER_PRIVACY}
+          {FOOTER_PRIVACY()}
         </Text>
       </Pressable>
     </View>

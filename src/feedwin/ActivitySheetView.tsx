@@ -81,6 +81,7 @@ import { GIFT_OUTER_D, GIFT_INNER_D, GLYPH_INNER_COLOR } from './GiftGlyphPaths'
 // specific typing, so importing it here avoids porting a second literal copy of the design
 // source's `onSwipeEnd` logic (design.md D1).
 import { swipePageDelta } from './WinClaimSheetView';
+import { text, useReferenceUILanguage } from '../i18n';
 
 // MARK: - Decorative design tokens (literal minimal hex, lifted from moments.jsx · LBActivitySheet)
 //
@@ -123,12 +124,12 @@ const BADGE_BACKGROUND = '#fff';
 // MARK: - Fixed localized copy (static presentation strings — parity to iOS/Android)
 
 const PRIZE_NAME_FALLBACK = '';
-const KEYWORD_PREFIX = '留言關鍵字【';
-const KEYWORD_SUFFIX = '】即可參加抽獎！';
-const CTA_JOIN = '立即參加';
-const FOOTER_TERMS = '使用條款';
+/** 「留言關鍵字【{keyword}】即可參加抽獎！」CTA line (single key + named placeholder). */
+const KEYWORD_CTA = (keyword: string): string => text('activity_keyword_cta', { keyword });
+const CTA_JOIN = (): string => text('common_join_now');
+const FOOTER_TERMS = (): string => text('common_terms');
 const FOOTER_SEPARATOR = ' | ';
-const FOOTER_PRIVACY = '隱私政策';
+const FOOTER_PRIVACY = (): string => text('common_privacy');
 
 /** Props for the {@link ActivitySheet} surface. */
 export interface ActivitySheetProps {
@@ -198,6 +199,8 @@ export interface ActivitySheetProps {
  * Scrim tap ALWAYS dismisses (no alert layer, unlike the four-stage win-claim sheet).
  */
 export function ActivitySheet(props: ActivitySheetProps): ReactElement {
+  // rb-rn-i18n-string-table: subscribe to the reference-ui language so a runtime switch re-renders this surface.
+  useReferenceUILanguage();
   // rb-rn-edge-to-edge-safe-area — the scrim stays full-bleed; the CARD carries the system insets
   // as margins, so it is centered inside the safe rect (empty object when the insets are zero).
   const safeAreaMargin = lbSafeAreaMarginStyle(useLBSafeAreaInsets());
@@ -309,7 +312,7 @@ export function ActivitySheet(props: ActivitySheetProps): ReactElement {
               textAlign: 'center',
             }}
           >
-            {`${KEYWORD_PREFIX}${activity.keyword ?? ''}${KEYWORD_SUFFIX}`}
+            {KEYWORD_CTA(activity.keyword ?? '')}
           </Text>
 
           <Pressable
@@ -328,7 +331,7 @@ export function ActivitySheet(props: ActivitySheetProps): ReactElement {
             }}
           >
             <Text style={{ color: '#FFFFFF', fontSize: 16 * theme.fontScale, fontWeight: '900' }}>
-              {CTA_JOIN}
+              {CTA_JOIN()}
             </Text>
           </Pressable>
 
@@ -367,7 +370,7 @@ export function ActivitySheet(props: ActivitySheetProps): ReactElement {
           <View style={{ marginTop: 14, flexDirection: 'row' }}>
             <Pressable accessibilityRole="button" onPress={(): void => onOpenTermsOfUse?.()}>
               <Text style={{ color: TEXT_DIM, fontSize: 12.5 * theme.fontScale, fontWeight: '500' }}>
-                {FOOTER_TERMS}
+                {FOOTER_TERMS()}
               </Text>
             </Pressable>
             <Text
@@ -382,7 +385,7 @@ export function ActivitySheet(props: ActivitySheetProps): ReactElement {
             </Text>
             <Pressable accessibilityRole="button" onPress={(): void => onOpenPrivacyPolicy?.()}>
               <Text style={{ color: TEXT_DIM, fontSize: 12.5 * theme.fontScale, fontWeight: '500' }}>
-                {FOOTER_PRIVACY}
+                {FOOTER_PRIVACY()}
               </Text>
             </Pressable>
           </View>

@@ -133,6 +133,7 @@ import type { LBProduct } from 'livebuy-react-native';
 import type { DefaultPlayerTemplate, LBMiniCartPeek } from 'livebuy-react-native-ui';
 // LBInfoPanelTab is an enum used as a VALUE (onTapAnnounce → LBInfoPanelTab.Notice) — value import.
 import { LBInfoPanelTab, LBSideRailKind, StartScreenPhase } from 'livebuy-react-native-ui';
+import { text, useReferenceUILanguage } from '../i18n';
 
 // Re-export the four family-1 surfaces so hosts (and the family barrel) can pull
 // them from the container module (parity with the iOS/Flutter family barrels).
@@ -897,6 +898,8 @@ function useDeferredDismissBubble(
  * to subscribe to); the host normally supplies a live {@link DefaultPlayerTemplate}.
  */
 export function PlayerShellView(props: PlayerShellViewProps): ReactElement {
+  // rb-rn-i18n-string-table: subscribe to the reference-ui language so a runtime switch re-renders this surface.
+  useReferenceUILanguage();
   const {
     template = null,
     theme,
@@ -2349,8 +2352,8 @@ export function PlayerShellView(props: PlayerShellViewProps): ReactElement {
 // → 預設攔截觸控）。只在 `PlayerShellView` 偵測 `model.isRestricted === true` 時建出，故未受限時
 // 不出像素（snapshot baseline byte-identical）。鏡像 iOS canonical `RestrictionMaskView` 文案；
 // lock glyph / 最終視覺 / 退出 affordance DECISION-PENDING 待設計稿（RN refui de-emoji，純文字呈現）。
-const RESTRICTION_TITLE = '此內容限定會員等級觀看';
-const RESTRICTION_SUBTITLE = '提升會員等級後即可觀看';
+const RESTRICTION_TITLE = (): string => text('player_restricted_title');
+const RESTRICTION_SUBTITLE = (): string => text('player_restricted_body');
 
 function RestrictionMask(props: { theme: ReferenceUITheme }): ReactElement {
   const { theme } = props;
@@ -2376,7 +2379,7 @@ function RestrictionMask(props: { theme: ReferenceUITheme }): ReactElement {
           textAlign: 'center',
         }}
       >
-        {RESTRICTION_TITLE}
+        {RESTRICTION_TITLE()}
       </Text>
       <View style={{ height: 8 }} />
       <Text
@@ -2386,7 +2389,7 @@ function RestrictionMask(props: { theme: ReferenceUITheme }): ReactElement {
           textAlign: 'center',
         }}
       >
-        {RESTRICTION_SUBTITLE}
+        {RESTRICTION_SUBTITLE()}
       </Text>
     </View>
   );

@@ -59,10 +59,19 @@ import { BagGlyph } from './BagGlyph';
 import { LBTestIDs } from '../testing/LBTestIDs';
 import { LBSideRailKind } from 'livebuy-react-native-ui';
 import type { LBSideRailItem } from 'livebuy-react-native-ui';
+import { text, useReferenceUILanguage } from '../i18n';
+import { zhTW } from '../i18n/strings.zhTW';
 
-/** Design-literal tooltip text (R42, `LBPTooltip` first call site) — same string at both of the
- *  two CC entry points this applies to (VOD side rail + LIVE-replay bottom bar). */
-export const CC_UNAVAILABLE_TOOLTIP_TEXT = '未提供字幕/隱藏式輔助字幕';
+/** Tooltip text in the CURRENT reference-ui language (R42, `LBPTooltip` first call site; key
+ *  `player_subtitle_unavailable`) — same string at both of the two CC entry points this applies
+ *  to (VOD side rail + LIVE-replay bottom bar). */
+export function ccUnavailableTooltipText(): string {
+  return text('player_subtitle_unavailable');
+}
+
+/** The zh-TW tooltip text (「未提供字幕/隱藏式輔助字幕」), read from the zh-TW string table.
+ *  @deprecated Not language-aware — use {@link ccUnavailableTooltipText} (both CC entry points do). */
+export const CC_UNAVAILABLE_TOOLTIP_TEXT: string = zhTW.player_subtitle_unavailable;
 
 /**
  * Whether captions are available for the current video — pure, unit-testable, no rendering.
@@ -208,6 +217,8 @@ function railTestIDFor(kind: LBSideRailKind): string | undefined {
 }
 
 export function OperationRail(props: OperationRailProps): ReactElement {
+  // rb-rn-i18n-string-table: subscribe to the reference-ui language so a runtime switch re-renders this surface.
+  useReferenceUILanguage();
   const { theme, items, onTapItem, isFinishedLiveReplay = false, subtitleEnabled = false } = props;
 
   // ACTUAL presentation order for this render: the base order (design LBPSideRail: CC / share /
@@ -374,7 +385,7 @@ function CcRailPill(props: {
       <CcTooltip
         testID={LBTestIDs.railSubtitleTooltip}
         visible={tooltip.visible}
-        text={CC_UNAVAILABLE_TOOLTIP_TEXT}
+        text={ccUnavailableTooltipText()}
         placement="left"
       />
     </View>

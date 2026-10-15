@@ -44,6 +44,7 @@ import {
   GLYPH_OUTER_COLOR,
   GLYPH_INNER_COLOR,
 } from './GiftGlyphPaths';
+import { text, useReferenceUILanguage } from '../i18n';
 
 // MARK: - Design tokens (lifted from moments.jsx · LBWinEntry(variant="activity"))
 
@@ -70,7 +71,9 @@ const LABEL_BACKGROUND = 'rgba(55,60,68,0.8)';
 /** Bottom label bar text size (identical to `WinEntryView.LABEL_FONT_SIZE`). */
 const LABEL_FONT_SIZE = 9;
 /** Bottom label text — 「活動」(NOT「領獎」, the ONLY variant this component implements). */
-const LABEL_TEXT = '活動';
+const LABEL_TEXT = (): string => text('win_entry_activity_label');
+/** Accessibility label (「參加活動」). */
+const A11Y_LABEL = (): string => text('win_entry_activity_a11y');
 
 /** Props for the {@link ActivityEntry} surface. */
 export interface ActivityEntryProps {
@@ -101,6 +104,8 @@ export interface ActivityEntryProps {
  * Renders correctly with the default no-op `onOpen` (snapshot / preview safe).
  */
 export function ActivityEntry(props: ActivityEntryProps): ReactElement | null {
+  // rb-rn-i18n-string-table: subscribe to the reference-ui language so a runtime switch re-renders this surface.
+  useReferenceUILanguage();
   const { theme, currentActivity, onOpen } = props;
 
   // Visibility rule: no running activity → draw nothing.
@@ -109,7 +114,7 @@ export function ActivityEntry(props: ActivityEntryProps): ReactElement | null {
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel="參加活動"
+      accessibilityLabel={A11Y_LABEL()}
       onPress={(): void => onOpen?.()}
       testID={LBTestIDs.activityEntry}
     >
@@ -153,7 +158,7 @@ export function ActivityEntry(props: ActivityEntryProps): ReactElement | null {
               fontWeight: '600',
             }}
           >
-            {LABEL_TEXT}
+            {LABEL_TEXT()}
           </Text>
         </View>
       </View>

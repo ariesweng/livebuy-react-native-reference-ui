@@ -100,6 +100,7 @@ import { PersonBadgePlusGlyph, TrophyGlyph } from './ActivityTierGlyphs';
 import { CrownGlyph } from './CrownGlyph';
 import { PinFillGlyph } from './PinFillGlyph';
 import { SparklesGlyph } from './SparklesGlyph';
+import { text, useReferenceUILanguage } from '../i18n';
 
 // MARK: - Decorative design tokens (literal hex / rgba from moments.jsx)
 //
@@ -247,11 +248,15 @@ function chatMessageLineHeight(fontSize: number): number {
 }
 
 /** 立即參加 CTA label (rb-rn-chat-message-line-restyle, design R30 — was 加入活動). */
-const JOIN_LABEL = '立即參加';
+const JOIN_LABEL = (): string => text('common_join_now');
+/** Return-to-latest pill label (「最新訊息」). */
+const RETURN_TO_LATEST_LABEL = (): string => text('chat_return_to_latest');
+/** Full-width name / message separator (「：」) — chat rows + pinned banner prefix. */
+const NAME_SEPARATOR = (): string => text('chat_name_separator');
 /** 已參加 joined-state label. */
-const JOINED_LABEL = '已參加';
+const JOINED_LABEL = (): string => text('chat_joined');
 /** Fallback copy when an event-join `text` is empty (`LBEventJoinLine` default). */
-const DEFAULT_EVENT_COPY = '🎉 抽獎開始！留言「抽獎」即可參加';
+const DEFAULT_EVENT_COPY = (): string => text('chat_event_default');
 
 /** Props for the family-2 merged chat-feed (SUB-VIEW INPUT PATTERN). */
 export interface ChatFeedProps {
@@ -315,6 +320,8 @@ const SCROLLABLE_HEIGHT_FRACTION = 0.38;
  * correctly with `onJoin` omitted (the join CTA renders inert).
  */
 export function ChatFeed(props: ChatFeedProps): ReactElement {
+  // rb-rn-i18n-string-table: subscribe to the reference-ui language so a runtime switch re-renders this surface.
+  useReferenceUILanguage();
   const { theme, items, onJoin, hostScrollable, pinned, hostName = '' } = props;
   // `hostScrollable === true` (runtime) swaps in the scroll-up-for-history variant;
   // the default keeps the plain non-scrolling column so the structural snapshot has
@@ -438,7 +445,7 @@ function ScrollableChatFeed(props: ChatFeedProps): ReactElement {
               <Text
                 style={{ marginLeft: 4, color: theme.accent, fontSize: 11.5 * theme.fontScale, fontWeight: '600' }}
               >
-                最新訊息
+                {RETURN_TO_LATEST_LABEL()}
               </Text>
             </View>
           </Pressable>
@@ -634,7 +641,7 @@ function ChatLineRow(props: {
             // bug this change fixes).
             <>
               <Text style={{ color: AUDIENCE_NICKNAME_PINK, fontWeight: '600' }}>{userName!}</Text>
-              <Text style={{ color: ON_GLASS, fontWeight: '600' }}>：</Text>
+              <Text style={{ color: ON_GLASS, fontWeight: '600' }}>{NAME_SEPARATOR()}</Text>
               {text}
             </>
           ) : (
@@ -748,7 +755,7 @@ function HostChatRow(props: {
             {isAI ? roleTag(theme, 'AI', false) : null}
             {hasName ? (
               <Text style={{ color: ON_GLASS, fontSize: 10.5 * theme.fontScale, fontWeight: '600' }}>
-                ：
+                {NAME_SEPARATOR()}
               </Text>
             ) : null}
           </View>
@@ -820,7 +827,7 @@ const PINNED_FILL = 'rgba(0,0,0,0.55)';
 
 function PinnedBanner(props: { theme: ReferenceUITheme; pinned: PinnedMessage }): ReactElement {
   const { theme, pinned } = props;
-  const namePrefix = pinned.kind === 'comment' && pinned.name.length > 0 ? `${pinned.name}：` : '';
+  const namePrefix = pinned.kind === 'comment' && pinned.name.length > 0 ? `${pinned.name}${NAME_SEPARATOR()}` : '';
   return (
     <View
       testID={LBTestIDs.pinnedBanner}
@@ -947,7 +954,7 @@ function EventJoinLineRow(props: {
         <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 2 }}>
           {roleTag(theme, hostName, true)}
           <Text style={{ color: ON_GLASS, fontSize: 10.5 * theme.fontScale, fontWeight: '600' }}>
-            ：
+            {NAME_SEPARATOR()}
           </Text>
         </View>
         {/* 2-line keyword copy (full prebuilt text, NOT split). No width cap (the CTA moved below,
@@ -961,7 +968,7 @@ function EventJoinLineRow(props: {
             fontWeight: '600',
           }}
         >
-          {text.length === 0 ? DEFAULT_EVENT_COPY : text}
+          {text.length === 0 ? DEFAULT_EVENT_COPY() : text}
         </Text>
         {/* event-join-cta gating (UNCHANGED logic): keyword 空（hasCTA === false）→ 不畫 CTA /
             已參加 chip（純活動公告，只留 header + 文案）。 */}
@@ -997,7 +1004,7 @@ function renderEventJoinCTA(theme: ReferenceUITheme, joined: boolean, onTap: () 
           </Text>
           <View style={{ width: 4 }} />
           <Text style={{ color: EVENT_JOINED_CHIP_TEXT, fontSize: 11.5 * theme.fontScale, fontWeight: 'bold' }}>
-            {JOINED_LABEL}
+            {JOINED_LABEL()}
           </Text>
         </View>
       ) : (
@@ -1012,7 +1019,7 @@ function renderEventJoinCTA(theme: ReferenceUITheme, joined: boolean, onTap: () 
             }}
           >
             <Text style={{ color: ON_GLASS, fontSize: 12 * theme.fontScale, fontWeight: '800' }}>
-              {JOIN_LABEL}
+              {JOIN_LABEL()}
             </Text>
           </View>
         </Pressable>

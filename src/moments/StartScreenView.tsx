@@ -89,6 +89,7 @@ import type { LBSafeAreaInsets } from '../safearea/LBSafeArea';
 import { ChevronForwardGlyph } from './ChevronForwardGlyph';
 import { LoadingMarkAnimation } from './loading-mark/LoadingMarkAnimation';
 import { RemoteImage } from '../productsheets/RemoteImage';
+import { text, useReferenceUILanguage } from '../i18n';
 
 // MARK: - Fixed decorative design tokens (literal minimal hex / rgba)
 //
@@ -111,7 +112,7 @@ const ON_GLASS = '#FFFFFF';
 /** Skip-intro pill label — STATIC, NO countdown number (rb-ios-skip-intro-label-static,
  *  four-platform parity). The pill NEVER counts down and NEVER fires onSkip on a timer;
  *  tapping it only FORWARDS `onSkip`. */
-const SKIP_LABEL = '略過介紹';
+const SKIP_LABEL = (): string => text('player_skip_intro');
 
 /**
  * Pure gate deciding whether `.loading`'s solid brand backdrop should be replaced by the
@@ -199,6 +200,8 @@ export interface StartScreenProps {
  * `skipStart()`).
  */
 export function StartScreen(props: StartScreenProps): ReactElement | null {
+  // rb-rn-i18n-string-table: subscribe to the reference-ui language so a runtime switch re-renders this surface.
+  useReferenceUILanguage();
   const { theme, phase, coverUrl, live } = props;
   // rb-rn-edge-to-edge-safe-area — system insets from the enclosing Tier B container (zero without
   // one, or when the host already handled the edges). Only the skip pill reads it; the loading
@@ -315,7 +318,7 @@ function renderSkipPill(theme: ReferenceUITheme, onSkip?: () => void): ReactElem
         }}
       >
         <Text style={{ color: ON_GLASS, fontSize: 13 * theme.fontScale, fontWeight: '600' }}>
-          {SKIP_LABEL}
+          {SKIP_LABEL()}
         </Text>
         <View style={{ width: 6 }} />
         {/* Fast-forward chevrons (the design's `M5 4l8 8…M14 4l6 8…` SVG):

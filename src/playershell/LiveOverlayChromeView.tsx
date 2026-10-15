@@ -78,6 +78,7 @@ import type { ReferenceUITheme } from '../theme';
 import type { LBProduct } from 'livebuy-react-native';
 import { LBTestIDs } from '../testing/LBTestIDs';
 import { LIVE_BOTTOM_BAR_HEIGHT } from './LiveBottomBarView';
+import { text, useReferenceUILanguage } from '../i18n';
 
 /** Safety clearance (px) kept above `LiveBottomBarView`'s real height when positioning the bottom
  *  row (announce banner + pinned-card carousel) — and, since `PlayerShellView.tsx` imports this
@@ -137,20 +138,20 @@ const SOLD_OUT_TEXT_COLOR = '#9A96A3';
 
 // Static localized copy (matching iOS `LiveOverlayChromeView` + `LBPGestureHint`).
 /** Host caption label ("主持人"). */
-const HOST_CAPTION_LABEL = '主持人';
+const HOST_CAPTION_LABEL = (): string => text('live_host_caption');
 /** Narrate-tag copy shown on the pinned card. Fixed literal — always「介紹中」，不受任何搶購場
  *  旗標影響（撤回 rb-rn-flash-sale-live-signal-wiring 的「開標中」二選一變體，
  *  rb-rn-narrating-banner-revert-flash-sale-text，2026-09-09 使用者拍板）。 */
-const NARRATE_TAG_TEXT = '介紹中';
+const NARRATE_TAG_TEXT = (): string => text('product_introducing');
 /** Sold-out price-line label ("已售完", rb-rn-live-pinned-card-soldout-label). */
-const SOLD_OUT_LABEL = '已售完';
+const SOLD_OUT_LABEL = (): string => text('product_sold_out');
 /** Gesture-hint copy (static localized presentation strings). */
 // rb-rn-gesture-clean-mode-v2 (design R29): a short tap now unconditionally toggles「乾淨模式」
 // (replacing the R23 mute-toggle semantics this copy used to describe) — fixed to a single
 // constant since the new behaviour no longer differs by LIVE/VOD (this component only ever
 // renders while genuinely live, see the file header's HOLD-HINT note below, but the copy itself
 // is written mode-agnostic to match the Requirement's wording).
-const HINT_TAP = '點擊畫面 = 切換乾淨模式';
+const HINT_TAP = (): string => text('gesture_hint_tap');
 // HOLD-HINT (rb-rn-gesture-clean-mode-v2 introduced the R29 long-press semantics; RESTORED by
 // rb-rn-replay-live-chrome-parity): the R23 long-press-toggles-cleanMode copy this line used to
 // hold under R23 is retired — R29's long-press instead starts a 2x-speed seek ONLY while
@@ -165,8 +166,8 @@ const HINT_TAP = '點擊畫面 = 切換乾淨模式';
 // and long-press really does start a 2x-speed seek (`handleVideoLongPress`, gated on
 // `isSeekable(...)` in `PlayerShellView.tsx`). `HINT_HOLD` restores this line, gated on the new
 // `isLive` prop below (`isLive === false` — see `gestureHints`).
-const HINT_HOLD = '長按畫面 = 2倍速快轉';
-const HINT_SWIPE = '上下滑動 = 切換影片';
+const HINT_HOLD = (): string => text('gesture_hint_hold');
+const HINT_SWIPE = (): string => text('gesture_hint_swipe');
 
 /** Props for the family-1 LIVE overlay chrome surface (SUB-VIEW INPUT PATTERN). */
 export interface LiveOverlayChromeProps {
@@ -279,6 +280,8 @@ export interface LiveOverlayChromeProps {
  * construct it action-free).
  */
 export function LiveOverlayChrome(props: LiveOverlayChromeProps): ReactElement {
+  // rb-rn-i18n-string-table: subscribe to the reference-ui language so a runtime switch re-renders this surface.
+  useReferenceUILanguage();
   const {
     theme,
     announceText,
@@ -589,7 +592,7 @@ function pinnedCard(
                 fontWeight: '700',
               }}
             >
-              {NARRATE_TAG_TEXT}
+              {NARRATE_TAG_TEXT()}
             </Text>
           </View>
         ) : null}
@@ -642,7 +645,7 @@ function pinnedCard(
             fontWeight: soldOut ? '700' : '800',
           }}
         >
-          {soldOut ? SOLD_OUT_LABEL : livePriceText(product)}
+          {soldOut ? SOLD_OUT_LABEL() : livePriceText(product)}
         </Text>
       </View>
     </Pressable>
@@ -672,7 +675,7 @@ function hostCaptionOverlay(theme: ReferenceUITheme, caption: string): ReactElem
           fontWeight: '600',
         }}
       >
-        {HOST_CAPTION_LABEL}
+        {HOST_CAPTION_LABEL()}
       </Text>
       <Text
         numberOfLines={2}
@@ -758,15 +761,15 @@ function FadingGestureHints(props: {
 function gestureHints(theme: ReferenceUITheme, isLive: boolean): ReactElement {
   return (
     <View style={{ alignItems: 'center' }}>
-      {gestureHintPill(theme, '\u{1F446}', HINT_TAP)}
+      {gestureHintPill(theme, '\u{1F446}', HINT_TAP())}
       {!isLive ? (
         <>
           <View style={{ height: 8 }} />
-          {gestureHintPill(theme, '✋', HINT_HOLD)}
+          {gestureHintPill(theme, '✋', HINT_HOLD())}
         </>
       ) : null}
       <View style={{ height: 8 }} />
-      {gestureHintPill(theme, '↕', HINT_SWIPE)}
+      {gestureHintPill(theme, '↕', HINT_SWIPE())}
     </View>
   );
 }

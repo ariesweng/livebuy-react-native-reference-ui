@@ -66,6 +66,7 @@ import type { ReferenceUITheme } from '../theme';
 import { LBAuthTriggerAction } from 'livebuy-react-native-ui';
 import type { LBAuthGateState } from 'livebuy-react-native-ui';
 import { LockGlyph } from './LockGlyph';
+import { text, useReferenceUILanguage } from '../i18n';
 
 // MARK: - Decorative design tokens (literal minimal hex — NOT theme-resolved)
 //
@@ -85,17 +86,17 @@ const ON_ACCENT_TEXT = '#FFFFFF';
 
 // MARK: - Fixed localized copy (static presentation strings, 繁中 — parity verbatim)
 
-const TITLE = '請先登入';
-const DISMISS_LABEL = '稍後再說';
-const LOGIN_LABEL = '前往登入';
+const TITLE = (): string => text('auth_title');
+const DISMISS_LABEL = (): string => text('auth_dismiss');
+const LOGIN_LABEL = (): string => text('auth_login');
 
 // Trigger-specific body copy — verbatim from the design's `LBP_AUTH_COPY`.
-const BODY_CART_ADD = '登入後即可將商品加入購物車';
-const BODY_COMMENT_SEND = '登入後即可參與留言互動';
-const BODY_COUPON_CLAIM = '登入後即可領取優惠與獎品';
+const BODY_CART_ADD = (): string => text('auth_body_cart_add');
+const BODY_COMMENT_SEND = (): string => text('auth_body_comment_send');
+const BODY_COUPON_CLAIM = (): string => text('auth_body_coupon_claim');
 // 訂閱情境（rb-rn-subscribe-login-gate，parity iOS `bodySubscribe` / Android `BODY_SUBSCRIBE`）— 未登入點訂閱時顯示。
-const BODY_SUBSCRIBE = '登入後即可訂閱直播主，第一時間掌握開播與專屬優惠';
-const BODY_OTHER = '登入後即可使用完整功能';
+const BODY_SUBSCRIBE = (): string => text('auth_body_subscribe');
+const BODY_OTHER = (): string => text('auth_body_other');
 
 /**
  * Trigger-specific body copy (`LBAuthTriggerAction` → 繁中 reason line). `.Other`
@@ -105,18 +106,18 @@ const BODY_OTHER = '登入後即可使用完整功能';
 export function authGateBodyCopy(triggerAction: LBAuthTriggerAction): string {
   switch (triggerAction) {
     case LBAuthTriggerAction.CartAdd:
-      return BODY_CART_ADD;
+      return BODY_CART_ADD();
     case LBAuthTriggerAction.CommentSend:
-      return BODY_COMMENT_SEND;
+      return BODY_COMMENT_SEND();
     case LBAuthTriggerAction.CouponClaim:
-      return BODY_COUPON_CLAIM;
+      return BODY_COUPON_CLAIM();
     // 訂閱情境（rb-rn-subscribe-login-gate）— 未登入點訂閱時的訂閱專屬文案。
     case LBAuthTriggerAction.Subscribe:
-      return BODY_SUBSCRIBE;
+      return BODY_SUBSCRIBE();
     // `.Other` is also the forward-compatible bucket for any unmapped trigger.
     case LBAuthTriggerAction.Other:
     default:
-      return BODY_OTHER;
+      return BODY_OTHER();
   }
 }
 
@@ -157,6 +158,8 @@ export interface AuthGateModalProps {
  * Renders correctly with the default no-op actions (snapshot / preview safe).
  */
 export function AuthGateModal(props: AuthGateModalProps): ReactElement | null {
+  // rb-rn-i18n-string-table: subscribe to the reference-ui language so a runtime switch re-renders this surface.
+  useReferenceUILanguage();
   // rb-rn-edge-to-edge-safe-area — system insets from the enclosing Tier B container (zero without
   // one, or when the host already handled the edges → `safeAreaPadding` is an empty object).
   const safeAreaPadding = lbSafeAreaPaddingStyle(useLBSafeAreaInsets());
@@ -210,7 +213,7 @@ export function AuthGateModal(props: AuthGateModalProps): ReactElement | null {
               textAlign: 'center',
             }}
           >
-            {TITLE}
+            {TITLE()}
           </Text>
           <View style={{ height: 8 }} />
           <Text
@@ -317,7 +320,7 @@ function Footer(props: {
                 fontWeight: '700',
               }}
             >
-              {LOGIN_LABEL}
+              {LOGIN_LABEL()}
             </Text>
           </Pressable>
           <View style={{ height: 10 }} />
@@ -343,7 +346,7 @@ function Footer(props: {
             fontWeight: '700',
           }}
         >
-          {DISMISS_LABEL}
+          {DISMISS_LABEL()}
         </Text>
       </Pressable>
     </View>

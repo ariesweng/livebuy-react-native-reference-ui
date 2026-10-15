@@ -67,6 +67,10 @@ import {
   lbWidgetShouldUseDemoFallback,
   loadWidgetPage,
 } from './widgetData';
+import { text, useReferenceUILanguage } from '../i18n';
+
+/** Demo-data caption (zh-TW keeps RN's existing wording — see rb-rn-i18n-string-table design.md). */
+const DEMO_DATA_CAPTION = (): string => text('widget_demo_data_caption');
 
 export type { LivebuyWidgetConfig } from './LivebuyWidgetConfig';
 
@@ -158,6 +162,8 @@ export interface LivebuyWidgetProps {
  * 30s list refresh. Card taps / see-more forward via `config`.
  */
 export function LivebuyWidget(props: LivebuyWidgetProps): ReactElement {
+  // rb-rn-i18n-string-table: subscribe to the reference-ui language so a runtime switch re-renders this surface.
+  useReferenceUILanguage();
   const { shopId } = props;
   const config = props.config ?? {};
   const mode: WidgetContainerMode = props.mode ?? 'carousel';
@@ -361,7 +367,7 @@ export function LivebuyWidget(props: LivebuyWidgetProps): ReactElement {
           })
         : null}
       {usingDemo ? (
-        <Text style={[styles.demoCaption, { color: theme.text }]}>（示範資料 — 未取得 widget 列表）</Text>
+        <Text style={[styles.demoCaption, { color: theme.text }]}>{DEMO_DATA_CAPTION()}</Text>
       ) : null}
       {/* Default-open player (dropin-widget-default-open-player-rn). Inert while `presented == null`
           (host wired `onTapVideo`, or no tap yet) → at rest this renders nothing, so existing widget

@@ -40,6 +40,7 @@ import { Text } from '../TightText';
 import { CheckGlyph } from './CheckGlyph';
 import { LBTestIDs } from '../testing/LBTestIDs';
 import type { ReferenceUITheme } from '../theme';
+import { text, useReferenceUILanguage } from '../i18n';
 
 // MARK: - Decorative design tokens (literal minimal hex from LBPCartToast)
 
@@ -54,7 +55,7 @@ const CHECK_SIZE = 24;
 const CHECK_GLYPH_SIZE = 13;
 
 /** The confirmation label (design default 「已加入購物車」). */
-const DEFAULT_LABEL = '已加入購物車';
+const DEFAULT_LABEL = (): string => text('cart_added_toast');
 
 /** Props for the family-3 add-to-cart success toast. */
 export interface CartToastViewProps {
@@ -71,7 +72,9 @@ export interface CartToastViewProps {
  * correctly with no callbacks (none exist).
  */
 export function CartToastView(props: CartToastViewProps): ReactElement {
-  const { theme, label = DEFAULT_LABEL } = props;
+  // rb-rn-i18n-string-table: subscribe to the reference-ui language so a runtime switch re-renders this surface.
+  useReferenceUILanguage();
+  const { theme, label = DEFAULT_LABEL() } = props;
   const fontScale = theme.fontScale;
 
   // Checkmark badge entrance bounce (parity iOS `checkScale` spring / Android `Animatable`

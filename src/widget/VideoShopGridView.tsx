@@ -88,6 +88,7 @@ import type { WidgetGoods } from './WidgetModel';
 import { LoadingMarkAnimation } from '../moments/loading-mark/LoadingMarkAnimation';
 
 import type { LBVideoItem } from 'livebuy-react-native';
+import { text, useReferenceUILanguage } from '../i18n';
 
 // MARK: - Layout tokens (LBPVideoShop literal spacing)
 
@@ -142,8 +143,8 @@ export function computeCellWidth(containerWidth: number): number {
 
 // MARK: - Fixed presentation strings
 
-const LOAD_MORE_LABEL = '載入更多影片...';
-const END_OF_LIST_LABEL = '已顯示全部影片';
+const LOAD_MORE_LABEL = (): string => text('widget_load_more');
+const END_OF_LIST_LABEL = (): string => text('widget_end_of_list');
 
 /** Props for the family-5 影音商城 widget surface (mirrors the skeleton call site). */
 export interface VideoShopGridProps {
@@ -326,6 +327,8 @@ function VideoShopGridLoadingRow(props: {
  * `initialLoading` false AND `videos` confirmed empty → the whole surface renders `null`.
  */
 export function VideoShopGrid(props: VideoShopGridProps): ReactElement | null {
+  // rb-rn-i18n-string-table: subscribe to the reference-ui language so a runtime switch re-renders this surface.
+  useReferenceUILanguage();
   const {
     theme: resolvedTheme,
     videos,
@@ -424,17 +427,17 @@ export function VideoShopGrid(props: VideoShopGridProps): ReactElement | null {
           <Text
             style={[styles.endOfListLabel, { color: theme.text, fontSize: 12 * theme.fontScale }]}
           >
-            {LOAD_MORE_LABEL}
+            {LOAD_MORE_LABEL()}
           </Text>
         ) : more ? (
           <Pressable testID={LBTestIDs.gridLoadMoreFooter} onPress={() => onLoadMore?.()} style={styles.footerHit}>
             <Text style={[styles.loadMoreLabel, { color: theme.accent, fontSize: 12 * theme.fontScale }]}>
-              {LOAD_MORE_LABEL}
+              {LOAD_MORE_LABEL()}
             </Text>
           </Pressable>
         ) : (
           <Text testID={LBTestIDs.gridEndLabel} style={[styles.endOfListLabel, { color: theme.text, fontSize: 12 * theme.fontScale }]}>
-            {END_OF_LIST_LABEL}
+            {END_OF_LIST_LABEL()}
           </Text>
         )}
       </View>

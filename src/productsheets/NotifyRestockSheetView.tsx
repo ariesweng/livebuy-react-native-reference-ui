@@ -62,6 +62,7 @@ import { BellFillGlyph } from './BellFillGlyph';
 import { LBTestIDs } from '../testing/LBTestIDs';
 import type { ReferenceUITheme } from '../theme';
 import type { LBProductDetailState } from 'livebuy-react-native-ui';
+import { text, useReferenceUILanguage } from '../i18n';
 
 // MARK: - Decorative design tokens (literal minimal hex)
 //
@@ -84,12 +85,12 @@ const SOLD_OUT = '#9A9BA5';
 
 // MARK: - Fixed localized copy (static presentation strings — parity to iOS/Android)
 
-const SOLD_OUT_LABEL = '已售完';
-const QTY_LABEL = '數量';
-const NO_STOCK_LABEL = '尚無庫存';
+const SOLD_OUT_LABEL = (): string => text('product_sold_out');
+const QTY_LABEL = (): string => text('product_qty');
+const NO_STOCK_LABEL = (): string => text('restock_no_stock');
 // 補貨 CTA 文案（對齊 design `screens.jsx` `NotifyRestockSheet` + iOS/Android）。
-const NOTICE_OFF_LABEL = '補貨通知我';
-const NOTICE_ON_LABEL = '已開啟補貨通知';
+const NOTICE_OFF_LABEL = (): string => text('restock_notice_off');
+const NOTICE_ON_LABEL = (): string => text('restock_notice_on');
 /** White foreground over the accent-filled (subscribed) CTA. */
 const ON_ACCENT_TEXT = '#FFFFFF';
 
@@ -162,6 +163,8 @@ export interface NotifyRestockSheetProps {
  * `onToggleNotice`; RESTOCK-NOTIFY ONLY — no AWAIT switch (family-6).
  */
 export function NotifyRestockSheet(props: NotifyRestockSheetProps): ReactElement {
+  // rb-rn-i18n-string-table: subscribe to the reference-ui language so a runtime switch re-renders this surface.
+  useReferenceUILanguage();
   const { theme, detail, restockSubscribed, live = false, onToggleNotice, onDismiss, onZoomImage, heightPct } =
     props;
   const photoUri = detail.photos.length > 0 ? detail.photos[0] : undefined;
@@ -263,7 +266,7 @@ export function NotifyRestockSheet(props: NotifyRestockSheetProps): ReactElement
               fontSize: 13 * theme.fontScale,
             }}
           >
-            {SOLD_OUT_LABEL}
+            {SOLD_OUT_LABEL()}
           </Text>
         </View>
       </View>
@@ -295,7 +298,7 @@ export function NotifyRestockSheet(props: NotifyRestockSheetProps): ReactElement
             fontWeight: '600',
           }}
         >
-          {QTY_LABEL}
+          {QTY_LABEL()}
         </Text>
         <View style={{ flex: 1 }} />
         <Text
@@ -304,7 +307,7 @@ export function NotifyRestockSheet(props: NotifyRestockSheetProps): ReactElement
             fontSize: 12 * theme.fontScale,
           }}
         >
-          {NO_STOCK_LABEL}
+          {NO_STOCK_LABEL()}
         </Text>
         {/* Disabled qty stepper affordance (`−  0  +`, dimmed / non-tappable). */}
         <View
@@ -390,7 +393,7 @@ export function NotifyRestockSheet(props: NotifyRestockSheetProps): ReactElement
               fontWeight: 'bold',
             }}
           >
-            {restockSubscribed ? NOTICE_ON_LABEL : NOTICE_OFF_LABEL}
+            {restockSubscribed ? NOTICE_ON_LABEL() : NOTICE_OFF_LABEL()}
           </Text>
         </Pressable>
     </View>

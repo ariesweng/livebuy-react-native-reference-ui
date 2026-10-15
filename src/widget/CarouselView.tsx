@@ -91,12 +91,25 @@ import {
 } from './livebuyPreviewScrollSignal';
 
 import type { LBVideoItem } from 'livebuy-react-native';
+import { text, useReferenceUILanguage } from '../i18n';
+import { zhTW } from '../i18n/strings.zhTW';
 
-/** Default section title (the design's `LBPCarousel` default,「精選影片」). */
-export const DEFAULT_CAROUSEL_TITLE = '精選影片';
+/**
+ * Default section title in the CURRENT reference-ui language (the design's `LBPCarousel` default,
+ * zh-TW「精選影片」; rb-rn-i18n-string-table key `widget_carousel_title`).
+ */
+export function defaultCarouselTitle(): string {
+  return text('widget_carousel_title');
+}
+
+/**
+ * The zh-TW default section title (「精選影片」), read from the zh-TW string table.
+ * @deprecated Not language-aware — use {@link defaultCarouselTitle} (the `Carousel` default does).
+ */
+export const DEFAULT_CAROUSEL_TITLE: string = zhTW.widget_carousel_title;
 
 /** Header「查看更多 ›」accent link label (widgets.jsx 219). */
-const SEE_MORE_LABEL = '查看更多 ›';
+const SEE_MORE_LABEL = (): string => text('widget_see_more');
 
 /**
  * Max cards drawn in the FIXED static row (the rest live behind the host's real
@@ -121,7 +134,7 @@ export interface CarouselProps {
   readonly videos: readonly LBVideoItem[];
   /**
    * Section title (heavy, leading). Defaults to the design's「精選影片」
-   * ({@link DEFAULT_CAROUSEL_TITLE}). An empty title AND a nullish subtitle hide the
+   * ({@link defaultCarouselTitle}). An empty title AND a nullish subtitle hide the
    * entire header row (mirrors widgets.jsx 208).
    */
   readonly title?: string;
@@ -201,7 +214,7 @@ export interface CarouselProps {
    * Header row host opt-out (`rb-rn-widget-carousel-header-visibility`). Default `true`
    * — omitted behaves exactly as today. The header row (title + optional subtitle +
    * 「查看更多 ›」link) renders only when BOTH this prop is `true` (host wants it) AND
-   * there is content to draw ({@link DEFAULT_CAROUSEL_TITLE} / a non-empty `title`, or a
+   * there is content to draw ({@link defaultCarouselTitle} / a non-empty `title`, or a
    * `subtitle` — the pre-existing "has content" check, internally `hasHeaderContent`).
    * `false` hides the ENTIRE header row regardless of `title` / `subtitle` content — no
    * finer-grained control (title-only / link-only). Card row rendering (`loading` / the
@@ -268,10 +281,12 @@ function CarouselLoadingRow(props: {
  * unaffected either way.
  */
 export function Carousel(props: CarouselProps): ReactElement | null {
+  // rb-rn-i18n-string-table: subscribe to the reference-ui language so a runtime switch re-renders this surface.
+  useReferenceUILanguage();
   const {
     theme: resolvedTheme,
     videos,
-    title = DEFAULT_CAROUSEL_TITLE,
+    title = defaultCarouselTitle(),
     subtitle,
     goodsFor,
     live = false,
@@ -370,7 +385,7 @@ export function Carousel(props: CarouselProps): ReactElement | null {
                 style={[styles.seeMoreLabel, { color: theme.accent, fontSize: 12 * theme.fontScale }]}
                 numberOfLines={1}
               >
-                {SEE_MORE_LABEL}
+                {SEE_MORE_LABEL()}
               </Text>
             </Pressable>
           ) : null}

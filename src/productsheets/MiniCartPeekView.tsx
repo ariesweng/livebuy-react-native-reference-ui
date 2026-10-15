@@ -69,6 +69,7 @@ import { RemoteImage } from './RemoteImage';
 import { LBTestIDs } from '../testing/LBTestIDs';
 import type { ReferenceUITheme } from '../theme';
 import type { LBMiniCartPeek } from 'livebuy-react-native-ui';
+import { text, useReferenceUILanguage } from '../i18n';
 
 // MARK: - Layout tokens (lifted from sdk-components.jsx · LBPMiniCart)
 
@@ -132,7 +133,7 @@ const ORIGINAL_PRICE_COLOR = '#A0A0A0';
 // MARK: - Fixed localized copy (static presentation strings — parity to iOS/Android)
 
 /** Sold-out price-line label (design `已售完`). */
-const SOLD_OUT_LABEL = '已售完';
+const SOLD_OUT_LABEL = (): string => text('product_sold_out');
 
 // MARK: - Deterministic glyphs (Text glyphs — parity to iOS SF Symbols / Flutter Icons)
 
@@ -196,6 +197,8 @@ export interface MiniCartPeekProps {
  * nothing.
  */
 export function MiniCartPeek(props: MiniCartPeekProps): ReactElement {
+  // rb-rn-i18n-string-table: subscribe to the reference-ui language so a runtime switch re-renders this surface.
+  useReferenceUILanguage();
   // `tag` is intentionally NOT destructured — it is permanently inert (see the
   // `MiniCartPeekProps.tag` doc comment); reading it further would have no effect.
   const { theme, peek, onDismiss, onOpenDetail, live = false, fullWidth = false, testID = LBTestIDs.minicartPeek } = props;
@@ -325,7 +328,7 @@ export function MiniCartPeek(props: MiniCartPeekProps): ReactElement {
               fontWeight: '600',
             }}
           >
-            {SOLD_OUT_LABEL}
+            {SOLD_OUT_LABEL()}
           </Text>
         ) : (
           <View style={{ marginTop: 2, flexDirection: 'row', alignItems: 'baseline' }}>

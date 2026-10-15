@@ -41,6 +41,9 @@ import { Text } from '../TightText';
 import type { ReferenceUITheme } from '../theme';
 import { LBTestIDs } from '../testing/LBTestIDs';
 import { RemoteImage } from '../productsheets/RemoteImage';
+import { useReferenceUILanguage } from '../i18n';
+import { monthDay } from '../i18n/ReferenceUIStrings';
+import { referenceUILanguage } from '../i18n/ReferenceUILanguage';
 
 // MARK: - Cover placeholder + mask tokens (live === true runtime background)
 
@@ -81,6 +84,8 @@ export interface UpcomingCountdownViewProps {
  * `live === false`).
  */
 export function UpcomingCountdownView(props: UpcomingCountdownViewProps): ReactElement {
+  // rb-rn-i18n-string-table: subscribe to the reference-ui language so a runtime switch re-renders this surface.
+  useReferenceUILanguage();
   const { theme, scheduledStartAt, live = false, coverUrl = '' } = props;
   const date = scheduledDate(scheduledStartAt);
   return (
@@ -113,9 +118,10 @@ export function UpcomingCountdownView(props: UpcomingCountdownViewProps): ReactE
 // MARK: - Pure display helpers (shared with CarouselCardView's upcoming card)
 
 /**
- * Reformat a backend `publish_at` (`"2026-06-20 20:00:00"`) → `"6月20日"` (M月D日,
- * leading zeros stripped) by pure string components (no Date round-trip →
- * timezone-independent + deterministic). Empty / unexpected shape → `""`.
+ * Reformat a backend `publish_at` (`"2026-06-20 20:00:00"`) → the month/day in the current
+ * reference-ui language (zh-TW / zh-CN `"6月20日"`, en `"Jun 20"`, ms-MY / id-ID `"20 Jun"`;
+ * rb-rn-i18n-string-table) by pure string components (no Date round-trip →
+ * timezone-independent + deterministic). Empty / unexpected shape / invalid month-day → `""`.
  * Mirrors iOS / Android / Flutter `scheduledDate`.
  */
 export function scheduledDate(publishAt: string): string {
@@ -126,7 +132,9 @@ export function scheduledDate(publishAt: string): string {
   const month = Number.parseInt(date[1]!, 10);
   const day = Number.parseInt(date[2]!, 10);
   if (Number.isNaN(month) || Number.isNaN(day)) return '';
-  return `${month}月${day}日`;
+  // rb-rn-i18n-string-table D8: month/day in the current reference-ui language (zh `6月20日`,
+  // en `Jun 20`, ms / id `20 Jun`); an invalid month/day → `''`.
+  return monthDay(month, day, referenceUILanguage.getSnapshot());
 }
 
 /**

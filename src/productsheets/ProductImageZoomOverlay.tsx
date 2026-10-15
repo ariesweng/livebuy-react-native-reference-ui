@@ -64,6 +64,7 @@ import type { ReferenceUITheme } from '../theme';
 
 import type { LBProductDetailState } from 'livebuy-react-native-ui';
 import type { LBSpec } from 'livebuy-react-native';
+import { text, useReferenceUILanguage } from '../i18n';
 
 /** Product-photo placeholder fill — neutral gray (mirrors ProductDetailSheetView
  *  `PHOTO_FILL`; rb-rn-product-image-loading-polish, was warm `'#E27D5A'`). */
@@ -72,8 +73,8 @@ const PHOTO_FILL = '#8E8E93';
 const ZOOMED = ZOOM_MAX_SCALE;
 /** Corner radius of the image card (and of the photo as drawn). */
 const CARD_RADIUS = 16;
-const HINT_IDLE = '點圖片放大';
-const HINT_ZOOMED = '拖曳檢視細節 · 點一下還原';
+const HINT_IDLE = (): string => text('zoom_hint_idle');
+const HINT_ZOOMED = (): string => text('zoom_hint_zoomed');
 /** Close affordance glyph (mirrors ProductDetailSheetView `GLYPH_CLOSE`). */
 const GLYPH_CLOSE = '×';
 
@@ -137,6 +138,8 @@ export interface ProductImageZoomOverlayProps {
 export function ProductImageZoomOverlay(
   props: ProductImageZoomOverlayProps,
 ): ReactElement {
+  // rb-rn-i18n-string-table: subscribe to the reference-ui language so a runtime switch re-renders this surface.
+  useReferenceUILanguage();
   // rb-rn-edge-to-edge-safe-area — system insets from the enclosing Tier B container (zero without
   // one, or when the host already handled the edges).
   const safeArea = useLBSafeAreaInsets();
@@ -321,7 +324,7 @@ export function ProductImageZoomOverlay(
           {detail.name}
         </Text>
         <Text style={{ color: 'rgba(255,255,255,0.6)', fontSize: 12 * theme.fontScale, marginTop: 4 }}>
-          {zoomed ? HINT_ZOOMED : HINT_IDLE}
+          {zoomed ? HINT_ZOOMED() : HINT_IDLE()}
         </Text>
       </View>
     </View>

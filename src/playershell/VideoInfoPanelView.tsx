@@ -83,6 +83,7 @@ import { LBTestIDs } from '../testing/LBTestIDs';
 import type { ReferenceUITheme } from '../theme';
 import type { LBInfoTabState, LBInfoPanelTab } from 'livebuy-react-native-ui';
 import { LBInfoPanelTab as InfoPanelTab } from 'livebuy-react-native-ui';
+import { text, useReferenceUILanguage } from '../i18n';
 
 // MARK: - Decorative design tokens (literal minimal hex)
 //
@@ -106,30 +107,31 @@ const MONOGRAM_BG = '#EBA279'; // mid of #FFD7A8 → #E27D5A (deterministic soli
 
 // MARK: - Fixed localized copy (static presentation strings — parity to iOS/Android/Flutter)
 
-const PANEL_TITLE = '影片資訊';
+const PANEL_TITLE = (): string => text('info_panel_title');
 /** `isLiveBroadcast === true` panel title (design R44). */
-const LIVE_PANEL_TITLE = '直播資訊';
-const INFO_TAB_TITLE = '影片詳情';
+const LIVE_PANEL_TITLE = (): string => text('info_panel_title_live');
+const INFO_TAB_TITLE = (): string => text('info_tab_title');
 /** `isLiveBroadcast === true` info-tab label (design R32). */
-const LIVE_INFO_TAB_TITLE = '直播詳情';
-const NOTICE_TAB_TITLE = '公告訊息';
-const SYSTEM_NOTICE_LABEL = '系統公告';
-const MALL_NOTICE_LABEL = '商城公告';
-const SUBSCRIBE_LABEL = '訂閱通知';
-const SUBSCRIBED_LABEL = '已訂閱';
-const SHOP_SUBLINE_PREFIX = '這裡是 ';
-const NOTICE_EMPTY_PLACEHOLDER = '目前沒有公告';
-const CONTACT_LABEL = '與商家一對一對話';
+const LIVE_INFO_TAB_TITLE = (): string => text('info_tab_title_live');
+const NOTICE_TAB_TITLE = (): string => text('info_notice_tab');
+const SYSTEM_NOTICE_LABEL = (): string => text('info_system_notice');
+const MALL_NOTICE_LABEL = (): string => text('info_mall_notice');
+const SUBSCRIBE_LABEL = (): string => text('info_subscribe');
+const SUBSCRIBED_LABEL = (): string => text('info_subscribed');
+/** 「這裡是 {shop}」shop subline (single key + named placeholder). */
+const SHOP_SUBLINE = (shop: string): string => text('info_shop_subline', { shop });
+const NOTICE_EMPTY_PLACEHOLDER = (): string => text('info_notice_empty');
+const CONTACT_LABEL = (): string => text('info_contact');
 /** `isLiveBroadcast === true` "直播中" badge (design R32) — fixed red, not theme-derived
  *  (matches the LIVE tag color used elsewhere, e.g. `LiveOverlayChromeView`'s pinned-card tag). */
 const LIVE_BADGE_BG = '#F03246';
-const LIVE_BADGE_LABEL = '直播中';
+const LIVE_BADGE_LABEL = (): string => text('info_live_badge');
 /** `isLiveBroadcast === false && isFinishedLiveReplay === false` publishAt-row status text
  *  (design R44, rb-rn-video-info-panel-replay-copy) — replaces the raw `publishAt` date text. */
-const VOD_STATUS_LABEL = '點播影片';
+const VOD_STATUS_LABEL = (): string => text('info_vod_status');
 /** `isLiveBroadcast === false && isFinishedLiveReplay === true` publishAt-row status text
  *  (design R44, rb-rn-video-info-panel-replay-copy). */
-const REPLAY_STATUS_LABEL = '直播回放';
+const REPLAY_STATUS_LABEL = (): string => text('info_replay_status');
 
 /**
  * Up-to-3-char monogram from the shop name (deterministic, pure). Mirrors iOS /
@@ -335,6 +337,8 @@ export interface VideoInfoPanelProps {
  * (rb-rn-notice-tab-hide-when-empty).
  */
 export function VideoInfoPanel(props: VideoInfoPanelProps): ReactElement {
+  // rb-rn-i18n-string-table: subscribe to the reference-ui language so a runtime switch re-renders this surface.
+  useReferenceUILanguage();
   const {
     theme,
     fields,
@@ -384,7 +388,7 @@ export function VideoInfoPanel(props: VideoInfoPanelProps): ReactElement {
             textAlign: 'center',
           }}
         >
-          {isLiveBroadcast ? LIVE_PANEL_TITLE : PANEL_TITLE}
+          {isLiveBroadcast ? LIVE_PANEL_TITLE() : PANEL_TITLE()}
         </Text>
         <View style={{ position: 'absolute', right: 12, top: 8 }}>
           <SheetHeaderCloseButton theme={theme} onPress={onClose} />
@@ -399,7 +403,7 @@ export function VideoInfoPanel(props: VideoInfoPanelProps): ReactElement {
         <Tab
           theme={theme}
           tab={InfoPanelTab.Info}
-          title={isLiveBroadcast ? LIVE_INFO_TAB_TITLE : INFO_TAB_TITLE}
+          title={isLiveBroadcast ? LIVE_INFO_TAB_TITLE() : INFO_TAB_TITLE()}
           active={activeTab === InfoPanelTab.Info}
           onSelectTab={onSelectTab}
           testID={LBTestIDs.infoTabDetail}
@@ -410,7 +414,7 @@ export function VideoInfoPanel(props: VideoInfoPanelProps): ReactElement {
             <Tab
               theme={theme}
               tab={InfoPanelTab.Notice}
-              title={NOTICE_TAB_TITLE}
+              title={NOTICE_TAB_TITLE()}
               active={activeTab === InfoPanelTab.Notice}
               onSelectTab={onSelectTab}
               testID={LBTestIDs.infoTabNotice}
@@ -501,7 +505,7 @@ function Footer(props: {
       <FooterButton
         theme={theme}
         glyph={(color) => <ContactGlyph color={color} size={16} />}
-        label={CONTACT_LABEL}
+        label={CONTACT_LABEL()}
         primary={false}
         onPress={onContactMerchant}
         testID={LBTestIDs.infoFooterContact}
@@ -652,12 +656,12 @@ function InfoContent(props: {
           }}
         >
           <Text style={{ color: '#FFFFFF', fontSize: 10 * theme.fontScale, fontWeight: '800' }}>
-            {LIVE_BADGE_LABEL}
+            {LIVE_BADGE_LABEL()}
           </Text>
         </View>
       ) : (
         <Text style={{ color: TEXT_DIM, fontSize: 12 * theme.fontScale }}>
-          {isFinishedLiveReplay ? REPLAY_STATUS_LABEL : VOD_STATUS_LABEL}
+          {isFinishedLiveReplay ? REPLAY_STATUS_LABEL() : VOD_STATUS_LABEL()}
         </Text>
       )}
       {/* title — primary heading. */}
@@ -756,7 +760,7 @@ function ShopRow(props: {
             </Text>
             <View style={{ height: 2 }} />
             <Text style={{ color: TEXT_DIM, fontSize: 12 * theme.fontScale }}>
-              {`${SHOP_SUBLINE_PREFIX}${shopName}`}
+              {SHOP_SUBLINE(shopName)}
             </Text>
           </>
         ) : null}
@@ -798,7 +802,7 @@ function SubscribePill(props: {
       }}
     >
       <Text style={{ color: labelColor, fontSize: 13 * theme.fontScale, fontWeight: 'bold' }}>
-        {isSubscribed ? SUBSCRIBED_LABEL : SUBSCRIBE_LABEL}
+        {isSubscribed ? SUBSCRIBED_LABEL() : SUBSCRIBE_LABEL()}
       </Text>
     </View>
   );
@@ -825,7 +829,7 @@ function NoticeContent(props: {
           {systemNotice.length > 0 ? (
             <AnnounceBlock
               theme={theme}
-              label={SYSTEM_NOTICE_LABEL}
+              label={SYSTEM_NOTICE_LABEL()}
               labelColor={TEXT_DIM}
               dotColor={TEXT_FAINT}
               text={systemNotice}
@@ -839,7 +843,7 @@ function NoticeContent(props: {
           {notice.length > 0 ? (
             <AnnounceBlock
               theme={theme}
-              label={MALL_NOTICE_LABEL}
+              label={MALL_NOTICE_LABEL()}
               labelColor={theme.accent}
               dotColor={theme.accent}
               text={notice}
@@ -849,7 +853,7 @@ function NoticeContent(props: {
       ) : (
         // Disabled / empty affordance — dim placeholder copy.
         <Text style={{ color: TEXT_FAINT, fontSize: 13 * theme.fontScale }}>
-          {NOTICE_EMPTY_PLACEHOLDER}
+          {NOTICE_EMPTY_PLACEHOLDER()}
         </Text>
       )}
     </View>

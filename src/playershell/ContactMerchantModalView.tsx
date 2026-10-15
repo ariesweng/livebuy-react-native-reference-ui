@@ -30,6 +30,7 @@ import { Text } from '../TightText';
 import type { ReferenceUITheme } from '../theme';
 import { LBTestIDs } from '../testing/LBTestIDs';
 import { lbSafeAreaPaddingStyle, useLBSafeAreaInsets } from '../safearea/LBSafeArea';
+import { text, useReferenceUILanguage } from '../i18n';
 
 /** Full-bleed dim scrim (`rgba(0,0,0,0.55)` — design `LBPAlertModal` backdrop). */
 const SCRIM = 'rgba(0,0,0,0.55)';
@@ -40,10 +41,10 @@ const STROKE_STRONG = '#D8D5DE';
 /** On-accent text (white) — primary CTA. */
 const ON_ACCENT_TEXT = '#FFFFFF';
 
-const TITLE = '聯繫商家';
-const BODY = '確定要開啟商城指定的客服連結嗎?';
-const CANCEL_LABEL = '取消';
-const CONFIRM_LABEL = '確定';
+const TITLE = (): string => text('contact_title');
+const BODY = (): string => text('contact_body');
+const CANCEL_LABEL = (): string => text('common_cancel');
+const CONFIRM_LABEL = (): string => text('common_confirm');
 
 /** Props for the {@link ContactMerchantModal} surface (SUB-VIEW INPUT PATTERN). */
 export interface ContactMerchantModalProps {
@@ -65,6 +66,8 @@ export interface ContactMerchantModalProps {
  * `onCancel` (or a scrim tap) just closes the modal. Renders with the default no-op actions.
  */
 export function ContactMerchantModal(props: ContactMerchantModalProps): ReactElement {
+  // rb-rn-i18n-string-table: subscribe to the reference-ui language so a runtime switch re-renders this surface.
+  useReferenceUILanguage();
   // rb-rn-edge-to-edge-safe-area — system insets from the enclosing Tier B container (zero without
   // one, or when the host already handled the edges → `safeAreaPadding` is an empty object).
   const safeAreaPadding = lbSafeAreaPaddingStyle(useLBSafeAreaInsets());
@@ -113,7 +116,7 @@ export function ContactMerchantModal(props: ContactMerchantModalProps): ReactEle
               textAlign: 'center',
             }}
           >
-            {TITLE}
+            {TITLE()}
           </Text>
           <View style={{ height: 10 }} />
           <Text
@@ -124,7 +127,7 @@ export function ContactMerchantModal(props: ContactMerchantModalProps): ReactEle
               textAlign: 'center',
             }}
           >
-            {BODY}
+            {BODY()}
           </Text>
           <View style={{ height: 22 }} />
           <Footer theme={theme} onConfirm={onConfirm} onCancel={onCancel} />
@@ -159,7 +162,7 @@ function Footer(props: {
         }}
       >
         <Text style={{ color: theme.text, fontSize: 15 * theme.fontScale, fontWeight: '700' }}>
-          {CANCEL_LABEL}
+          {CANCEL_LABEL()}
         </Text>
       </Pressable>
       <View style={{ width: 10 }} />
@@ -177,7 +180,7 @@ function Footer(props: {
         }}
       >
         <Text style={{ color: ON_ACCENT_TEXT, fontSize: 15 * theme.fontScale, fontWeight: '700' }}>
-          {CONFIRM_LABEL}
+          {CONFIRM_LABEL()}
         </Text>
       </Pressable>
     </View>

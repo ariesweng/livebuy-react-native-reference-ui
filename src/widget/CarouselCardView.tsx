@@ -179,6 +179,7 @@ import { PinGlyph } from './PinGlyph';
 import { PersonGlyph } from './PersonGlyph';
 
 import type { LBVideoItem } from 'livebuy-react-native';
+import { useReferenceUILanguage } from '../i18n';
 
 /** The design's default card width (logical px). The minimized surface scales down. */
 export const DEFAULT_CARD_WIDTH = 132;
@@ -385,6 +386,8 @@ export interface CarouselCardViewProps {
  * (demo / golden).
  */
 export function CarouselCardView(props: CarouselCardViewProps): ReactElement {
+  // rb-rn-i18n-string-table: subscribe to the reference-ui language so a runtime switch re-renders this surface.
+  useReferenceUILanguage();
   const {
     theme,
     video,

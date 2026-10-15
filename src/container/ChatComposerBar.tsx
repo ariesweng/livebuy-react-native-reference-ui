@@ -33,6 +33,12 @@ import type { ReferenceUITheme } from '../theme';
 import { LBAuthTriggerAction } from 'livebuy-react-native-ui';
 import { ArrowUpCircleFillGlyph } from './ArrowUpCircleFillGlyph';
 import { safeAreaPaddingFor, useLBImeBottomInset, useLBSafeAreaInsets } from '../safearea/LBSafeArea';
+import { text, useReferenceUILanguage } from '../i18n';
+
+/** Composer placeholder (「留言...」). */
+const COMMENT_PLACEHOLDER = (): string => text('chat_comment_placeholder');
+/** Send button accessibility label (「送出留言」; RN-only key, see rb-rn-i18n-string-table design.md). */
+const SEND_A11Y_LABEL = (): string => text('chat_send_a11y');
 
 /**
  * Presentation + focus state for the on-demand chat composer. `open()` shows the
@@ -403,6 +409,8 @@ export interface ChatComposerBarProps {
  * trimmed text to `onSend` and closes the bar. Returns `null` when not open.
  */
 export function ChatComposerBar(props: ChatComposerBarProps): ReactElement | null {
+  // rb-rn-i18n-string-table: subscribe to the reference-ui language so a runtime switch re-renders this surface.
+  useReferenceUILanguage();
   const { theme, controller, onSend, editable = true } = props;
   const [text, setText] = useState('');
   // rb-rn-edge-to-edge-safe-area — the bar's opaque fill reaches the container's bottom edge while
@@ -475,7 +483,7 @@ export function ChatComposerBar(props: ChatComposerBarProps): ReactElement | nul
             value={text}
             onChangeText={setText}
             testID={LBTestIDs.chatComposer}
-            placeholder="留言..."
+            placeholder={COMMENT_PLACEHOLDER()}
             placeholderTextColor="rgba(255,255,255,0.5)"
             returnKeyType="send"
             autoCorrect={false}
@@ -483,7 +491,7 @@ export function ChatComposerBar(props: ChatComposerBarProps): ReactElement | nul
             style={{ color: '#FFFFFF', fontSize: 13, padding: 0 }}
           />
         ) : (
-          <Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: 13 }}>留言...</Text>
+          <Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: 13 }}>{COMMENT_PLACEHOLDER()}</Text>
         )}
       </View>
 
@@ -492,7 +500,7 @@ export function ChatComposerBar(props: ChatComposerBarProps): ReactElement | nul
         disabled={!canSend}
         testID={LBTestIDs.chatSend}
         accessibilityRole="button"
-        accessibilityLabel="送出留言"
+        accessibilityLabel={SEND_A11Y_LABEL()}
       >
         <ArrowUpCircleFillGlyph
           color={canSend ? theme.accent : 'rgba(255,255,255,0.35)'}

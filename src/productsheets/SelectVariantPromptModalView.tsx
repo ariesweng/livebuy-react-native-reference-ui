@@ -33,6 +33,7 @@ import { Text } from '../TightText';
 import type { ReferenceUITheme } from '../theme';
 import { LBTestIDs } from '../testing/LBTestIDs';
 import { lbSafeAreaPaddingStyle, useLBSafeAreaInsets } from '../safearea/LBSafeArea';
+import { text, useReferenceUILanguage } from '../i18n';
 
 /** Full-bleed dim scrim (`rgba(0,0,0,0.55)` — design `LBPAlertModal` backdrop). */
 const SCRIM = 'rgba(0,0,0,0.55)';
@@ -41,9 +42,9 @@ const TEXT_DIM = '#6B6775';
 /** On-accent text (white) — primary CTA. */
 const ON_ACCENT_TEXT = '#FFFFFF';
 
-const TITLE = '請選規格';
-const BODY = '請先選擇商品規格,再加入購物車。';
-const PRIMARY_LABEL = '我知道了';
+const TITLE = (): string => text('variant_prompt_title');
+const BODY = (): string => text('variant_prompt_body');
+const PRIMARY_LABEL = (): string => text('variant_prompt_ok');
 
 /** Props for the {@link SelectVariantPromptModal} surface (SUB-VIEW INPUT PATTERN). */
 export interface SelectVariantPromptModalProps {
@@ -60,11 +61,13 @@ export interface SelectVariantPromptModalProps {
 
 /**
  * The family-3「請選規格」acknowledge modal (`LBPAlertModal`). Renders a centered card
- * (title「請選規格」/ body「請先選擇商品規格,再加入購物車。」/ single full-width primary
+ * (title「請選規格」/ body「請先選擇商品規格，再加入購物車。」/ single full-width primary
  * 「我知道了」) over a black-0.55 scrim. The「我知道了」CTA and a scrim tap both call `onDismiss`
  * so the variant chips become reachable. Renders with the default no-op action.
  */
 export function SelectVariantPromptModal(props: SelectVariantPromptModalProps): ReactElement {
+  // rb-rn-i18n-string-table: subscribe to the reference-ui language so a runtime switch re-renders this surface.
+  useReferenceUILanguage();
   // rb-rn-edge-to-edge-safe-area — system insets from the enclosing Tier B container (zero without
   // one, or when the host already handled the edges → `safeAreaPadding` is an empty object).
   const safeAreaPadding = lbSafeAreaPaddingStyle(useLBSafeAreaInsets());
@@ -113,7 +116,7 @@ export function SelectVariantPromptModal(props: SelectVariantPromptModalProps): 
               textAlign: 'center',
             }}
           >
-            {TITLE}
+            {TITLE()}
           </Text>
           <View style={{ height: 10 }} />
           <Text
@@ -124,7 +127,7 @@ export function SelectVariantPromptModal(props: SelectVariantPromptModalProps): 
               textAlign: 'center',
             }}
           >
-            {BODY}
+            {BODY()}
           </Text>
           <View style={{ height: 22 }} />
           {/* Single full-width primary「我知道了」(acknowledge) — accent fill, #fff fg,
@@ -142,7 +145,7 @@ export function SelectVariantPromptModal(props: SelectVariantPromptModalProps): 
             }}
           >
             <Text style={{ color: ON_ACCENT_TEXT, fontSize: 15 * theme.fontScale, fontWeight: '700' }}>
-              {PRIMARY_LABEL}
+              {PRIMARY_LABEL()}
             </Text>
           </Pressable>
         </View>

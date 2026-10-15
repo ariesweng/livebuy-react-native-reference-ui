@@ -100,6 +100,7 @@ import {
 } from '../testing/LBTestIDs';
 import type { ReferenceUITheme } from '../theme';
 import type { LBProduct } from 'livebuy-react-native';
+import { text, useReferenceUILanguage } from '../i18n';
 
 // MARK: - Decorative design tokens (literal minimal hex)
 //
@@ -161,44 +162,46 @@ const NO_BACKEND_ORDER: readonly LBProduct[] = [];
 // MARK: - Static copy (LBPSheetHeader / LBPProductRow / LBPCartCTA labels)
 
 /** Sheet header title (design `ProductListSheet` 「銷售商品 (n)」). */
-const TITLE_LABEL = '銷售商品';
+const TITLE_LABEL = (): string => text('product_list_title');
 /** Bottom cart CTA label. */
-const CART_LABEL = '查看購物車';
+const CART_LABEL = (): string => text('common_view_cart');
 /** Sold-out price-line label. */
-const SOLD_OUT_LABEL = '已售完';
+const SOLD_OUT_LABEL = (): string => text('product_sold_out');
 /** Empty-state line (no products). */
-const EMPTY_LABEL = '目前沒有商品';
+const EMPTY_LABEL = (): string => text('product_list_empty');
 /** Now-introducing banner label (LIVE narrate_status==2 row). Fixed literal — always「介紹中」
  *  regardless of `isFlashSale` (撤回 rb-rn-flash-sale-live-signal-wiring 的二選一文案，
  *  rb-rn-narrating-banner-revert-flash-sale-text，2026-09-09 使用者拍板：narrating 橫幅恆顯示
  *  「介紹中」，不再依 `isFlashSale` 換成「開標中」)。`isFlashSale` prop 本身保留——仍餵給下方的
  *  {@link ProductRowNameTag.resolve}（商品名稱前標籤「直播價」/「搶購中」二選一），與此橫幅正交、
  *  不受本次撤回影響。 */
-const INTRODUCING_LABEL = '介紹中';
+const INTRODUCING_LABEL = (): string => text('product_introducing');
 /** out_soon / hot 名稱前標籤文案（goods-status-label-render ③，僅明確 label 觸發）。
  *  `OUT_SOON_LABEL` 含 🔥 emoji 前綴，對齊設計來源 `sdk-components.jsx:1183` 的
  *  `'🔥 即將售完'`（rb-rn-product-row-name-tag-system 訂正；已查證此常數在訂正前唯一的生產
  *  呼叫點就是本次移除/取代的舊「價格列之後」徽章分支，不需拆分成兩個常數）。`HOT_LABEL` 不含
  *  emoji（設計來源該變體本就無 emoji），不動。 */
-const OUT_SOON_LABEL = '🔥 即將售完';
-const HOT_LABEL = '熱賣中';
+const OUT_SOON_LABEL = (): string => text('product_out_soon');
+const HOT_LABEL = (): string => text('product_hot');
 /** 「直播價」名稱前標籤文案（`effectiveMode === 'live'` 且未售罄、`isFlashSale === false`，
- *  rb-rn-product-row-name-tag-system，design R39）——固定字面值，reference-ui 層文案一律寫死，
- *  不走 i18n（比照本檔案其他標籤常數的既定慣例）。`isFlashSale === true` 時改顯示
+ *  rb-rn-product-row-name-tag-system，design R39）——經 reference-ui 字串表查表（key
+ *  `product_live_price`，rb-rn-i18n-string-table；比照本檔案其他標籤常數）。`isFlashSale === true` 時改顯示
  *  {@link RUSH_LABEL}（rb-rn-flash-sale-live-signal-wiring，「pipe-first, no water yet」的階段性
  *  限制已解除）。 */
-const LIVE_PRICE_LABEL = '直播價';
+const LIVE_PRICE_LABEL = (): string => text('product_live_price');
 /** 「搶購中」名稱前標籤文案（`effectiveMode === 'live'` 且未售罄、`isFlashSale === true`，
- *  rb-rn-flash-sale-live-signal-wiring，design R39 `liveMode === 'rush'` 分支）——固定字面值，
- *  reference-ui 層文案一律寫死，不走 i18n。對齊設計來源 `sdk-components.jsx` 的
+ *  rb-rn-flash-sale-live-signal-wiring，design R39 `liveMode === 'rush'` 分支）——經 reference-ui
+ *  字串表查表（key `product_rush`，rb-rn-i18n-string-table）。對齊設計來源 `sdk-components.jsx` 的
  *  `{ text: '搶購中', bg: accent, fg: '#fff', border: accent }`（實心 accent 底、白字，區別於
  *  {@link LIVE_PRICE_LABEL} 的外框透明底樣式）。 */
-const RUSH_LABEL = '搶購中';
+const RUSH_LABEL = (): string => text('product_rush');
 /** Search field placeholder / cancel (rb-rn-product-list-search，問題 2). */
-const SEARCH_PLACEHOLDER = '搜尋商品名稱';
-const SEARCH_CANCEL = '取消';
+const SEARCH_PLACEHOLDER = (): string => text('product_list_search_placeholder');
+const SEARCH_CANCEL = (): string => text('common_cancel');
+/** VOD row play-hint pill label (「看講解」). */
+const PLAY_HINT_LABEL = (): string => text('product_play_hint');
 /** No-search-hit empty line for `query`. */
-const noResultsLabel = (query: string): string => `找不到符合「${query}」的商品`;
+const noResultsLabel = (query: string): string => text('product_list_no_results', { query });
 
 /** Props for the {@link ProductList} surface. */
 export interface ProductListProps {
@@ -356,6 +359,8 @@ export interface ProductListProps {
  * Renders correctly with both callbacks omitted (demo / snapshot safe).
  */
 export function ProductList(props: ProductListProps): ReactElement {
+  // rb-rn-i18n-string-table: subscribe to the reference-ui language so a runtime switch re-renders this surface.
+  useReferenceUILanguage();
   const {
     theme,
     products,
@@ -427,7 +432,7 @@ export function ProductList(props: ProductListProps): ReactElement {
       : products.filter((p) => p.name.toLowerCase().includes(q));
 
   const headerTitle =
-    products.length > 0 ? `${TITLE_LABEL} (${products.length})` : TITLE_LABEL;
+    products.length > 0 ? `${TITLE_LABEL()} (${products.length})` : TITLE_LABEL();
 
   // Top-rounded bottom-sheet shell via the shared SheetScaffold (pinned grab handle +
   // header / scrollable product column / pinned cart CTA + ½-screen cap,
@@ -465,7 +470,7 @@ export function ProductList(props: ProductListProps): ReactElement {
       // 區分「本來就沒商品」與「搜尋無命中」（parity iOS/Android/Flutter）。
       <EmptyState
         theme={theme}
-        message={products.length === 0 ? EMPTY_LABEL : noResultsLabel(query)}
+        message={products.length === 0 ? EMPTY_LABEL() : noResultsLabel(query)}
       />
     ) : (
       // Plain column — each row carries its own bottom hairline.
@@ -659,7 +664,7 @@ function SearchHeader(props: {
           testID={LBTestIDs.sheetSearchField}
           value={query}
           onChangeText={onChangeQuery}
-          placeholder={SEARCH_PLACEHOLDER}
+          placeholder={SEARCH_PLACEHOLDER()}
           placeholderTextColor={TEXT_DIM}
           style={{ flex: 1, padding: 0, color: theme.text, fontSize: 14 * theme.fontScale }}
         />
@@ -670,7 +675,7 @@ function SearchHeader(props: {
       <View style={{ width: 8 }} />
       <Pressable testID={LBTestIDs.sheetSearchCancel} onPress={onCancel}>
         <Text style={{ color: theme.accent, fontSize: 14 * theme.fontScale, fontWeight: '600' }}>
-          {SEARCH_CANCEL}
+          {SEARCH_CANCEL()}
         </Text>
       </Pressable>
     </View>
@@ -681,7 +686,7 @@ function SearchHeader(props: {
 
 /** A centered empty-state line. `message` distinguishes 目前沒有商品 (empty) from 找不到… (no hit). */
 function EmptyState(props: { theme: ReferenceUITheme; message?: string }): ReactElement {
-  const { theme, message = EMPTY_LABEL } = props;
+  const { theme, message = EMPTY_LABEL() } = props;
   return (
     <View style={{ paddingVertical: 40, alignItems: 'center' }}>
       <Text style={{ color: TEXT_DIM, fontSize: 13 * theme.fontScale }}>{message}</Text>
@@ -789,7 +794,7 @@ function ProductRowNameTagPill(props: {
       return (
         <NameTagPill
           theme={theme}
-          text={LIVE_PRICE_LABEL}
+          text={LIVE_PRICE_LABEL()}
           textColor={theme.accent}
           fillColor="transparent"
           borderColor={theme.accent}
@@ -799,7 +804,7 @@ function ProductRowNameTagPill(props: {
       return (
         <NameTagPill
           theme={theme}
-          text={RUSH_LABEL}
+          text={RUSH_LABEL()}
           textColor="#FFFFFF"
           fillColor={theme.accent}
           borderColor={theme.accent}
@@ -807,11 +812,11 @@ function ProductRowNameTagPill(props: {
       );
     case ProductRowNameTag.OutSoon:
       return (
-        <NameTagPill theme={theme} text={OUT_SOON_LABEL} textColor={theme.text} fillColor={OUT_SOON_COLOR} />
+        <NameTagPill theme={theme} text={OUT_SOON_LABEL()} textColor={theme.text} fillColor={OUT_SOON_COLOR} />
       );
     case ProductRowNameTag.Hot:
       return (
-        <NameTagPill theme={theme} text={HOT_LABEL} textColor="#FFFFFF" fillColor={HOT_NAME_TAG_COLOR} />
+        <NameTagPill theme={theme} text={HOT_LABEL()} textColor="#FFFFFF" fillColor={HOT_NAME_TAG_COLOR} />
       );
     case ProductRowNameTag.None:
     default:
@@ -896,6 +901,8 @@ export interface ProductRowViewProps {
  * omitted (demo / snapshot safe).
  */
 export function ProductRowView(props: ProductRowViewProps): ReactElement {
+  // rb-rn-i18n-string-table: subscribe to the reference-ui language so a runtime switch re-renders this surface.
+  useReferenceUILanguage();
   const { layout = 'row', hideSub = false, onPlayClick, ...rest } = props;
   if (layout === 'grid') {
     return <GridLayoutBody hideSub={hideSub} onPlayClick={onPlayClick} {...rest} />;
@@ -1153,7 +1160,7 @@ function RowLayoutBody(props: {
                         fontWeight: '600',
                       }}
                     >
-                      看講解
+                      {PLAY_HINT_LABEL()}
                     </Text>
                   </View>
                 </View>
@@ -1233,7 +1240,7 @@ function RowLayoutBody(props: {
                 numberOfLines={1}
                 style={{ color: '#FFFFFF', fontSize: 12 * theme.fontScale, fontWeight: 'bold' }}
               >
-                {INTRODUCING_LABEL}
+                {INTRODUCING_LABEL()}
               </Text>
             </View>
           ) : null}
@@ -1323,7 +1330,7 @@ function RowLayoutBody(props: {
             {!hideSub ? (
               soldOut ? (
                 <Text style={{ color: SOLD_OUT_COLOR, fontSize: 12 * theme.fontScale }}>
-                  {SOLD_OUT_LABEL}
+                  {SOLD_OUT_LABEL()}
                 </Text>
               ) : (
                 // 價格區塊自己獨立的 tap target（design.md D3）——與商品名稱各自獨立的
@@ -1568,7 +1575,7 @@ function GridLayoutBody(props: {
           >
             {soldOut ? (
               <Text style={{ color: SOLD_OUT_COLOR, fontSize: 13 * theme.fontScale, fontWeight: 'bold' }}>
-                {SOLD_OUT_LABEL}
+                {SOLD_OUT_LABEL()}
               </Text>
             ) : (
               <>
@@ -1712,7 +1719,7 @@ function CartCTAFooter(props: {
           <CartFillGlyph color="#FFFFFF" size={20 * theme.fontScale} />
           <View style={{ width: 10 }} />
           <Text style={{ color: '#FFFFFF', fontSize: 16 * theme.fontScale, fontWeight: 'bold' }}>
-            {CART_LABEL}
+            {CART_LABEL()}
           </Text>
         </Pressable>
       </View>

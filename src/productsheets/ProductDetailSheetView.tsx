@@ -201,6 +201,7 @@ import type {
   LBQtyState,
   LBProductRecommendation,
 } from 'livebuy-react-native-ui';
+import { text, useReferenceUILanguage } from '../i18n';
 
 // MARK: - Decorative design tokens (literal minimal hex)
 //
@@ -300,23 +301,23 @@ export function resolveScaleDownLetterbox(
 
 // MARK: - Fixed localized copy (static presentation strings — parity to iOS/Android)
 
-const HEADER_TITLE = '商品明細';
-const SOLD_OUT_LABEL = '已售完';
-const QTY_LABEL = '數量';
-const STOCK_CAPTION_PREFIX = '只剩庫存 ';
-const STOCK_CAPTION_SUFFIX = ' 組';
-const ADD_TO_CART_LABEL = '加入購物車';
+const HEADER_TITLE = (): string => text('detail_header_title');
+const SOLD_OUT_LABEL = (): string => text('product_sold_out');
+const QTY_LABEL = (): string => text('product_qty');
+/** 「只剩庫存 {count} 組」stock caption (single key + named placeholder). */
+const STOCK_CAPTION = (count: number): string => text('detail_stock_left', { count });
+const ADD_TO_CART_LABEL = (): string => text('product_add_to_cart');
 /** 加購請求中 CTA 文字（rb-rn-cart-add-loading-state，對齊設計 `LBPButton.loadingLabel`）。 */
-const ADDING_LABEL = '加入中…';
-const FAV_LABEL = '收藏';
-const FAVED_LABEL = '已收藏';
-const SHARE_LABEL = '分享';
-const RETRY_LABEL = '重試';
+const ADDING_LABEL = (): string => text('detail_adding');
+const FAV_LABEL = (): string => text('detail_fav');
+const FAVED_LABEL = (): string => text('detail_faved');
+const SHARE_LABEL = (): string => text('common_share');
+const RETRY_LABEL = (): string => text('common_retry');
 /** 「Sale」促銷徽章固定文案（rb-rn-product-sale-badge，design `screens.jsx`
  *  `ProductDetailSheet` / `AddToCartSheet` 的 `saleLabel`）。RN 商品模型無 `badge`
  *  自訂文案欄位，故固定為字面 `'Sale'`，不支援商品自訂。 */
 const SALE_BADGE_LABEL = 'Sale';
-const FAILURE_TITLE = '加入購物車失敗,請稍後再試';
+const FAILURE_TITLE = (): string => text('detail_add_failed');
 // 「請選規格」prompt 的 copy 已搬到 `SelectVariantPromptModalView.tsx`（hoist 到容器 overlay root）。
 
 /** 「商品介紹」文字區標題 (rb-rn-product-detail-recommendations, design R21).
@@ -328,9 +329,9 @@ const FAILURE_TITLE = '加入購物車失敗,請稍後再試';
  *  明確要求，非疏漏——iOS/Android/Flutter 維持各自既有的恆顯示 + fallback 規則不變）：
  *  `description` 非空 → 顯示整個區塊（含標題）與真實文案；空字串（無對應商品、或該商品
  *  `description` 本身就是空字串）→ 整個區塊（含標題）都不畫，不存在任何 fallback 文案。 */
-const PRODUCT_INTRO_TITLE = '商品介紹';
+const PRODUCT_INTRO_TITLE = (): string => text('detail_intro_title');
 /** 「更多商品」推薦格標題 (design R21). */
-const RECOMMENDATIONS_TITLE = '更多商品';
+const RECOMMENDATIONS_TITLE = (): string => text('detail_more_products');
 /** 「更多商品」推薦格最多顯示筆數 (design.md D1, `expose-other-goods-recommendations-template`;
  *  4 → 12, `rb-rn-recommendations-cap-raise-to-twelve`). */
 const RECOMMENDATIONS_MAX = 12;
@@ -686,6 +687,8 @@ export interface ProductDetailProps {
  * retryable add-to-cart failure banner when their guard flags are set.
  */
 export function ProductDetail(props: ProductDetailProps): ReactElement {
+  // rb-rn-i18n-string-table: subscribe to the reference-ui language so a runtime switch re-renders this surface.
+  useReferenceUILanguage();
   const {
     theme,
     detail,
@@ -882,7 +885,7 @@ export function ProductDetail(props: ProductDetailProps): ReactElement {
   // the price row's same-source guarantee (see resolvedPriceDisplay.ts file header).
   const showSaleBadge = price.hasOriginalPrice && !isSoldOut;
 
-  const stockCaption = `${STOCK_CAPTION_PREFIX}${qty.max}${STOCK_CAPTION_SUFFIX}`;
+  const stockCaption = STOCK_CAPTION(qty.max);
 
   // Whether that caption is drawn at all (rb-rn-show-stock-caption-toggle). The RAW
   // `showStock` hand-off is normalized HERE — exactly once, `normalizeShowStock` is not
@@ -1059,7 +1062,7 @@ export function ProductDetail(props: ProductDetailProps): ReactElement {
               textAlign: 'center',
             }}
           >
-            {HEADER_TITLE}
+            {HEADER_TITLE()}
           </Text>
         )}
         {/* Shared transparent close (rb-rn-sheet-header-close-unify): replaces the prior deep
@@ -1116,7 +1119,7 @@ export function ProductDetail(props: ProductDetailProps): ReactElement {
             fontWeight: '600',
           }}
         >
-          {QTY_LABEL}
+          {QTY_LABEL()}
         </Text>
         <View style={{ flex: 1 }} />
         {stockCaptionVisible ? (
@@ -1191,7 +1194,7 @@ export function ProductDetail(props: ProductDetailProps): ReactElement {
             fontWeight: faved ? 'bold' : '500',
           }}
         >
-          {faved ? FAVED_LABEL : FAV_LABEL}
+          {faved ? FAVED_LABEL() : FAV_LABEL()}
         </Text>
       </Pressable>
     </>
@@ -1223,7 +1226,7 @@ export function ProductDetail(props: ProductDetailProps): ReactElement {
           fontWeight: '600',
         }}
       >
-        {FAILURE_TITLE}
+        {FAILURE_TITLE()}
       </Text>
       {/* 重試 re-invokes onAddToCart (disabled when sold out). */}
       <Pressable
@@ -1246,7 +1249,7 @@ export function ProductDetail(props: ProductDetailProps): ReactElement {
             fontWeight: 'bold',
           }}
         >
-          {RETRY_LABEL}
+          {RETRY_LABEL()}
         </Text>
       </Pressable>
     </View>
@@ -1347,7 +1350,7 @@ export function ProductDetail(props: ProductDetailProps): ReactElement {
                 fontWeight: 'bold',
               }}
             >
-              {SOLD_OUT_LABEL}
+              {SOLD_OUT_LABEL()}
             </Text>
           ) : (
             <View
@@ -1557,7 +1560,7 @@ export function ProductDetail(props: ProductDetailProps): ReactElement {
               fontWeight: 'bold',
             }}
           >
-            {SOLD_OUT_LABEL}
+            {SOLD_OUT_LABEL()}
           </Text>
         ) : (
           <View
@@ -1633,7 +1636,7 @@ export function ProductDetail(props: ProductDetailProps): ReactElement {
               fontWeight: '600',
             }}
           >
-            {PRODUCT_INTRO_TITLE}
+            {PRODUCT_INTRO_TITLE()}
           </Text>
           <Text
             style={{
@@ -1665,7 +1668,7 @@ export function ProductDetail(props: ProductDetailProps): ReactElement {
               fontWeight: '600',
             }}
           >
-            {RECOMMENDATIONS_TITLE}
+            {RECOMMENDATIONS_TITLE()}
           </Text>
           <View style={{ marginTop: 10 }}>
             {chunk(recommendations, 2).map((row, rowIndex) => (
@@ -1760,7 +1763,7 @@ export function ProductDetail(props: ProductDetailProps): ReactElement {
                       fontWeight: '500',
                     }}
                   >
-                    {SHARE_LABEL}
+                    {SHARE_LABEL()}
                   </Text>
                 </Pressable>
                 <View style={{ width: 12 }} />
@@ -1799,7 +1802,7 @@ export function ProductDetail(props: ProductDetailProps): ReactElement {
                   fontWeight: 'bold',
                 }}
               >
-                {addToCartInFlight ? ADDING_LABEL : ADD_TO_CART_LABEL}
+                {addToCartInFlight ? ADDING_LABEL() : ADD_TO_CART_LABEL()}
               </Text>
             </Pressable>
           </View>

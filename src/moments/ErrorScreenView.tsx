@@ -69,6 +69,7 @@ import { WifiSlashGlyph } from './WifiSlashGlyph';
 import { ArrowUpCircleGlyph } from './ArrowUpCircleGlyph';
 import { ArrowClockwiseGlyph } from './ArrowClockwiseGlyph';
 import { SearchAlertGlyph } from './SearchAlertGlyph';
+import { text, useReferenceUILanguage } from '../i18n';
 
 // MARK: - Decorative design tokens (literal — lifted verbatim from LBPErrorScreen)
 //
@@ -97,15 +98,15 @@ const ON_SCRIM_FILL = 'rgba(255,255,255,0.12)';
 // Mirrors the Flutter / Android family-4 copy: `stream`「播放發生問題」(重試 + 返回) /
 // `notFound`「找不到影片」(僅返回) / `outdated`「請更新版本」(前往更新 + 返回). NO raw code.
 
-const STREAM_TITLE = '連線發生問題';
-const STREAM_BODY = '目前無法載入這場直播，請確認網路後再試一次。';
-const NOT_FOUND_TITLE = '找不到這部影片';
-const NOT_FOUND_BODY = '這部影片可能已下架或不存在。';
-const OUTDATED_TITLE = '請更新 App 以繼續觀看';
-const OUTDATED_BODY = '你的版本較舊，更新後即可觀看這場直播。';
-const RETRY_LABEL = '重試';
-const UPDATE_LABEL = '前往更新';
-const DISMISS_LABEL = '返回';
+const STREAM_TITLE = (): string => text('error_stream_title');
+const STREAM_BODY = (): string => text('error_stream_body');
+const NOT_FOUND_TITLE = (): string => text('error_not_found_title');
+const NOT_FOUND_BODY = (): string => text('error_not_found_body');
+const OUTDATED_TITLE = (): string => text('error_outdated_title');
+const OUTDATED_BODY = (): string => text('error_outdated_body');
+const RETRY_LABEL = (): string => text('common_retry');
+const UPDATE_LABEL = (): string => text('error_upgrade');
+const DISMISS_LABEL = (): string => text('common_back');
 
 /**
  * The resolved human copy + presentation for one error kind (pure value type).
@@ -163,8 +164,8 @@ export function errorCopyFor(kind: PlayerErrorKind): ErrorCopy {
   switch (kind) {
     case PlayerErrorKind.NotFound:
       return {
-        title: NOT_FOUND_TITLE,
-        body: NOT_FOUND_BODY,
+        title: NOT_FOUND_TITLE(),
+        body: NOT_FOUND_BODY(),
         // The design's `notFound` icon: a magnifier with an exclamation mark, drawn from the
         // design source (`moments.jsx` `LBErrorScreen`). The other platforms each use a
         // different stand-in (iOS SF Symbol `magnifyingglass`, Flutter Material `search_off`,
@@ -182,11 +183,11 @@ export function errorCopyFor(kind: PlayerErrorKind): ErrorCopy {
       // wired to onDismiss (design `isOutdated ? onDismiss`; the host treats it as
       // the upgrade entry). No 返回. Retry won't help a rejected build.
       return {
-        title: OUTDATED_TITLE,
-        body: OUTDATED_BODY,
+        title: OUTDATED_TITLE(),
+        body: OUTDATED_BODY(),
         // up-arrow-in-circle — update affordance (self-drawn, `Icons.arrowUpCircle`).
         glyph: (color, size) => <ArrowUpCircleGlyph color={color} size={size} />,
-        primaryLabel: UPDATE_LABEL,
+        primaryLabel: UPDATE_LABEL(),
         primaryGlyph: null,
         accentTinted: true,
         primaryForwardsDismiss: true,
@@ -196,11 +197,11 @@ export function errorCopyFor(kind: PlayerErrorKind): ErrorCopy {
     case PlayerErrorKind.Stream:
     default:
       return {
-        title: STREAM_TITLE,
-        body: STREAM_BODY,
+        title: STREAM_TITLE(),
+        body: STREAM_BODY(),
         // struck-through wifi — connection / stream problem (self-drawn, `Icons.wifiSlash`).
         glyph: (color, size) => <WifiSlashGlyph color={color} size={size} />,
-        primaryLabel: RETRY_LABEL,
+        primaryLabel: RETRY_LABEL(),
         // refresh — retry (self-drawn, `Icons.arrowClockwise`).
         primaryGlyph: (color, size) => <ArrowClockwiseGlyph color={color} size={size} />,
         accentTinted: false,
@@ -246,6 +247,8 @@ export interface ErrorScreenProps {
  * Renders correctly with `onRetry` / `onDismiss` omitted (snapshot / preview safe).
  */
 export function ErrorScreen(props: ErrorScreenProps): ReactElement {
+  // rb-rn-i18n-string-table: subscribe to the reference-ui language so a runtime switch re-renders this surface.
+  useReferenceUILanguage();
   // rb-rn-edge-to-edge-safe-area — system insets from the enclosing Tier B container (zero without
   // one, or when the host already handled the edges → `safeAreaPadding` is an empty object).
   const safeAreaPadding = lbSafeAreaPaddingStyle(useLBSafeAreaInsets());
@@ -392,7 +395,7 @@ function Actions(props: {
               <View style={{ height: 10 }} />
               <OutlinedButton
                 theme={theme}
-                label={DISMISS_LABEL}
+                label={DISMISS_LABEL()}
                 testID={LBTestIDs.momentErrorBack}
                 onTap={() => onDismiss?.()}
               />
@@ -404,7 +407,7 @@ function Actions(props: {
            primary CTA is hidden for `notFound`). */
         <FilledButton
           theme={theme}
-          label={DISMISS_LABEL}
+          label={DISMISS_LABEL()}
           fill={ON_SCRIM_FILL}
           testID={LBTestIDs.momentErrorBack}
           onTap={() => onDismiss?.()}

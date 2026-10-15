@@ -82,8 +82,8 @@ const ARROW_SIZE = 6;
  * that budget between the bubble and the arrow flex siblings — leaving only enough room for a
  * single glyph per line. An explicit numeric `width` puts Yoga in "exactly" measure mode for this
  * node, which is independent of the small ancestor's box, bypassing the bug entirely. Sized with
- * headroom over the current (hardcoded, non-i18n — reference-ui copy has no locale variants, see
- * `docs/reference-ui/`) design string's natural width (~175px at this font) so minor cross-device
+ * headroom over the zh-TW string-table value's natural width (~175px at this font; other locales
+ * may wrap inside this fixed width — rb-rn-i18n-string-table design.md Risks) so minor cross-device
  * font-metric variance can't tip it back into wrapping. Exported for tests (`CcTooltip.test.tsx`
  * asserts the bubble's `Text` node carries this style — a direct regression guard against the
  * fix being dropped, since the jest `react-native` mock cannot itself reproduce the real Yoga

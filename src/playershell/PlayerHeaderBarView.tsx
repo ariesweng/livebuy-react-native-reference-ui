@@ -62,6 +62,7 @@ import { MarqueeTitle } from './MarqueeTitleView';
 import { PeopleGlyph } from './PeopleGlyph';
 import { PipGlyph } from './PipGlyph';
 import { SpeakerSlashGlyph, SpeakerWaveGlyph } from './SpeakerGlyphs';
+import { text, useReferenceUILanguage } from '../i18n';
 
 // MARK: - Decorative design tokens (literal hex from live-chrome.jsx)
 //
@@ -184,7 +185,7 @@ export interface PlayerHeaderBarProps {
    * (`PipGlyph`) icon (rb-rn-player-direct-close-button). Default `false` — draws the existing minimize icon,
    * byte-identical to before this prop existed. `true` → draws the close glyph (the SAME character
    * `FloatingWidgetView` / `MinimizedWidgetView` already use for their own close buttons) and
-   * switches the accessibility label to「關閉」(see {@link minimizeButtonAccessibilityLabel}).
+   * switches the accessibility label from「最小化」to「關閉」(see {@link minimizeButtonAccessibilityLabel}).
    *
    * A PURE by-value presentation flag — this component holds NO「mode」concept of its own and does
    * NOT import `livebuy-react-native`'s `LivebuySDK`; the caller (`LivebuyPlayerOverlays`, via
@@ -234,6 +235,8 @@ export interface PlayerHeaderBarProps {
  * values BY VALUE, then optional host-wired callbacks (each defaults to no-op).
  */
 export function PlayerHeaderBar(props: PlayerHeaderBarProps): ReactElement {
+  // rb-rn-i18n-string-table: subscribe to the reference-ui language so a runtime switch re-renders this surface.
+  useReferenceUILanguage();
   // The host pill consumes title / hostName / isSubscribed / viewerCount /
   // onToggleSubscribe via `props` (renderHostPill); the trailing frame wires the
   // single minimize button. Destructure only what this top-level frame wires
@@ -614,16 +617,15 @@ function renderViewerBadge(theme: ReferenceUITheme, viewerCount: number): ReactE
 
 /**
  * Accessibility label for the trailing minimize/close button, switched by
- * {@link PlayerHeaderBarProps.showCloseIcon} (rb-rn-player-direct-close-button). `false` (default)
- * → `undefined` — this button carries NO accessibility label today (it never has), and this
- * component's existing `showCloseIcon === false` structural-snapshot baseline MUST stay
- * byte-identical, so the default path deliberately does NOT gain a new prop value. `true` → `'關閉'`
- * — the close affordance is new, so it gets an explicit label. Pure — parity iOS
- * `minimizeButtonAccessibilityLabel(showCloseIcon:)` (which labels BOTH states; iOS's PNG snapshots
- * do not capture accessibility labels, so it has no equivalent byte-identity constraint here).
+ * {@link PlayerHeaderBarProps.showCloseIcon} (rb-rn-player-direct-close-button). `true` → the
+ * string-table `player_close_a11y` (zh-TW `'關閉'`); `false` (default) → `player_minimize_a11y`
+ * (zh-TW `'最小化'`, rb-rn-parity-debt-closure — this state previously carried NO label; it now
+ * labels BOTH states like iOS `minimizeButtonAccessibilityLabel(showCloseIcon:)` / Android
+ * `minimizeButtonContentDescription` / Flutter). Reads the string table at call time, so the
+ * render site (which subscribes via `useReferenceUILanguage()`) picks up a runtime language switch.
  */
-export function minimizeButtonAccessibilityLabel(showCloseIcon: boolean): string | undefined {
-  return showCloseIcon ? '關閉' : undefined;
+export function minimizeButtonAccessibilityLabel(showCloseIcon: boolean): string {
+  return text(showCloseIcon ? 'player_close_a11y' : 'player_minimize_a11y');
 }
 
 // Close glyph (rb-rn-player-direct-close-button) — the SAME character

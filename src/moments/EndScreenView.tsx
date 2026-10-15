@@ -80,6 +80,7 @@ import { lbSafeAreaPaddingStyle, useLBSafeAreaInsets } from '../safearea/LBSafeA
 import { RemoteImage } from '../productsheets/RemoteImage';
 import { CartFillGlyph } from '../productsheets/CartFillGlyph';
 import type { EndScreenCountdown, EndScreenNavRow } from 'livebuy-react-native-ui';
+import { text, useReferenceUILanguage } from '../i18n';
 
 // MARK: - Decorative design tokens (literal moments.jsx rgba via RN rgba strings)
 //
@@ -119,17 +120,18 @@ const RING_SEGMENTS = 12;
  * (design R41 — EndScreen is LIVE-only, so the prior VOD-flavored「影片結束」countdown caption
  * is retired). Parity iOS / Android `liveEndedLabel`.
  */
-const LIVE_ENDED_LABEL = '直播已結束';
-const AUTO_PLAY_SUFFIX = '秒後自動播放下一支'; // "{remain} {秒後自動播放下一支}"
-const UNTITLED_NEXT = '下一支影片';
-const CANCEL_LABEL = '取消';
-const WATCH_NEXT_LABEL = '立即觀看';
-/** 空狀態's「直播時長：…」line prefix (design moments.jsx:241). */
-const LIVE_DURATION_PREFIX = '直播時長：';
+const LIVE_ENDED_LABEL = (): string => text('end_live_ended');
+/** 「{seconds} 秒後自動播放下一支」countdown caption (single key + named placeholder). */
+const AUTO_PLAY_CAPTION = (seconds: number): string => text('end_auto_next', { seconds });
+const UNTITLED_NEXT = (): string => text('end_untitled_next');
+const CANCEL_LABEL = (): string => text('common_cancel');
+const WATCH_NEXT_LABEL = (): string => text('end_watch_now');
+/** 空狀態's「直播時長：{duration}」line (design moments.jsx:241; single key + named placeholder). */
+const LIVE_DURATION_LINE = (duration: string): string => text('end_live_duration', { duration });
 /** Fallback duration text when `liveDuration` is not fed (design-documented literal). */
 const LIVE_DURATION_FALLBACK = '--:--:--';
 /** 空狀態 CTA label — verbatim the SAME copy as `ProductListView`'s cart-CTA footer. */
-const VIEW_CART_LABEL = '查看購物車';
+const VIEW_CART_LABEL = (): string => text('common_view_cart');
 
 /**
  * Format a number of SECONDS → `mm:ss` (for the 倒數變體's `next[0]` meta line — `duration` IS
@@ -219,6 +221,8 @@ export interface EndScreenProps {
  * Renders correctly with all callbacks omitted (demo / snapshot safe).
  */
 export function EndScreen(props: EndScreenProps): ReactElement {
+  // rb-rn-i18n-string-table: subscribe to the reference-ui language so a runtime switch re-renders this surface.
+  useReferenceUILanguage();
   // rb-rn-edge-to-edge-safe-area — system insets from the enclosing Tier B container (zero without
   // one, or when the host already handled the edges → `safeAreaPadding` is an empty object).
   const safeAreaPadding = lbSafeAreaPaddingStyle(useLBSafeAreaInsets());
@@ -303,7 +307,7 @@ function CountdownVariant(props: {
   const { theme, countdown, n0, live, onWatchNext, onCancel } = props;
   const remain = countdown?.remain ?? 0;
   const total = countdown?.total ?? 0;
-  const title = n0.title.length === 0 ? UNTITLED_NEXT : n0.title;
+  const title = n0.title.length === 0 ? UNTITLED_NEXT() : n0.title;
 
   return (
     <View
@@ -320,7 +324,7 @@ function CountdownVariant(props: {
       {/* Preview caption block: auto-play line + next title (2-line clamp). */}
       <View style={{ maxWidth: 280, alignItems: 'center' }}>
         <Text style={{ color: ON_DARK_DIM, fontSize: 12 * theme.fontScale }}>
-          {`${remain} ${AUTO_PLAY_SUFFIX}`}
+          {AUTO_PLAY_CAPTION(remain)}
         </Text>
         <View style={{ height: 5 }} />
         <Text
@@ -355,7 +359,7 @@ function CountdownVariant(props: {
         <View style={{ flex: 1 }}>
           <DarkButton
             theme={theme}
-            label={CANCEL_LABEL}
+            label={CANCEL_LABEL()}
             fill={ON_DARK_FILL}
             borderColor={ON_DARK_STROKE}
             testID={LBTestIDs.momentEndCancel}
@@ -366,7 +370,7 @@ function CountdownVariant(props: {
         <View style={{ flex: 1 }}>
           <DarkButton
             theme={theme}
-            label={WATCH_NEXT_LABEL}
+            label={WATCH_NEXT_LABEL()}
             fill={theme.accent}
             leadingGlyph="▶"
             testID={LBTestIDs.momentEndWatch}
@@ -398,7 +402,7 @@ function EndedRule(props: { theme: ReferenceUITheme }): ReactElement {
           letterSpacing: 1,
         }}
       >
-        {LIVE_ENDED_LABEL}
+        {LIVE_ENDED_LABEL()}
       </Text>
       <View style={{ width: 8 }} />
       {rule}
@@ -612,11 +616,11 @@ function EmptyVariant(props: {
     >
       <View style={{ alignItems: 'center' }}>
         <Text style={{ color: '#FFFFFF', fontSize: 30 * theme.fontScale, fontWeight: '800' }}>
-          {LIVE_ENDED_LABEL}
+          {LIVE_ENDED_LABEL()}
         </Text>
         <View style={{ height: 14 }} />
         <Text style={{ color: ON_DARK_STRONG, fontSize: 15.5 * theme.fontScale }}>
-          {`${LIVE_DURATION_PREFIX}${durationText}`}
+          {LIVE_DURATION_LINE(durationText)}
         </Text>
       </View>
       <View style={{ height: 36 }} />
@@ -640,7 +644,7 @@ function EmptyVariant(props: {
         <CartFillGlyph color="#FFFFFF" size={20 * theme.fontScale} />
         <View style={{ width: 10 }} />
         <Text style={{ color: '#FFFFFF', fontSize: 16 * theme.fontScale, fontWeight: '700' }}>
-          {VIEW_CART_LABEL}
+          {VIEW_CART_LABEL()}
         </Text>
       </Pressable>
     </View>

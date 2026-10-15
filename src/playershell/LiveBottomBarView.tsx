@@ -43,8 +43,8 @@
 // (rb-rn-live-chrome-gradient-removal — the design's bottom scrim is removed, not
 // approximated).
 //
-// The user-facing string ("留言...") is design-literal (the minimal design mockup is the
-// source of truth); localization is a cross-layer follow-up.
+// The user-facing strings (zh-TW "留言...") come from the reference-ui string table
+// (rb-rn-i18n-string-table) and follow the current language.
 //
 // `chatClosed` / `ccOn` / `onMore` (element itself added by design R32,
 // rb-rn-live-replay-more-menu-and-video-info-live-copy; call site wired by
@@ -96,9 +96,10 @@ import { CcGlyph } from './CcGlyph';
 import { CcTooltip } from './CcTooltip';
 import { useCcUnavailableTooltip } from './useCcUnavailableTooltip';
 import { HeartFillGlyph } from './HeartFillGlyph';
-import { railGlyphFor, CC_UNAVAILABLE_TOOLTIP_TEXT } from './OperationRailView';
+import { railGlyphFor, ccUnavailableTooltipText } from './OperationRailView';
 import { LBTestIDs } from '../testing/LBTestIDs';
 import { LBSideRailKind } from 'livebuy-react-native-ui';
+import { text, useReferenceUILanguage } from '../i18n';
 
 // MARK: - Secondary design colors (lifted from live-chrome.jsx `LBLiveBottomBar`)
 
@@ -148,9 +149,9 @@ const COMMENT_FONT_SIZE = 13; // 留言... 13px left
 // character renders in an emoji style on some devices/fonts and ignores the caller's `color`
 // tint, the same class of bug Android fixed (`rb-android-heart-burst-deemoji`) and Flutter fixed
 // (`rb-flutter-heart-burst-icon-parity`).
-const COMMENT_PLACEHOLDER = '留言...';
-/** `chatClosed` variant placeholder (design-literal, same pattern as `COMMENT_PLACEHOLDER`). */
-const CHAT_CLOSED_PLACEHOLDER = '聊天室已關閉';
+const COMMENT_PLACEHOLDER = (): string => text('chat_comment_placeholder');
+/** `chatClosed` variant placeholder (string table, same pattern as `COMMENT_PLACEHOLDER`). */
+const CHAT_CLOSED_PLACEHOLDER = (): string => text('chat_closed_placeholder');
 /** "更多" (more) button glyph — REUSES `OperationRailView.railGlyphFor(LBSideRailKind.More)`
  *  (`'⋯'`) rather than a second literal, so the two surfaces can never drift on this glyph. */
 const MORE_GLYPH = railGlyphFor(LBSideRailKind.More);
@@ -280,6 +281,8 @@ export function showsNickname(bagOnly: boolean, isUpcoming: boolean, chatClosed:
  * Renders correctly with the default no-op callbacks (snapshot / preview safe).
  */
 export function LiveBottomBarView(props: LiveBottomBarProps): ReactElement {
+  // rb-rn-i18n-string-table: subscribe to the reference-ui language so a runtime switch re-renders this surface.
+  useReferenceUILanguage();
   // `isReplay` is RETAINED on the props (source compat) but NOT consumed by the comment /
   // nickname decision (which reads `chatClosed` instead — see the file-header comment): the
   // LIVE bottom bar's comment / nickname affordances stay available for a live broadcast
@@ -476,7 +479,7 @@ function CommentPill(props: { onTap?: () => void }): ReactElement {
         paddingHorizontal: 14,
       }}
     >
-      <Text style={{ color: 'rgba(255,255,255,0.78)', fontSize: COMMENT_FONT_SIZE }}>{COMMENT_PLACEHOLDER}</Text>
+      <Text style={{ color: 'rgba(255,255,255,0.78)', fontSize: COMMENT_FONT_SIZE }}>{COMMENT_PLACEHOLDER()}</Text>
     </Pressable>
   );
 }
@@ -500,7 +503,7 @@ function ChatClosedPill(): ReactElement {
       }}
     >
       <Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: COMMENT_FONT_SIZE }}>
-        {CHAT_CLOSED_PLACEHOLDER}
+        {CHAT_CLOSED_PLACEHOLDER()}
       </Text>
     </View>
   );
@@ -587,7 +590,7 @@ function LiveCcButton(props: {
       <CcTooltip
         testID={LBTestIDs.liveCcTooltip}
         visible={tooltip.visible}
-        text={CC_UNAVAILABLE_TOOLTIP_TEXT}
+        text={ccUnavailableTooltipText()}
         placement="top"
       />
     </View>

@@ -5,6 +5,12 @@
 //        (technical decisions per `rb-ios-product-detail-recommendations` — SWAP + BREADCRUMB,
 //        NOT true sheet-stacking — not re-decided here).
 //
+// UPDATE (rb-rn-recommendation-resolve-real-product): the gap described below is CLOSED for the
+// tapped recommendation — `rn-other-goods-channel-bridge-core` now bridges `otherGoods` on
+// `LBPlayerChannelInfo`, and the turnkey container resolves the REAL product via
+// {@link resolveRecommendationProduct} (`products` ∪ `otherGoods`) before falling back to
+// {@link recommendationAsDisplayProduct}. The note below is kept as history.
+//
 // RN-SPECIFIC NOTE (⚠️ documented deviation from the iOS/Android resolver contract): iOS
 // resolves a tapped recommendation's / the currently-open detail's REAL `LBProduct` from the
 // native `LivebuyPlayerViewController.channel?.otherGoods` (Android: an injected
@@ -140,4 +146,18 @@ export function poppedBreadcrumb(breadcrumb: readonly LBProduct[]): PoppedBreadc
   if (breadcrumb.length === 0) return { breadcrumb: [], previous: null };
   const previous = breadcrumb[breadcrumb.length - 1]!;
   return { breadcrumb: breadcrumb.slice(0, -1), previous };
+}
+
+/**
+ * rb-rn-recommendation-resolve-real-product (parity iOS / Android / Flutter `resolveRecommendationProduct`):
+ * productId → the channel's REAL `LBProduct` — `goods` (the bridged `products`) first, then
+ * `otherGoods` (`rn-other-goods-channel-bridge-core`). `null` when neither has it (the caller then
+ * falls back to {@link recommendationAsDisplayProduct}). Pure.
+ */
+export function resolveRecommendationProduct(
+  goods: readonly LBProduct[],
+  otherGoods: readonly LBProduct[],
+  productId: string,
+): LBProduct | null {
+  return goods.find((p) => p.id === productId) ?? otherGoods.find((p) => p.id === productId) ?? null;
 }

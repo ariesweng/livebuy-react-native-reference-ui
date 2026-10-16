@@ -104,7 +104,9 @@
 //   • `needsVariantSelection` (`selectSpecRequired`) → the centered「請選規格」prompt is NO LONGER
 //     drawn here; it is hoisted to the container's overlay root (`SelectVariantPromptModal`). The
 //     prop is retained for signature stability but unused by this component.
-//   • `addToCartFailed` → retryable error banner.
+//   • `addToCartFailed` → NOT drawn here any more (rb-rn-cart-add-failure-toast): the container
+//     flashes the error `CartToastView` instead of the old bottom-of-scroll banner users could not
+//     see (livebuy-flutter-sdk issue #1). The prop stays for source compatibility.
 //
 // INLINE 收藏鈕 (rb-rn-product-sheet-resize-fav-inline, design R19 — supersedes the prior
 // "footer 3-slot [收藏][分享][CTA]" RECONCILED placement of 2026-06-06): the `.detail`
@@ -186,7 +188,6 @@ import { ShareGlyph } from '../playershell/ShareGlyph';
 import { HeartFillGlyph } from '../playershell/HeartFillGlyph';
 import { HeartGlyph } from '../playershell/HeartGlyph';
 import { SheetHeaderCloseButton } from './SheetHeaderCloseButton';
-import { WarningGlyph } from './WarningGlyph';
 import { SheetScaffold } from './SheetScaffold';
 import { resolvePriceDisplay } from './resolvedPriceDisplay';
 import { resolveProductPhoto } from './resolvedProductPhoto';
@@ -312,12 +313,10 @@ const ADDING_LABEL = (): string => text('detail_adding');
 const FAV_LABEL = (): string => text('detail_fav');
 const FAVED_LABEL = (): string => text('detail_faved');
 const SHARE_LABEL = (): string => text('common_share');
-const RETRY_LABEL = (): string => text('common_retry');
 /** 「Sale」促銷徽章固定文案（rb-rn-product-sale-badge，design `screens.jsx`
  *  `ProductDetailSheet` / `AddToCartSheet` 的 `saleLabel`）。RN 商品模型無 `badge`
  *  自訂文案欄位，故固定為字面 `'Sale'`，不支援商品自訂。 */
 const SALE_BADGE_LABEL = 'Sale';
-const FAILURE_TITLE = (): string => text('detail_add_failed');
 // 「請選規格」prompt 的 copy 已搬到 `SelectVariantPromptModalView.tsx`（hoist 到容器 overlay root）。
 
 /** 「商品介紹」文字區標題 (rb-rn-product-detail-recommendations, design R21).
@@ -511,7 +510,11 @@ export interface ProductDetailProps {
    * reads `model.needsVariantSelection` directly to drive that modal.
    */
   readonly needsVariantSelection: boolean;
-  /** Add-to-cart failure flag (`addToCartFailed`). Read-only. */
+  /**
+   * Add-to-cart failure flag (`addToCartFailed`). Read-only. **No longer drawn**
+   * (rb-rn-cart-add-failure-toast) — the container shows the error `CartToastView`; retained so
+   * existing callers keep compiling.
+   */
   readonly addToCartFailed: boolean;
   /**
    * 加購「請求中」loading flag (rb-rn-cart-add-loading-state) — 由容器以 `ProductSheetsModel`
@@ -700,7 +703,6 @@ export function ProductDetail(props: ProductDetailProps): ReactElement {
     qty,
     // needsVariantSelection 仍在 ProductDetailProps（簽章不變、容器照常傳入），但本元件不再消費它
     // ——prompt 已 hoist 到容器 overlay root（SelectVariantPromptModal）。故不 destructure 以免 unused。
-    addToCartFailed,
     addToCartInFlight = false,
     faved = false,
     showFavorite = false,
@@ -1200,63 +1202,7 @@ export function ProductDetail(props: ProductDetailProps): ReactElement {
     </>
   ) : null;
 
-  /** Add-to-cart failure banner (retryable), shown in BOTH presentations when the route-B
-   *  add threw (D-3). */
-  const failureBannerBlock: ReactElement | null = addToCartFailed ? (
-    <View
-      style={{
-        marginTop: 16,
-        flexDirection: 'row',
-        alignItems: 'center',
-        // 8%-accent tint so the ⚠ glyph (full accent) reads on a light
-        // surface (parity to the Flutter blueprint's tinted failure banner).
-        backgroundColor: theme.accent + '14',
-        borderRadius: 12,
-        paddingHorizontal: 14,
-        paddingVertical: 12,
-      }}
-    >
-      <WarningGlyph color={theme.accent} size={15} />
-      <Text
-        style={{
-          flex: 1,
-          marginLeft: 10,
-          color: theme.text,
-          fontSize: 13 * theme.fontScale,
-          fontWeight: '600',
-        }}
-      >
-        {FAILURE_TITLE()}
-      </Text>
-      {/* 重試 re-invokes onAddToCart (disabled when sold out). */}
-      <Pressable
-        testID={LBTestIDs.addToCartRetry}
-        accessibilityRole="button"
-        onPress={handleAddToCart}
-        style={{
-          marginLeft: 10,
-          paddingHorizontal: 12,
-          paddingVertical: 6,
-          borderRadius: 999,
-          borderWidth: 1,
-          borderColor: theme.accent,
-        }}
-      >
-        <Text
-          style={{
-            color: theme.accent,
-            fontSize: 13 * theme.fontScale,
-            fontWeight: 'bold',
-          }}
-        >
-          {RETRY_LABEL()}
-        </Text>
-      </Pressable>
-    </View>
-  ) : null;
-
-  // Scrollable body (photo / compact card + name + price + variant chips + qty + failure
-  // banner). The SheetScaffold caps it to ½ screen and scrolls the overflow between the
+  // Scrollable body (photo / compact card + name + price + variant chips + qty). The SheetScaffold caps it to ½ screen and scrolls the overflow between the
   // pinned header + footer (rb-rn-sheet-pinned-header-footer).
   //
   // BACKGROUND LAYERING (rb-rn-product-intro-bgcolor-and-hide-empty, design
@@ -1383,7 +1329,6 @@ export function ProductDetail(props: ProductDetailProps): ReactElement {
       </View>
       {variantChipsBlock}
       {qtyRowBlock}
-      {failureBannerBlock}
     </View>
   ) : (
     <View style={{ backgroundColor: BG_SUNKEN }}>
@@ -1612,7 +1557,6 @@ export function ProductDetail(props: ProductDetailProps): ReactElement {
         {variantChipsBlock}
         {qtyRowBlock}
         {favButtonBlock}
-        {failureBannerBlock}
       </View>
 
       {/* White block #2 — 商品介紹 (design R21 / rb-rn-product-intro-bgcolor-and-hide-empty

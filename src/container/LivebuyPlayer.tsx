@@ -58,7 +58,8 @@ import { createForegroundResumeController } from './foregroundResumeController';
 import type { ForegroundResumeController } from './foregroundResumeController';
 import { attachPlayerTemplate, LivebuyUI } from 'livebuy-react-native-ui';
 import type { PlayerTemplateAttachment } from 'livebuy-react-native-ui';
-import type { SDKConfig } from 'livebuy-react-native';
+import type { SDKConfig, LBProduct } from 'livebuy-react-native';
+import { resolveRecommendationProduct } from '../productsheets/recommendationBreadcrumb';
 
 import { useSdkConfig } from './sdkConfigResolution';
 import { createPlayerErrorFeed } from './playerErrorFeed';
@@ -363,6 +364,11 @@ export function LivebuyPlayer(props: LivebuyPlayerProps): ReactElement {
   // read inside the confirm tap handler, so no re-render is needed on every channel-change tick.
   // `''` before the first `onChannelChange` fires, or when the shop has no service link.
   const serviceLinkRef = useRef('');
+  // rb-rn-recommendation-resolve-real-product: the latest channel's own products and cross-video
+  // otherGoods, so a「更多商品」recommendation tap opens the REAL product (full specs / stock).
+  // Refs (read only at tap time). Replaced wholesale on every channel change.
+  const channelGoodsRef = useRef<readonly LBProduct[]>([]);
+  const channelOtherGoodsRef = useRef<readonly LBProduct[]>([]);
 
   // VOD CC 字幕（rb-react-native-subtitle-vtt-caption-display）：`subtitleCues` is REAL React
   // state (not a ref like `serviceLinkRef` above) — it must trigger a re-render so a completed
@@ -557,6 +563,16 @@ export function LivebuyPlayer(props: LivebuyPlayerProps): ReactElement {
   const handleSdkEvent: SdkEventHandler = (event) => {
     const params = event.params as Record<string, unknown>;
 
+    // rb-rn-vod-advance-exhausted-close — the core skipped every unplayable `next` candidate
+    // (vod-advance-skip-unplayable-*-core) and tagged this `ended` with `advance_exhausted: true`:
+    // treat it as "no next" so the VOD-ended gate closes the player (order vs the view
+    // `onStateChange` is not guaranteed — the gate handles both orders).
+    if (event.eventName === 'VIDEO_STATE_CHANGE' && params.state === 'ended' && params.advance_exhausted === true) {
+      vodEndedGate.markAdvanceExhausted(() =>
+        vodEndedInputsOf(vodEndedChannelRef.current, readVodEndBehavior(LivebuySDK)),
+      );
+    }
+
     // rn-refui-pip-pause-foreground-resume (iOS-gated): track live playing / real-PiP state off the
     // SAME onSdkEvent stream, and drive the deferred resume when PiP truly ends (parity iOS
     // `ForegroundResumeController` + `PiPStateAuxListener`). This is FOLDED into the existing internal
@@ -723,6 +739,8 @@ export function LivebuyPlayer(props: LivebuyPlayerProps): ReactElement {
         // contextually from `LivebuyPlayerCoreProps.onChannelChange`'s declared signature.
         onChannelChange={(info): void => {
           serviceLinkRef.current = info.serviceLink;
+          channelGoodsRef.current = info.products;
+          channelOtherGoodsRef.current = info.otherGoods;
           // rb-rn-vod-ended-no-next-close — latest channel for the VOD-ended close gate.
           vodEndedChannelRef.current = { liveStatus: info.liveStatus, next: info.next };
           // rb-rn-drop-in-mute-icon-seed-wiring: channel info for this view means the wrapped
@@ -913,6 +931,8 @@ export function LivebuyPlayer(props: LivebuyPlayerProps): ReactElement {
               currentVideoId: (): string => currentVideoIdRef.current,
               switchVideo,
               serviceLink: (): string => serviceLinkRef.current,
+              resolveProduct: (productId: string): LBProduct | null =>
+                resolveRecommendationProduct(channelGoodsRef.current, channelOtherGoodsRef.current, productId),
               subtitleCues,
               liveNow,
               liveDuration,

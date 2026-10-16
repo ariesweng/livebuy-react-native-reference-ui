@@ -10,7 +10,9 @@
 // `ReferenceUIDesign`) — the assembly is UNCHANGED from when it lived inline in the
 // container, so behaviour is identical.
 
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
+import { HeaderCloseHitTargetContext } from '../moments/headerCloseHitTarget';
+import type { HeaderCloseHitTarget } from '../moments/headerCloseHitTarget';
 import type { ReactElement, RefObject } from 'react';
 import { Share, View } from 'react-native';
 
@@ -75,6 +77,12 @@ export interface LivebuyPlayerOverlaysProps {
    */
   serviceLink: () => string;
   /**
+   * productId → 真實 `LBProduct`（rb-rn-recommendation-resolve-real-product），容器以最新
+   * `onChannelChange` 的 `products` ∪ `otherGoods` 解析，轉給 `ProductSheetsView.resolveProduct`。
+   * 選填；未提供時推薦卡沿用精簡轉換。
+   */
+  resolveProduct?: (productId: string) => LBProduct | null;
+  /**
    * VOD CC 字幕 cue 清單（rb-react-native-subtitle-vtt-caption-display）——容器 `LivebuyPlayer` 抓取
    * + 解析 `channel.subtitle_url` 後持有的 React state，逐層以 prop 傳給 `PlayerShellView`（design.md
    * D1）。預設 `[]`。
@@ -117,6 +125,7 @@ export function LivebuyPlayerOverlays(props: LivebuyPlayerOverlaysProps): ReactE
     currentVideoId,
     switchVideo,
     serviceLink,
+    resolveProduct,
     subtitleCues = [],
     liveNow = null,
     liveDuration = '',
@@ -308,8 +317,14 @@ export function LivebuyPlayerOverlays(props: LivebuyPlayerOverlaysProps): ReactE
     else shell.onTapRailItem(kind);
   };
 
+  // fix-rn-error-screen-close-button-blocked: lets the error scrim forward a release on the header ✕
+  // (see `headerCloseHitTarget.ts`). Stable object for this overlay's lifetime; `onClose` follows the
+  // latest close resolution (the same exit as the shell's `onCloseRequest`).
+  const headerCloseHitTarget = useRef<HeaderCloseHitTarget>({ rect: null, onClose: null }).current;
+  headerCloseHitTarget.onClose = config.onDismiss ?? ((): void => safePlayerRef.unload());
+
   return (
-    <>
+    <HeaderCloseHitTargetContext.Provider value={headerCloseHitTarget}>
       {/* Surface 1 — player-shell chrome (header / rail / LIVE bottom bar / swipe). */}
       <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}>
         <PlayerShellView
@@ -444,6 +459,7 @@ export function LivebuyPlayerOverlays(props: LivebuyPlayerOverlaysProps): ReactE
           presented={productListPresented}
           onDismissList={(): void => setProductListPresented(false)}
           onOpenProduct={sheet.onOpenProduct}
+          resolveProduct={resolveProduct}
           onOpenCart={sheet.onOpenCart}
           onSelectVariant={sheet.onSelectVariant}
           onSetQty={sheet.onSetQty}
@@ -526,6 +542,6 @@ export function LivebuyPlayerOverlays(props: LivebuyPlayerOverlaysProps): ReactE
           onClosePlayer={moment.onClosePlayer}
         />
       </View>
-    </>
+    </HeaderCloseHitTargetContext.Provider>
   );
 }

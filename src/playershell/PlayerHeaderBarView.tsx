@@ -51,8 +51,10 @@
 // jsx automatic runtime — no `import React`. Returns `ReactElement` (NOT
 // JSX.Element, which is absent under @types/react 19).
 
-import type { ReactElement } from 'react';
+import { useContext, useRef } from 'react';
+import type { ReactElement, RefObject } from 'react';
 import { View, Pressable } from 'react-native';
+import { HeaderCloseHitTargetContext } from '../moments/headerCloseHitTarget';
 import { Text } from '../TightText';
 
 import type { ReferenceUITheme } from '../theme';
@@ -235,6 +237,16 @@ export interface PlayerHeaderBarProps {
  * values BY VALUE, then optional host-wired callbacks (each defaults to no-op).
  */
 export function PlayerHeaderBar(props: PlayerHeaderBarProps): ReactElement {
+  // fix-rn-error-screen-close-button-blocked: report the top-right button's window rect so the
+  // error scrim can forward a release on it (see `headerCloseHitTarget.ts`).
+  const hitTarget = useContext(HeaderCloseHitTargetContext);
+  const closeButtonRef = useRef<View>(null);
+  const reportCloseButtonRect = (): void => {
+    if (hitTarget == null) return;
+    closeButtonRef.current?.measureInWindow((x, y, width, height) => {
+      hitTarget.rect = { x, y, width, height };
+    });
+  };
   // rb-rn-i18n-string-table: subscribe to the reference-ui language so a runtime switch re-renders this surface.
   useReferenceUILanguage();
   // The host pill consumes title / hostName / isSubscribed / viewerCount /
@@ -296,7 +308,14 @@ export function PlayerHeaderBar(props: PlayerHeaderBarProps): ReactElement {
             <View style={{ width: 8 }} />
           </>
         ) : null}
-        {renderMinimizeButton(theme, onMinimize, showCloseIcon)}
+        {renderMinimizeButton(
+          theme,
+          onMinimize,
+          showCloseIcon,
+          // Only wired under a container (provider present) — previews / structural snapshots unchanged.
+          hitTarget != null ? closeButtonRef : undefined,
+          hitTarget != null ? reportCloseButtonRect : undefined,
+        )}
       </View>
     </View>
   );
@@ -637,6 +656,8 @@ function renderMinimizeButton(
   theme: ReferenceUITheme,
   onMinimize?: () => void,
   showCloseIcon = false,
+  ref?: RefObject<View | null>,
+  onLayout?: () => void,
 ): ReactElement {
   // PipGlyph = self-drawn frame + inset rect + directional arrow — the bottom-right floating
   // preview the minimize collapses into (parity iOS/Android `PipGlyph`, rb-rn-icon-parity-
@@ -651,6 +672,8 @@ function renderMinimizeButton(
     glyph,
     onMinimize,
     minimizeButtonAccessibilityLabel(showCloseIcon),
+    ref,
+    onLayout,
   );
 }
 
@@ -701,9 +724,13 @@ function renderGlassIconButton(
   glyph: string | ReactElement,
   onPress?: () => void,
   accessibilityLabel?: string,
+  ref?: RefObject<View | null>,
+  onLayout?: () => void,
 ): ReactElement {
   return (
     <Pressable
+      ref={ref}
+      onLayout={onLayout}
       onPress={onPress}
       testID={role === 'minimize' ? LBTestIDs.playerMinimize : undefined}
       accessibilityLabel={accessibilityLabel}

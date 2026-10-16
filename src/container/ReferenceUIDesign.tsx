@@ -45,7 +45,7 @@
 
 import type { ReactElement, RefObject } from 'react';
 
-import type { LivebuyPlayerCoreRef, LBVideoItem } from 'livebuy-react-native';
+import type { LivebuyPlayerCoreRef, LBVideoItem, LBProduct } from 'livebuy-react-native';
 import type { PlayerTemplateAttachment, DefaultWidgetTemplate } from 'livebuy-react-native-ui';
 
 import type { ReferenceUITheme } from '../theme';
@@ -104,6 +104,11 @@ export interface PlayerOverlayContext {
    * `<LivebuyPlayerCore onChannelChange>` subscription; dropin-service-link-default-browser-rn).
    */
   readonly serviceLink: () => string;
+  /**
+   * productId → 真實 `LBProduct`（rb-rn-recommendation-resolve-real-product）。選填，未提供時
+   * 「更多商品」推薦卡沿用精簡轉換。
+   */
+  readonly resolveProduct?: (productId: string) => LBProduct | null;
   /**
    * VOD CC 字幕 cue 清單（rb-react-native-subtitle-vtt-caption-display）——container-held React
    * state, fetched + parsed from `channel.subtitle_url` after `onChannelChange`; threaded down to
@@ -255,6 +260,7 @@ export const MinimalDesign: ReferenceUIDesign = {
         currentVideoId={context.currentVideoId}
         switchVideo={context.switchVideo}
         serviceLink={context.serviceLink}
+        resolveProduct={context.resolveProduct}
         subtitleCues={context.subtitleCues}
         liveNow={context.liveNow}
         liveDuration={context.liveDuration}

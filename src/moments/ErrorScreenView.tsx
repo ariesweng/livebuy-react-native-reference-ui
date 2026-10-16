@@ -56,6 +56,8 @@
 // full-bleed scrim regardless of the light surface theme (design-literal). No
 // animation / no randomness so the structural baseline is stable.
 
+import { useContext } from 'react';
+import { HeaderCloseHitTargetContext, headerCloseHit } from './headerCloseHitTarget';
 import type { ReactElement } from 'react';
 import { View, Pressable } from 'react-native';
 import { Text } from '../TightText';
@@ -253,6 +255,9 @@ export function ErrorScreen(props: ErrorScreenProps): ReactElement {
   // one, or when the host already handled the edges → `safeAreaPadding` is an empty object).
   const safeAreaPadding = lbSafeAreaPaddingStyle(useLBSafeAreaInsets());
   const { theme, error, onRetry, onDismiss } = props;
+  // fix-rn-error-screen-close-button-blocked: the scrim keeps blocking every touch; a release on the
+  // header ✕ underneath is forwarded to the container's close exit (error buttons claim first).
+  const hitTarget = useContext(HeaderCloseHitTargetContext);
   const copy = errorCopyFor(error.kind);
   const tint = copy.accentTinted ? theme.accent : DANGER;
 
@@ -261,6 +266,16 @@ export function ErrorScreen(props: ErrorScreenProps): ReactElement {
   return (
     <View
       testID={LBTestIDs.momentError}
+      // Only wired under a container (provider present) — previews / structural snapshots unchanged.
+      onStartShouldSetResponder={hitTarget != null ? (): boolean => true : undefined}
+      onResponderRelease={
+        hitTarget != null
+          ? (e): void => {
+              const { pageX, pageY } = e.nativeEvent;
+              if (headerCloseHit(pageX, pageY, hitTarget.rect)) hitTarget.onClose?.();
+            }
+          : undefined
+      }
       style={{
         flex: 1,
         backgroundColor: SCRIM,

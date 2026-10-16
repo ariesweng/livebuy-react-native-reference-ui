@@ -38,6 +38,7 @@ import { Animated, View } from 'react-native';
 import { Text } from '../TightText';
 
 import { CheckGlyph } from './CheckGlyph';
+import { CloseGlyph } from '../widget/CloseGlyph';
 import { LBTestIDs } from '../testing/LBTestIDs';
 import type { ReferenceUITheme } from '../theme';
 import { text, useReferenceUILanguage } from '../i18n';
@@ -57,12 +58,21 @@ const CHECK_GLYPH_SIZE = 13;
 /** The confirmation label (design default 「已加入購物車」). */
 const DEFAULT_LABEL = (): string => text('cart_added_toast');
 
+/** rb-rn-cart-add-failure-toast — failure copy + danger badge (design `LBPCartToast variant='error'`). */
+const ERROR_LABEL = (): string => text('detail_add_failed');
+const DANGER = '#EB6E5F';
+
 /** Props for the family-3 add-to-cart success toast. */
 export interface CartToastViewProps {
   /** The resolved reference-ui theme (FIRST, always). The accent drives the checkmark ring. */
   readonly theme: ReferenceUITheme;
-  /** The confirmation label (design default 「已加入購物車」). */
+  /** The label (default 「已加入購物車」, or the failure copy when {@link isError}). */
   readonly label?: string;
+  /**
+   * `true` → the add-to-cart FAILURE variant (rb-rn-cart-add-failure-toast, design
+   * `LBPCartToast variant='error'`): danger `#EB6E5F` circle with ✕. Default `false`.
+   */
+  readonly isError?: boolean;
 }
 
 /**
@@ -74,7 +84,8 @@ export interface CartToastViewProps {
 export function CartToastView(props: CartToastViewProps): ReactElement {
   // rb-rn-i18n-string-table: subscribe to the reference-ui language so a runtime switch re-renders this surface.
   useReferenceUILanguage();
-  const { theme, label = DEFAULT_LABEL() } = props;
+  const { theme, isError = false } = props;
+  const label = props.label ?? (isError ? ERROR_LABEL() : DEFAULT_LABEL());
   const fontScale = theme.fontScale;
 
   // Checkmark badge entrance bounce (parity iOS `checkScale` spring / Android `Animatable`
@@ -117,14 +128,18 @@ export function CartToastView(props: CartToastViewProps): ReactElement {
           width: CHECK_SIZE,
           height: CHECK_SIZE,
           borderRadius: CHECK_SIZE / 2,
-          backgroundColor: theme.accent,
+          backgroundColor: isError ? DANGER : theme.accent,
           alignItems: 'center',
           justifyContent: 'center',
           marginRight: 9,
           transform: [{ scale: checkScale }],
         }}
       >
-        <CheckGlyph color={ON_GLASS_TEXT} size={CHECK_GLYPH_SIZE} />
+        {isError ? (
+          <CloseGlyph color={ON_GLASS_TEXT} size={CHECK_GLYPH_SIZE} />
+        ) : (
+          <CheckGlyph color={ON_GLASS_TEXT} size={CHECK_GLYPH_SIZE} />
+        )}
       </Animated.View>
       <Text style={{ color: ON_GLASS_TEXT, fontSize: 13.5 * fontScale, fontWeight: '700' }}>
         {label}

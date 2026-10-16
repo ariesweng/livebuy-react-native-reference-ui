@@ -230,6 +230,13 @@ export interface ProductSheetsViewProps {
    * opens the detail itself — the open is the host's / core's job.
    */
   readonly onOpenProduct?: (product: LBProduct) => void;
+  /**
+   * productId → the channel's REAL `LBProduct` for a「更多商品」recommendation tap
+   * (rb-rn-recommendation-resolve-real-product, parity iOS / Android / Flutter). The turnkey
+   * container backs it with the latest `onChannelChange` `products` ∪ `otherGoods`. Absent
+   * (demo / snapshots) or a `null` return → the tap falls back to `recommendationAsDisplayProduct`.
+   */
+  readonly resolveProduct?: (productId: string) => LBProduct | null;
   /** Host-wired cart-CTA tap (also forwarded to `template.openCart()` via the model). */
   readonly onOpenCart?: () => void;
   /** Host-wired variant chip tap (also forwarded to `template.selectVariant`). */
@@ -353,6 +360,7 @@ export function ProductSheetsView(props: ProductSheetsViewProps): ReactElement {
     theme,
     live = false,
     onOpenProduct,
+    resolveProduct,
     onOpenCart,
     onSelectVariant,
     onSetQty,
@@ -482,17 +490,33 @@ export function ProductSheetsView(props: ProductSheetsViewProps): ReactElement {
   // cancel+re-arm). The unmount effect clears the timer.
   const cartCount = model.cartCTA.count;
   const [cartToastVisible, setCartToastVisible] = useState(false);
+  // rb-rn-cart-add-failure-toast: whether the visible toast is the FAILURE variant.
+  const [cartToastIsError, setCartToastIsError] = useState(false);
   const lastCartCountRef = useRef<number>(-1);
   const cartToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const flashCartToast = (isError: boolean): void => {
+    setCartToastIsError(isError);
+    setCartToastVisible(true);
+    if (cartToastTimerRef.current != null) clearTimeout(cartToastTimerRef.current);
+    cartToastTimerRef.current = setTimeout(() => setCartToastVisible(false), 1800);
+  };
   useEffect(() => {
     const last = lastCartCountRef.current;
     lastCartCountRef.current = cartCount;
     // First pass (un-seeded watermark) or a non-rise (dedup / clear) → seed / track, no toast.
     if (last < 0 || cartCount <= last) return;
-    setCartToastVisible(true);
-    if (cartToastTimerRef.current != null) clearTimeout(cartToastTimerRef.current);
-    cartToastTimerRef.current = setTimeout(() => setCartToastVisible(false), 1800);
+    flashCartToast(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- flashCartToast only touches setters/refs
   }, [cartCount]);
+  // rb-rn-cart-add-failure-toast: a genuine add failure (the template resets the flag to false at
+  // every attempt and notifies, so each failure is a fresh false→true change) flashes the ERROR
+  // toast; the detail stays open and 加入購物車 again retries. Replaces the banner at the very bottom
+  // of the scroll body that users could not see (livebuy-flutter-sdk issue #1).
+  const addToCartFailed = model.addToCartFailed;
+  useEffect(() => {
+    if (addToCartFailed) flashCartToast(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- flashCartToast only touches setters/refs
+  }, [addToCartFailed]);
   useEffect(
     () => () => {
       if (cartToastTimerRef.current != null) clearTimeout(cartToastTimerRef.current);
@@ -595,15 +619,16 @@ export function ProductSheetsView(props: ProductSheetsViewProps): ReactElement {
     // rb-rn-recommendation-product-intro-carry-through: cache brief/description BEFORE forwarding
     // onOpenProduct, so ProductSheetsModel.briefForProduct/.descriptionForProduct can fall back to
     // it once the template's productDetailState flips to this recommendation's productId (the
-    // PRIMARY products-snapshot lookup misses for an otherGoods-sourced product — see
-    // recommendationBreadcrumb.ts's file header for why RN structurally cannot resolve a fuller
-    // LBProduct here).
+    // PRIMARY products-snapshot lookup misses for an otherGoods-sourced product). Kept even now that
+    // `resolveProduct` can return the real product: it is the fallback for a `null` resolve.
     recommendationCacheRef.current.set(recommendation.productId, {
       brief: recommendation.brief ?? '',
       description: recommendation.description ?? '',
     });
     setActionMode(mode);
-    onOpenProduct?.(recommendationAsDisplayProduct(recommendation));
+    // rb-rn-recommendation-resolve-real-product: the REAL product (full specs / stock / videoId)
+    // when the container can resolve it; else the presentation-only conversion, as before.
+    onOpenProduct?.(resolveProduct?.(recommendation.productId) ?? recommendationAsDisplayProduct(recommendation));
   };
 
   // Forward a cart-CTA tap → `template.openCart()` (host passthrough; no-op for demo
@@ -980,7 +1005,7 @@ export function ProductSheetsView(props: ProductSheetsViewProps): ReactElement {
             alignItems: 'center',
           }}
         >
-          <CartToastView theme={theme} />
+          <CartToastView theme={theme} isError={cartToastIsError} />
         </View>
       ) : null}
     </View>

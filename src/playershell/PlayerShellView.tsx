@@ -1220,8 +1220,12 @@ export function PlayerShellView(props: PlayerShellViewProps): ReactElement {
   // import family-4's `MomentsModel` for a two-field read, see design.md Decision 2). Computed
   // BEFORE the `model.isUpcoming` early-return branch below so BOTH `<PlayerHeaderBar>` call
   // sites can read the SAME override.
+  // fix-rn-error-screen-close-button-blocked: the terminal error moment gets the SAME direct-close
+  // override (minimizing an unplayable video is meaningless).
   const endScreenActive =
-    template?.endScreenState.countdown != null || template?.endScreenState.endScreenVisible === true;
+    template?.endScreenState.countdown != null ||
+    template?.endScreenState.endScreenVisible === true ||
+    template?.playerErrorState != null;
   const headerCloseOverride = resolveEndScreenHeaderOverride({
     endScreenActive,
     showCloseIcon,

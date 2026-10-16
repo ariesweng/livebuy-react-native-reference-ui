@@ -71,6 +71,13 @@ export interface VodEndedCloseGate {
    * 開發模式下失效；「unmount 後不關閉」由容器的 mounted 旗標負責（見 `LivebuyPlayer.tsx`）。
    */
   cancel(): void;
+  /**
+   * rb-rn-vod-advance-exhausted-close：統一事件 `VIDEO_STATE_CHANGE` 帶 `advance_exhausted: true`（core
+   * 跳過了全部播不了的 next 候選）→ 這一段 `ended` 視為「無下一支」。狀態來源（view `onStateChange`）
+   * 與統一事件是兩條管道、先後不保證：已在 ended 段且尚未排程 → 立即重判；尚未進入 ended 段 → 記住旗標，
+   * 下一個 `ended` 開段時套用。任何非 `ended` 狀態清除旗標。
+   */
+  markAdvanceExhausted(inputs: () => Omit<VodEndedCloseInputs, 'state'>): void;
   /** Test-only 讀取窗（`*ForTesting` 命名）。 */
   hasPendingCloseForTesting(): boolean;
 }
@@ -94,28 +101,40 @@ export function createVodEndedCloseGate(options: VodEndedCloseGateOptions): VodE
   const debounceMs = options.debounceMs ?? VOD_ENDED_CLOSE_DEBOUNCE_MS;
   let pending: object | null = null;
   let inEndedEpisode = false;
+  let advanceExhausted = false;
+
+  const armIfShould = (inputs: () => Omit<VodEndedCloseInputs, 'state'>): void => {
+    const i = inputs();
+    if (!shouldArmVodEndedClose({ state: 'ended', ...i, hasNext: i.hasNext && !advanceExhausted })) return;
+    const token = {};
+    pending = token;
+    scheduler(debounceMs, () => {
+      if (pending !== token) return;
+      pending = null;
+      options.onClose();
+    });
+  };
 
   return {
     handleStateChange(state, inputs): void {
       if (state !== 'ended') {
         inEndedEpisode = false;
         pending = null;
+        advanceExhausted = false;
         return;
       }
       if (inEndedEpisode) return; // 同一段：判斷已鎖存
       inEndedEpisode = true;
-      if (!shouldArmVodEndedClose({ state, ...inputs() })) return;
-      const token = {};
-      pending = token;
-      scheduler(debounceMs, () => {
-        if (pending !== token) return;
-        pending = null;
-        options.onClose();
-      });
+      armIfShould(inputs);
+    },
+    markAdvanceExhausted(inputs): void {
+      advanceExhausted = true;
+      if (inEndedEpisode && pending == null) armIfShould(inputs);
     },
     cancel(): void {
       pending = null;
       inEndedEpisode = false;
+      advanceExhausted = false;
     },
     hasPendingCloseForTesting(): boolean {
       return pending != null;

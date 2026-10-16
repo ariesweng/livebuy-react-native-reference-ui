@@ -13,6 +13,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.16.0] - 2026-10-16
+
+> **reference-ui，minor，無 BREAKING。** peer `livebuy-react-native-ui` 由 `^1.14.0` 提高到 `^1.15.0`（以傳遞地要求 core `2.12.0`）。
+> 對應 livebuy-flutter-sdk issue #1／#2 的同款修正。
+
+### Fixed
+
+- **商品明細「更多商品」推薦卡改用真實商品**（`rb-rn-recommendation-resolve-real-product`）：點推薦卡本體或加購鈕時，依商品 id 從目前影片的
+  商品與 `other_goods` 找真實商品（找不到才用推薦卡資料），明細有規格與真實庫存、加購會送出 `CART_ADD_REQUEST`。需 core `2.12.0` 帶的
+  `other_goods`。
+- **加購失敗改顯示失敗 toast**（`rb-rn-cart-add-failure-toast`）：紅色圓底 ✕「加入購物車失敗，請稍後再試」，明細保持開啟、再按即重試；
+  明細底部失敗橫幅與重試鈕移除（`ProductDetailSheetView` 的 `addToCartFailed` prop 保留相容）。`CartToastView` 新增 `isError` prop。
+- **錯誤畫面右上角關閉鈕按不到**（`fix-rn-error-screen-close-button-blocked`）：錯誤畫面攔截下層點擊，落在右上角按鈕範圍的點擊轉為關閉；
+  錯誤期間右上角一律「直接關閉」。
+- **advance 下全部下一支都播不了時自動關閉播放器**（`rb-rn-vod-advance-exhausted-close`）：讀 `VIDEO_STATE_CHANGE` 的 `advance_exhausted: true`
+  （原生 core `4.30.0` 起才送出）。
+
+> **驗證範圍**：三套件 `npm run typecheck` 與 `npx jest` 全套通過。**以上 reference-ui 修正皆未經真機或模擬器實測。**
+
 ## [1.15.0] - 2026-10-15
 
 > **reference-ui，minor，無 BREAKING。** 文案改走五語系字串表並可在執行中切換語言；新增兩個依語言取值的函式、舊常數

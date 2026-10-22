@@ -13,6 +13,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.16.1] - 2026-10-22
+
+> **reference-ui，patch，無 BREAKING。** 公開 API 不變，peer 不變（`livebuy-react-native-ui` `^1.15.0`）。core `2.12.2`／ui `1.15.2` 不變。
+
+### Fixed
+
+- **drop-in 容器重試取得 SDKConfig 全部失敗後不再永久空白**（`rb-rn-container-sdk-config-gave-up-fallback`）：`LivebuyWidget`／
+  `LivebuyPlayer`／`LivebuyLiveEntry` 重試 34 次（約 31.5 秒）仍取不到 SDKConfig 時，之前就停住，`LivebuyWidget` 不首載也不啟動週期刷新，
+  host 之後才 configure 也補不回來。現在改退回內建的預設設定（不匯出），`LivebuyWidget` 照常首載並啟動週期刷新，host 晚 configure 時
+  下一次刷新即載入列表；`listRefreshInterval: 0` 時只首載一次。放棄後主題維持預設色、不再補查（與 Flutter 相同）。
+
+> **驗證範圍**：`npm run typecheck` 與新增的 `jest` 測試通過。**未經真機或模擬器實測。**
+
 ## [1.16.0] - 2026-10-16
 
 > **reference-ui，minor，無 BREAKING。** peer `livebuy-react-native-ui` 由 `^1.14.0` 提高到 `^1.15.0`（以傳遞地要求 core `2.12.0`）。

@@ -10,6 +10,12 @@
 //
 // The lookup now retries on rejection, on a bounded schedule, until it resolves or the container
 // unmounts. An explicit `config.sdkConfig` still wins and issues no lookup at all.
+//
+// When every retry has failed (rb-rn-container-sdk-config-gave-up-fallback, parity Flutter
+// `onGaveUp` / iOS / Android "skip first load, keep the periodic refresh"), the container no longer
+// stays without a config: `useSdkConfig` settles on {@link LB_FALLBACK_SDK_CONFIG}, so the widget
+// still builds its template, attempts its first load and arms its periodic refresh — a host that
+// configures very late is then picked up by the next refresh tick. The theme stays the default.
 
 import { useEffect, useState } from 'react';
 
@@ -38,17 +44,38 @@ export function lbSdkConfigRetryDelayMs(attempt: number): number | null {
   return SDK_CONFIG_RETRY_RAMP_MS[attempt] ?? SDK_CONFIG_RETRY_STEADY_MS;
 }
 
+/**
+ * The SDKConfig a container settles on once every retry has failed: visibility / theme / behavior /
+ * layout all `null`, no extensions — the same shape as the native cores' "no cache + fetch failed"
+ * fallback default and Flutter's `SDKConfig.fallback` (`SDKConfig(schemaVersion: 1)`).
+ * `livebuy-react-native` exports no such constant (only the `SDKConfig` type), so it is built here
+ * from that type rather than adding one to the core. Frozen: shared by every container instance.
+ */
+export const LB_FALLBACK_SDK_CONFIG: SDKConfig = Object.freeze({
+  schemaVersion: 1,
+  visibility: null,
+  theme: null,
+  behavior: null,
+  layout: null,
+  extensions: Object.freeze({}) as Record<string, unknown>,
+});
+
 /** Side effects of {@link resolveSdkConfigWithRetry}, injected so the loop is testable. */
 export interface SdkConfigResolutionDeps {
   readonly getSdkConfig: () => Promise<SDKConfig>;
   readonly schedule: (run: () => void, delayMs: number) => unknown;
   readonly cancelSchedule: (handle: unknown) => void;
   readonly onResolved: (config: SDKConfig) => void;
+  /**
+   * Called at most once, when the last retry in the budget has failed (never after cancel, never
+   * after `onResolved`). Optional — omitting it keeps the original "simply stop" behaviour.
+   */
+  readonly onGaveUp?: () => void;
 }
 
 /**
  * Ask for the SDKConfig; on rejection retry per {@link lbSdkConfigRetryDelayMs}. Calls
- * `onResolved` at most once. Returns a cancel function: after it runs nothing further is
+ * `onResolved` at most once; when every retry failed, calls `onGaveUp` (if given) once. Returns a cancel function: after it runs nothing further is
  * scheduled and a lookup still in flight is ignored.
  */
 export function resolveSdkConfigWithRetry(deps: SdkConfigResolutionDeps): () => void {
@@ -64,7 +91,10 @@ export function resolveSdkConfigWithRetry(deps: SdkConfigResolutionDeps): () => 
       .catch(() => {
         if (cancelled) return;
         const delay = lbSdkConfigRetryDelayMs(retriesIssued);
-        if (delay == null) return;
+        if (delay == null) {
+          deps.onGaveUp?.();
+          return;
+        }
         pending = deps.schedule(() => {
           pending = null;
           if (!cancelled) attemptLookup(retriesIssued + 1);
@@ -83,7 +113,9 @@ export function resolveSdkConfigWithRetry(deps: SdkConfigResolutionDeps): () => 
 
 /**
  * The SDKConfig for a container: `explicit` when the host supplied one, else
- * `LivebuySDK.getSdkConfig()` — retried while the SDK is not configured yet. `null` until resolved.
+ * `LivebuySDK.getSdkConfig()` — retried while the SDK is not configured yet. `null` until resolved;
+ * {@link LB_FALLBACK_SDK_CONFIG} once every retry has failed (it is NOT replaced if the host
+ * configures later — the widget's periodic refresh picks the list up; the theme stays default).
  */
 export function useSdkConfig(explicit: SDKConfig | null | undefined): SDKConfig | null {
   const [resolved, setResolved] = useState<SDKConfig | null>(explicit ?? null);
@@ -97,6 +129,7 @@ export function useSdkConfig(explicit: SDKConfig | null | undefined): SDKConfig 
       schedule: (run, delayMs) => setTimeout(run, delayMs),
       cancelSchedule: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
       onResolved: setResolved,
+      onGaveUp: () => setResolved(LB_FALLBACK_SDK_CONFIG),
     });
   }, [explicit]);
   return resolved;

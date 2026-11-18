@@ -37,7 +37,7 @@ import { text, useReferenceUILanguage } from '../i18n';
 
 /** Composer placeholder (「留言...」). */
 const COMMENT_PLACEHOLDER = (): string => text('chat_comment_placeholder');
-/** Send button accessibility label (「送出留言」; RN-only key, see rb-rn-i18n-string-table design.md). */
+/** Send button accessibility label (「發送」; RN-only key, see rb-rn-i18n-string-table design.md). */
 const SEND_A11Y_LABEL = (): string => text('chat_send_a11y');
 
 /**

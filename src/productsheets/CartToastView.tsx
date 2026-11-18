@@ -55,7 +55,7 @@ const CHECK_SIZE = 24;
 /** `CheckGlyph` icon size inside the accent-ring badge (parity Android `Modifier.size(13.dp)`). */
 const CHECK_GLYPH_SIZE = 13;
 
-/** The confirmation label (design default 「已加入購物車」). */
+/** The confirmation label (design default 「加入成功」). */
 const DEFAULT_LABEL = (): string => text('cart_added_toast');
 
 /** rb-rn-cart-add-failure-toast — failure copy + danger badge (design `LBPCartToast variant='error'`). */
@@ -66,7 +66,7 @@ const DANGER = '#EB6E5F';
 export interface CartToastViewProps {
   /** The resolved reference-ui theme (FIRST, always). The accent drives the checkmark ring. */
   readonly theme: ReferenceUITheme;
-  /** The label (default 「已加入購物車」, or the failure copy when {@link isError}). */
+  /** The label (default 「加入成功」, or the failure copy when {@link isError}). */
   readonly label?: string;
   /**
    * `true` → the add-to-cart FAILURE variant (rb-rn-cart-add-failure-toast, design
@@ -77,7 +77,7 @@ export interface CartToastViewProps {
 
 /**
  * The add-to-cart success toast: a dark-glass pill with an accent-ringed checkmark + a
- * confirmation label (「已加入購物車」). Pure presentation — the container drives presentation +
+ * confirmation label (「加入成功」). Pure presentation — the container drives presentation +
  * auto-dismiss; this surface only paints + (on mount) springs the checkmark badge in. It renders
  * correctly with no callbacks (none exist).
  */

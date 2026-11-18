@@ -275,7 +275,7 @@ export interface VideoInfoPanelProps {
    * Whether this video is a replay of a live broadcast that has already ended (design R44,
    * `rb-rn-video-info-panel-replay-copy`, `PlayerShellModel.isFinishedLiveReplay`) — when
    * {@link isLiveBroadcast} is `false`, this swaps the publishAt-row's status text between
-   * 「直播回放」(`true`) and 「點播影片」(`false`, default) — see {@link InfoContent}. Neither
+   * 「直播回放」(`true`) and 「影片」(`false`, default) — see {@link InfoContent}. Neither
    * state shows a date; `fields.publishAt` itself is unaffected, only this row's presentation.
    * **Default `false`**.
    *
@@ -623,7 +623,7 @@ function InfoContent(props: {
   isLiveBroadcast: boolean;
   /** Finished-live-replay copy flag (design R44) — see
    *  {@link VideoInfoPanelProps.isFinishedLiveReplay}. Only consulted when `isLiveBroadcast` is
-   *  `false`: `true` → "直播回放"; `false` (default) → "點播影片". Neither shows a date. */
+   *  `false`: `true` → "直播回放"; `false` (default) → "影片". Neither shows a date. */
   isFinishedLiveReplay: boolean;
   /** Subscribe-pill visibility — forwarded verbatim to {@link ShopRow}; NO decision is made
    *  here (the ONE default lives on {@link VideoInfoPanelProps.showSubscribe}). */
@@ -641,7 +641,7 @@ function InfoContent(props: {
           rb-rn-video-info-panel-replay-copy), NONE of which show a date any more:
             isLiveBroadcast === true                          → "直播中" badge only
             isLiveBroadcast === false && isFinishedLiveReplay  → "直播回放" (dim text)
-            isLiveBroadcast === false && !isFinishedLiveReplay → "點播影片" (dim text, default)
+            isLiveBroadcast === false && !isFinishedLiveReplay → "影片" (dim text, default)
           isLiveBroadcast takes priority when (legally but never in production) both flags are
           true. Always renders exactly one of the three — no longer gated on
           `publishAt.length > 0` (none of the branches read `publishAt` any more). */}

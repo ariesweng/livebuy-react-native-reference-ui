@@ -137,7 +137,7 @@ const PINNED_SWIPE_DX = 40;
 const SOLD_OUT_TEXT_COLOR = '#9A96A3';
 
 // Static localized copy (matching iOS `LiveOverlayChromeView` + `LBPGestureHint`).
-/** Host caption label ("主持人"). */
+/** Host caption label ("直播主"). */
 const HOST_CAPTION_LABEL = (): string => text('live_host_caption');
 /** Narrate-tag copy shown on the pinned card. Fixed literal — always「介紹中」，不受任何搶購場
  *  旗標影響（撤回 rb-rn-flash-sale-live-signal-wiring 的「開標中」二選一變體，
@@ -656,7 +656,7 @@ function pinnedCard(
 
 /**
  * Centered white-on-dark host caption (`LBLiveHostCaption`). Translucent dark
- * card with a "主持人" label + the host caption copy (2-line clamp).
+ * card with a "直播主" label + the host caption copy (2-line clamp).
  */
 function hostCaptionOverlay(theme: ReferenceUITheme, caption: string): ReactElement {
   return (

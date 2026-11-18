@@ -13,6 +13,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.17.0] - 2026-11-18
+
+> **reference-ui，minor，無 BREAKING。** 公開 API 不變，peer 不變（`livebuy-react-native-ui` `^1.15.0`）。core `2.12.2`／ui `1.15.2` 不變。
+> host 的 UI 測試（含 jest snapshot）若寫死 drop-in 顯示文字需更新。
+
+### Changed
+
+- **drop-in 文案對齊網頁版用字**（五語系字串表，只改值；key 與佔位符不變）：網頁前端在同一畫面已有譯文時改用網頁版用字，並套用
+  翻譯組回覆，與 iOS／Android `4.31.0` 相同。
+  - 繁中／簡中 11 個 key，例如結束畫面「下一部影片將在 {seconds} 秒後播放」「立即播放」、聊天室「最新留言」、暱稱撞名「暱稱已存在」、
+    規格提示「請選擇規格」、商品搜尋「搜尋商品」。
+  - 英文／馬來文／印尼文／簡中 94 個值：「直播」馬來／印尼文改 `Langsung`、簡中「留言」改「评论」、暱稱馬來文改 `nama samaran`、
+    有網頁對應的文字大小寫跟網頁版。
+  - 翻譯組回覆後 44 個值：主播標籤「主持人」→「直播主」（en `Streamer`、ms-MY `Penstrim`、id-ID `Streamer`）、加入購物車提示
+    「加入成功」、中獎／活動入口朗讀文字「領獎」「活動」、領獎確認提醒句、商品列表標題 en `Sales Products`、補貨按鈕 en
+    `Restock Update`／`Update Activated`、使用條款 ms-MY `Syarat Penggunaan` 等。RN 留言送出鈕朗讀文字「送出留言」→「發送」。
+- SDK 自身譯文 4 條：聯繫商家確認句、加入購物車失敗提示改用全形標點；庫存剩餘、已加入聊天室的馬來文改為較自然的說法。
+
+> **驗證範圍**：`npm run typecheck`、`npx jest`（含更新後的 snapshot）通過。**未經真機或模擬器實測。**
+
 ## [1.16.1] - 2026-10-22
 
 > **reference-ui，patch，無 BREAKING。** 公開 API 不變，peer 不變（`livebuy-react-native-ui` `^1.15.0`）。core `2.12.2`／ui `1.15.2` 不變。

@@ -352,7 +352,7 @@ export function NotifyRestockSheet(props: NotifyRestockSheetProps): ReactElement
     // Notice footer (補貨 CTA — design LBPButton kind="outline"). PINNED at the bottom of the
     // scaffold, above a top hairline (design `borderTop`). A SINGLE full-width outline/filled
     // accent CTA (parity iOS/Android): off = transparent fill + 1.5pt accent border + bell +
-    // 「補貨通知我」(accent); on = accent fill + bell + 「已開啟補貨通知」(white). Tapping forwards
+    // 「補貨通知我」(accent); on = accent fill + bell + 「已開啟通知」(white). Tapping forwards
     // `onToggleNotice` (a no-op when omitted). RESTOCK-NOTIFY ONLY — no AWAIT switch.
     <View
       style={{

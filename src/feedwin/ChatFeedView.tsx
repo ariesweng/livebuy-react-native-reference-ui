@@ -249,7 +249,7 @@ function chatMessageLineHeight(fontSize: number): number {
 
 /** 立即參加 CTA label (rb-rn-chat-message-line-restyle, design R30 — was 加入活動). */
 const JOIN_LABEL = (): string => text('common_join_now');
-/** Return-to-latest pill label (「最新訊息」). */
+/** Return-to-latest pill label (「最新留言」). */
 const RETURN_TO_LATEST_LABEL = (): string => text('chat_return_to_latest');
 /** Full-width name / message separator (「：」) — chat rows + pinned banner prefix. */
 const NAME_SEPARATOR = (): string => text('chat_name_separator');

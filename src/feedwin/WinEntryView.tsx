@@ -111,7 +111,7 @@ const LABEL_FONT_SIZE = 9;
 const LABEL_TEXT = (): string => text('win_entry_label');
 
 /**
- * Accessibility label (mirrors the design source's `aria-label`「查看中獎」) — string-table
+ * Accessibility label (mirrors the design source's `aria-label`「領獎」) — string-table
  * `win_entry_a11y` (rb-rn-parity-debt-closure, parity iOS `WinEntryView.winAccessibilityLabel` /
  * Android `WinEntry` content description; same pattern as `ActivityEntryView`'s `A11Y_LABEL`).
  */

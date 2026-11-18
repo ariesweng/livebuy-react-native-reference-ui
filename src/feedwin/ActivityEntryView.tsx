@@ -72,7 +72,7 @@ const LABEL_BACKGROUND = 'rgba(55,60,68,0.8)';
 const LABEL_FONT_SIZE = 9;
 /** Bottom label text — 「活動」(NOT「領獎」, the ONLY variant this component implements). */
 const LABEL_TEXT = (): string => text('win_entry_activity_label');
-/** Accessibility label (「參加活動」). */
+/** Accessibility label (「活動」). */
 const A11Y_LABEL = (): string => text('win_entry_activity_a11y');
 
 /** Props for the {@link ActivityEntry} surface. */

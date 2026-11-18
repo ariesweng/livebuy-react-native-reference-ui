@@ -627,7 +627,7 @@ function SheetHeader(props: {
 
 // MARK: - Expanded search header (`LBPSheetHeader` 展開態, parity iOS/Android/Flutter)
 
-/** bgSunken 膠囊（搜尋 glyph + TextInput「搜尋商品名稱」）+ 取消 accent 文字鈕。清除（x）鈕已移除——
+/** bgSunken 膠囊（搜尋 glyph + TextInput「搜尋商品」）+ 取消 accent 文字鈕。清除（x）鈕已移除——
  *  取消已同時收合搜尋列並清空 query，單獨的清除鈕是多餘的（rb-search-bar-cancel-only）。 */
 function SearchHeader(props: {
   theme: ReferenceUITheme;

@@ -61,7 +61,7 @@ export interface ContactMerchantModalProps {
 
 /**
  * The family-1「聯絡商家」confirm modal (`LBPAlertModal`). Renders a centered card
- * (title「聯繫商家」/ body「確定要開啟商城指定的客服連結嗎?」/ horizontal [取消][確定]
+ * (title「聯繫商家」/ body「確定要開啟商城指定的客服連結嗎？」/ horizontal [取消][確定]
  * footer) over a black-0.55 scrim. `onConfirm` proceeds to the host-wired service-link exit;
  * `onCancel` (or a scrim tap) just closes the modal. Renders with the default no-op actions.
  */

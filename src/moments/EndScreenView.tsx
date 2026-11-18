@@ -121,7 +121,7 @@ const RING_SEGMENTS = 12;
  * is retired). Parity iOS / Android `liveEndedLabel`.
  */
 const LIVE_ENDED_LABEL = (): string => text('end_live_ended');
-/** 「{seconds} 秒後自動播放下一支」countdown caption (single key + named placeholder). */
+/** 「下一部影片將在 {seconds} 秒後播放」countdown caption (single key + named placeholder). */
 const AUTO_PLAY_CAPTION = (seconds: number): string => text('end_auto_next', { seconds });
 const UNTITLED_NEXT = (): string => text('end_untitled_next');
 const CANCEL_LABEL = (): string => text('common_cancel');
@@ -292,7 +292,7 @@ export function EndScreen(props: EndScreenProps): ReactElement {
 // Mirrors `LBPEndScreen`'s countdown branch (moments.jsx 180-235):
 //   • 「— 直播已結束 —」rule-flanked label.
 //   • a 150×(9:16) preview card of `next[0]` with a centered countdown ring.
-//   • 「{remain} 秒後自動播放下一支」+ the next title (2-line clamp) + the design's
+//   • 「下一部影片將在 {remain} 秒後播放」+ the next title (2-line clamp) + the design's
 //     「{shopName} · {duration}」meta line.
 //   • 取消 (outline) / 立即觀看 (accent, play glyph) buttons.
 

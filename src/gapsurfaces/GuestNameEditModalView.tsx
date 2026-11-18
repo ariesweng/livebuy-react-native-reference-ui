@@ -153,7 +153,7 @@ export interface GuestNameEditModalProps {
    * The most recent checkName-gated submit failure, or `null` (no failure / cleared)
    * (rb-rn-nickname-taken-inline-error). Default `null` (snapshot-neutral). Bound BY VALUE from
    * the container's `NicknamePromptController.submitFailure`. `'taken'` → the name was rejected
-   * by checkName (shows a specific「此暱稱已被使用」message); `'other'` → any other rejection
+   * by checkName (shows a specific「暱稱已存在」message); `'other'` → any other rejection
    * (shows a generic retry message). Drives an inline error `Text` below the input row; `null`
    * renders nothing extra.
    */

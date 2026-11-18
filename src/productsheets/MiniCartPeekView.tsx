@@ -40,7 +40,7 @@
 // draws a solid placeholder with a monogram (host can swap in a real image). The
 // rest mirrors `LBPMiniCart`: the white card surface, the single-line name, the
 // price line (`已售完` when `soldOut === 1`, else `priceShow`), and the trailing
-// close button. NO「已加入購物車」confirmation line (the design's `LBPMiniCart` has
+// close button. NO「加入成功」confirmation line (the design's `LBPMiniCart` has
 // none — the peek's mere appearance is the "added" signal).
 //
 // WHITE-CARD RESTYLE (rb-rn-vod-live-product-card-restyle, design re-sync R31):

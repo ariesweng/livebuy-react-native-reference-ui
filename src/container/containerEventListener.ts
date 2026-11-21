@@ -32,6 +32,15 @@
 // jest `react-native` mock 不提供 `NativeModules` → 整個測試檔載不起來。注入讓多工器與 hook
 // 可在無 native bridge 的環境下獨立單元測試。
 //
+// 同一 host handler 去重（rb-rn-container-listener-dedupe）：多個容器（例如 `LivebuyWidget` 與
+// `CollapsibleLivebuyPlayer`）常被 host 傳入**同一個** `config.eventListener` 函式。fan-out 若照
+// 訂閱者逐一轉發，該函式每個事件會被呼叫 N 次（N = 持有它的容器數）。因此每次派送建立一個
+// `SdkEventDispatch`（本輪已呼叫過的 host handler 集合），hook 在呼叫 host handler 前先查集合：
+// 同一個函式（以 identity 判斷）本輪只呼叫一次，由插入順序最早、且本輪執行到 host 的容器呼叫；不同函式各收一次。
+// 去重**只**作用在 host 層——`internal`、`forward` 與 `subscribeSdkEvents` 的一般訂閱者照舊各自
+// 被呼叫。RN 的 host listener 是純通知（回傳 void；攔截型事件的同步回應在 native 端完成），所以
+// 少掉的重複呼叫不承載任何回傳 / 攔截語意。
+//
 // 邊界（明文不保證）：本多工器只涵蓋 **reference-ui 套件內部**的訂閱者。host 若在套件之外
 // 自己呼叫 core `registerListener`，仍與這一格相爭 —— 那是 core 單槽的既有契約（本層 MUST NOT
 // 改 `react-native/`），也正是 `LivebuyLiveEntry` 以注入式 `config.liveEndedSignal` 而非自行訂閱
@@ -45,6 +54,21 @@ import type { LBSdkEvent } from 'livebuy-react-native';
 export type SdkEventHandler = (event: LBSdkEvent) => void;
 
 /**
+ * 單輪派送的共享狀態（rb-rn-container-listener-dedupe）。多工器每收到一個 core 事件建立一份，
+ * 傳給本輪每個訂閱者；訂閱者之間藉此協調「同一個 host handler 本輪只呼叫一次」。
+ */
+export interface SdkEventDispatch {
+  /** 本輪已呼叫過的 host handler（identity）。 */
+  readonly hostsCalled: Set<SdkEventHandler>;
+}
+
+/**
+ * 多工器訂閱者。第二個參數是本輪派送狀態；一般 `SdkEventHandler`（只吃 event）也可直接訂閱，
+ * 會忽略它。
+ */
+export type SdkEventSubscriber = (event: LBSdkEvent, dispatch: SdkEventDispatch) => void;
+
+/**
  * core `registerListener` 的形狀（注入用）：吃一個 handler、回傳退訂函式。
  * 單槽語意由 core 擁有，本模組只保證「最多呼叫它一次」。
  */
@@ -53,7 +77,7 @@ export type RegisterListenerFn = (handler: SdkEventHandler) => () => void;
 // -- 單槽多工器 ---------------------------------------------------------------
 
 /** 目前所有 reference-ui 訂閱者。插入順序 = 派送順序。 */
-const subscribers = new Set<SdkEventHandler>();
+const subscribers = new Set<SdkEventSubscriber>();
 
 /** core 那一格的退訂函式；`null` 表示目前沒佔用（訂閱者計數為 0）。 */
 let releaseCoreSlot: (() => void) | null = null;
@@ -71,7 +95,7 @@ let releaseCoreSlot: (() => void) | null = null;
  */
 export function subscribeSdkEvents(
   register: RegisterListenerFn,
-  handler: SdkEventHandler,
+  handler: SdkEventSubscriber,
 ): () => void {
   subscribers.add(handler);
 
@@ -80,9 +104,11 @@ export function subscribeSdkEvents(
     // 容器卸載）不會讓 Set 迭代器爆掉。每個訂閱者獨立 `try/catch` —— 一個拋錯不得阻止其餘
     // 訂閱者收到同一個事件（隔離粒度就是「訂閱者之間」，放在別處都達不到這個保證）。
     releaseCoreSlot = register((event) => {
+      // 每輪一份：讓持有同一個 host handler 的多個容器本輪只呼叫它一次。
+      const dispatch: SdkEventDispatch = { hostsCalled: new Set<SdkEventHandler>() };
       for (const subscriber of Array.from(subscribers)) {
         try {
-          subscriber(event);
+          subscriber(event, dispatch);
         } catch {
           /* 一個訂閱者拋錯不得毀掉其他訂閱者，也不得逸出至 native emitter callback。 */
         }
@@ -127,6 +153,9 @@ export interface ContainerEventHandlers {
   /**
    * host 的 `config.eventListener`。**額外**觀察者，MUST NOT 取代 view-model 的 template
    * routing。在 `internal` **之後**收到同一個事件。
+   *
+   * 多個容器持有同一個函式時（identity 相同），每個事件只會被呼叫一次——由訂閱順序最早、
+   * 且本輪確實執行到 host 這一步的容器呼叫（rb-rn-container-listener-dedupe）。
    */
   readonly host?: SdkEventHandler;
   /**
@@ -185,12 +214,18 @@ export function useContainerEventListener(
 
   useEffect(() => {
     if (!hasHandlers) return;
-    return subscribeSdkEvents(registerRef.current, (event) => {
+    return subscribeSdkEvents(registerRef.current, (event, dispatch) => {
       internalRef.current?.(event);
-      try {
-        hostRef.current?.(event);
-      } catch {
-        /* host listener 是觀察者：它拋錯不得破壞內部處理、也不得逸出至 native emitter。 */
+      // 派送當下才讀 ref：host 每 render 換 identity 時，去重比對的是「此刻」的函式。
+      const host = hostRef.current;
+      if (host != null && !dispatch.hostsCalled.has(host)) {
+        // 先標記再呼叫：即使 host 拋錯，本輪其他容器也不會再呼叫它一次。
+        dispatch.hostsCalled.add(host);
+        try {
+          host(event);
+        } catch {
+          /* host listener 是觀察者：它拋錯不得破壞內部處理、也不得逸出至 native emitter。 */
+        }
       }
       try {
         forwardRef.current?.(event);

@@ -57,6 +57,12 @@
 // `right` by `DRAG_HIT_SIDE_INSET` instead of going full-bleed — the taller zone would otherwise
 // swallow taps on the leaf header's `SheetHeaderCloseButton` (it renders AFTER `children`, so it
 // paints/hit-tests above it). See `sheetDragGesture.ts`'s `DRAG_HIT_SIDE_INSET` doc comment.
+//
+// rb-rn-sheet-bottom-anchor: the sliding container defaults to `BOTTOM_ANCHORED_SHEET_STYLE`
+// (absolute, `left/right/bottom: 0`, no `top` → content-sized, hugs the bottom edge) and always
+// carries `pointerEvents="box-none"`. A full-bleed container previously pinned the add-to-cart /
+// notify-restock / detail cards to the TOP of the screen (the measured card wrapper lays out from
+// the top) and its transparent area sat above the scrim, swallowing the tap-outside-to-dismiss.
 
 import { useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import { Animated, Easing, Pressable, View, type StyleProp, type ViewStyle } from 'react-native';
@@ -69,6 +75,43 @@ import { DRAG_HIT_HEIGHT, DRAG_HIT_SIDE_INSET, useSheetDragGesture } from './she
 const SCRIM_FADE_DURATION = 320;
 /** Full-bleed dim scrim color (parity iOS `Color.black.opacity(0.55)`). */
 const SCRIM_COLOR = 'rgba(0,0,0,0.55)';
+
+/**
+ * The default (and recommended) positioning for the SLIDING card container
+ * (rb-rn-sheet-bottom-anchor): absolute, pinned to the bottom edge, full width, NO `top` — so the
+ * container is content-sized (the leaf's `SheetScaffold` height / `maxHeight` decides it) and
+ * hugs the bottom of the screen, parity iOS `VStack { Spacer(minLength: 0); card }` / Android
+ * `Modifier.align(Alignment.BottomCenter)` / Flutter `Align(alignment: Alignment.bottomCenter)`.
+ *
+ * A full-bleed `{ top: 0, bottom: 0 }` container MUST NOT be used: the card wrapper inside it is
+ * content-sized and lays out from the TOP, so the card would render pinned to y = 0 (under the
+ * status bar) instead of rising from the bottom, and the container's transparent area would sit
+ * above the scrim. `SlideUpSheet` translates by its OWN measured height, so with this style the
+ * slide distance is exactly the card height (card starts / ends just below the bottom edge).
+ */
+export const BOTTOM_ANCHORED_SHEET_STYLE: Readonly<ViewStyle> = {
+  position: 'absolute',
+  left: 0,
+  right: 0,
+  bottom: 0,
+};
+
+/**
+ * Pure resolver for the sliding container's style (rb-rn-sheet-bottom-anchor): the caller's
+ * `sheetStyle` when given, otherwise {@link BOTTOM_ANCHORED_SHEET_STYLE}. Exported for tests.
+ */
+export function resolveSheetStyle(sheetStyle: StyleProp<ViewStyle> | undefined): StyleProp<ViewStyle> {
+  return sheetStyle ?? BOTTOM_ANCHORED_SHEET_STYLE;
+}
+
+/**
+ * The `pointerEvents` value the presenter puts on the sliding container
+ * (rb-rn-sheet-bottom-anchor): `'box-none'` — the container itself never becomes a touch target,
+ * only its children (the card + drag hit-zone) do, so any part of the container that is not card
+ * lets a tap fall through to the scrim (→ `onDismiss`). Defence in depth on top of the
+ * content-sized {@link BOTTOM_ANCHORED_SHEET_STYLE}.
+ */
+export const SLIDING_SHEET_POINTER_EVENTS = 'box-none' as const;
 
 /** Props for the {@link BottomSheetPresenter}. */
 export interface BottomSheetPresenterProps {
@@ -88,8 +131,10 @@ export interface BottomSheetPresenterProps {
    */
   readonly onDismiss?: () => void;
   /**
-   * The positioning style for the SLIDING sheet card (e.g. `{ position: 'absolute',
-   * left: 0, right: 0, bottom: 0 }`). Forwarded to {@link SlideUpSheet}.
+   * The positioning style for the SLIDING sheet card. Forwarded to {@link SlideUpSheet}.
+   * Omitted → {@link BOTTOM_ANCHORED_SHEET_STYLE} (`{ position: 'absolute', left: 0, right: 0,
+   * bottom: 0 }`). Callers SHOULD pass that constant (or omit the prop); a full-bleed
+   * `top: 0 … bottom: 0` style pins the card to the top of the screen (rb-rn-sheet-bottom-anchor).
    */
   readonly sheetStyle?: StyleProp<ViewStyle>;
   /**
@@ -181,7 +226,13 @@ export function BottomSheetPresenter(props: BottomSheetPresenterProps): ReactEle
           `resizable` opt-in): `onLayout` latches this presentation's floor height, and an
           invisible drag hit-zone is laid OVER the top of `children` (roughly the leaf's own
           grab-handle band). */}
-      <SlideUpSheet visible={visible} style={sheetStyle}>
+      <SlideUpSheet
+        visible={visible}
+        style={resolveSheetStyle(sheetStyle)}
+        // rb-rn-sheet-bottom-anchor — the container is never itself a touch target; only the card
+        // (children + drag hit-zone) is. Anything outside the card falls through to the scrim.
+        pointerEvents={SLIDING_SHEET_POINTER_EVENTS}
+      >
         <View style={{ position: 'relative' }} onLayout={cardOnLayout}>
           {children}
           <View

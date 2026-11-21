@@ -11,6 +11,7 @@ import { AppState, Dimensions, Platform, StyleSheet, View } from 'react-native';
 import Video from 'react-native-video';
 
 import { LBTestIDs } from '../testing/LBTestIDs';
+import { useLivebuyPlayerSessionActive } from '../container/livebuyPlayerSession';
 import { LivebuyPreviewScrollSignalContext } from './livebuyPreviewScrollSignal';
 import { LivebuyRouteVisibilityContext } from './livebuyRouteVisibility';
 import { LivebuyWidgetVisibility } from './livebuyWidgetVisibility';
@@ -167,6 +168,19 @@ import { PreviewPlaybackController, isCardOnScreen } from './previewPlaybackCont
 //     太長會讓正在滾入的卡撞上限。一次長 fling 的暫時超額由既有 `onError` 有上限重試吸收。
 //   • iOS(`pause` 政策)訂閱捲動訊號後的重量只讓 `paused` 更準(捲動當下離屏即暫停),不卸載、不排任何
 //     timer,`<Video>` props 逐字不變。
+//
+// ─── PLAYER SESSION UNMOUNT(rb-rn-widget-preview-pip-unmount)────────────────────────────────
+// Android 上 `react-native-video` 6.19.2 每個 `<Video>` 初始化時無條件向 Activity 註冊 PiP 模式監聽
+// (`ReactExoplayerView.java` `initializePlayer` → `PictureInPictureUtil.addLifecycleEventListener`),
+// 進 PiP 時把自己的影片 view 搬到 `android.R.id.content` 撐滿、其他子 view 設 GONE,離開時依記錄還原;
+// 多個實例互搶 → drop-in 播放器播放中進 PiP 時 PiP 視窗顯示卡片預覽、點回 App 時
+// `IndexOutOfBoundsException` 閃退。`paused` 不會解除監聽,只有卸載(`onDropViewInstance` →
+// `cleanUpResources()` → `releasePlayer()` → `pipListenerUnsubscribe.run()`)會。
+// 修法:任一 `LivebuyPlayer` 掛載中(`useLivebuyPlayerSessionActive()`,見
+// `container/livebuyPlayerSession.ts`;縮小成浮卡仍算)→ 本元件**不渲染 `<Video>`**,兩個政策
+// (release / pause)、兩個 RN 平台一律如此;session 結束後重新渲染(新的 native view),掛載後
+// `gate.reapply()` 依當下各軸決定 `paused`。`CarouselCardView` 在 session 期間另改顯示 cover 靜圖
+// (不掛本元件);本元件內的閘門是給任何呼叫端的同一道保證。
 
 /** 讀取當前 App 前景狀態(`AppState.currentState` 可能為 null,保守視為前景)。 */
 function isForegroundNow(): boolean {
@@ -182,6 +196,8 @@ export function LoopingVideoView(props: { uri: string; borderRadius?: number }):
   const routeVisible = useContext(LivebuyRouteVisibilityContext);
   const scrollSignal = useContext(LivebuyPreviewScrollSignalContext);
   const policy = previewDecoderPolicyFor(Platform.OS);
+  // Livebuy 播放器 session 軸(見檔頭 PLAYER SESSION UNMOUNT 段):進行中 → 不渲染 `<Video>`。
+  const playerSessionActive = useLivebuyPlayerSessionActive();
 
   // 單一 gate 命令式驅動 `<Video>` 的 `paused`(取代硬寫 `paused={false}`)。
   // 容器 ref 供 `measureInWindow` 取 window-relative frame(離屏軸,RN 內建量測)。
@@ -342,7 +358,10 @@ export function LoopingVideoView(props: { uri: string; borderRadius?: number }):
   // `<Video>` 是否在樹上:pause 政策(iOS)恆常駐;release 政策(Android)只在 route 可見、離屏軸
   // 已知在螢幕上(`onScreen === true`;null = 從未量到可見 → 從不掛載,false = 離屏已釋放)且非
   // suspended 時渲染——route-hidden / 離屏釋放 = 卸載釋放解碼器,失敗等待重試 / 已放棄 = placeholder 透出。
-  const videoRendered = policy === 'pause' || (routeVisible && onScreen === true && !suspended);
+  // Livebuy 播放器 session 進行中時兩個政策都不渲染(解除 react-native-video 的 PiP 監聽)。
+  const videoRendered =
+    !playerSessionActive &&
+    (policy === 'pause' || (routeVisible && onScreen === true && !suspended));
 
   // `<Video>` 掛載 / URL 變 / 重試、route 回來或離屏釋放後滾入重新掛載後:對(新的)native view 以當下
   // `foreground && onScreen && notCovered && routeVisible` 決策重套一次(不誤播離屏 / 背景 /

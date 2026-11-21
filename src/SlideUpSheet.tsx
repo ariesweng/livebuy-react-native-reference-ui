@@ -31,6 +31,13 @@ export interface SlideUpSheetProps {
   readonly style?: StyleProp<ViewStyle>;
   /** The sheet content. KEEP it stable through dismiss (pass the last content) so the slide-out has content. */
   readonly children: ReactNode;
+  /**
+   * Forwarded verbatim onto the sliding `Animated.View` (rb-rn-sheet-bottom-anchor).
+   * `BottomSheetPresenter` passes `'box-none'` so the sliding container itself is never a touch
+   * target — only its content (the card) is — and any transparent area of the container lets taps
+   * fall through to the scrim below. `undefined` (default) → the prop is not set, unchanged.
+   */
+  readonly pointerEvents?: 'box-none' | 'none' | 'box-only' | 'auto';
 }
 
 /**
@@ -39,7 +46,7 @@ export interface SlideUpSheetProps {
  * while hidden + unmounted. Mirrors the iOS / Android / Flutter sheet slide (design `lbp-sheet-in`).
  */
 export function SlideUpSheet(props: SlideUpSheetProps): ReactElement | null {
-  const { visible, style, children } = props;
+  const { visible, style, children, pointerEvents } = props;
   const anim = useRef(new Animated.Value(visible ? 1 : 0)).current;
   const [mounted, setMounted] = useState(visible);
   const [height, setHeight] = useState(0);
@@ -71,6 +78,7 @@ export function SlideUpSheet(props: SlideUpSheetProps): ReactElement | null {
     <Animated.View
       onLayout={(e: LayoutChangeEvent) => setHeight(e.nativeEvent.layout.height)}
       style={[style, { transform: [{ translateY }] }]}
+      pointerEvents={pointerEvents}
     >
       {children}
     </Animated.View>

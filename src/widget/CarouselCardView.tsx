@@ -175,6 +175,7 @@ import { scheduledDate, scheduledTime } from '../playershell/UpcomingCountdownVi
 // rb-rn-widget-upcoming-type（問題 6）：upcoming 改用後端 `type === 2`，移除 publishAtInFuture 時間 heuristic。
 import { RemoteImage } from '../productsheets/RemoteImage';
 import { LoopingVideoView } from './LoopingVideoView';
+import { useLivebuyPlayerSessionActive } from '../container/livebuyPlayerSession';
 import { PinGlyph } from './PinGlyph';
 import { PersonGlyph } from './PersonGlyph';
 
@@ -388,6 +389,9 @@ export interface CarouselCardViewProps {
 export function CarouselCardView(props: CarouselCardViewProps): ReactElement {
   // rb-rn-i18n-string-table: subscribe to the reference-ui language so a runtime switch re-renders this surface.
   useReferenceUILanguage();
+  // rb-rn-widget-preview-pip-unmount: while any `LivebuyPlayer` is mounted the animated preview is
+  // replaced by the cover photo (no `react-native-video` `<Video>` → no Android PiP-mode listener).
+  const playerSessionActive = useLivebuyPlayerSessionActive();
   const {
     theme,
     video,
@@ -438,8 +442,11 @@ export function CarouselCardView(props: CarouselCardViewProps): ReactElement {
             RemoteImage renders NOTHING (placeholder shows through; NO video/Image in the tree →
             structural snapshots unchanged); `live === true` + non-empty `video.cover` → the real
             cover photo over the placeholder (self-hides to placeholder on error). Sits BELOW the
-            kind badge / upcoming mask / product overlay so those still composite on top. */}
-        {live && video.preview !== '' ? (
+            kind badge / upcoming mask / product overlay so those still composite on top.
+            rb-rn-widget-preview-pip-unmount: while a Livebuy player session is on (any
+            `LivebuyPlayer` mounted, minimized included) the preview is unmounted and the cover path
+            renders instead; the preview mounts again when the session ends. */}
+        {live && video.preview !== '' && !playerSessionActive ? (
           <LoopingVideoView uri={video.preview} borderRadius={12} />
         ) : (
           <RemoteImage live={live} uri={video.cover} borderRadius={12} resizeMode="cover" />

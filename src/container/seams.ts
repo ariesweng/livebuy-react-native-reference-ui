@@ -594,13 +594,18 @@ export function buildSheetHandlers(deps: SeamDeps): {
     // host 設 config.onOpenProduct 完全取代（兩個出口皆不再由容器呼叫）。
     onOpenProduct:
       config.onOpenProduct ?? ((product: LBProduct): void => defaultOpenProduct(deps, product)),
-    onOpenCart: config.onOpenCart ?? ((): void => attachment.openCart()),
-    onSelectVariant:
-      config.onSelectVariant ?? ((gi: number, oi: number): void => attachment.selectVariant(gi, oi)),
-    onSetQty: config.onSetQty ?? ((qty: number): void => attachment.setQty(qty)),
-    onInc: config.onInc ?? ((): void => attachment.incQty()),
-    onDec: config.onDec ?? ((): void => attachment.decQty()),
-    onAddToCart: config.onAddToCart ?? ((): void => void attachment.addToCart()),
+    // 購物車 / 規格 / 數量 / 加購（rb-rn-product-sheet-double-forward）：`ProductSheetsView` 的
+    // handleOpenCart / handleSelectVariant / handleSetQty / handleInc / handleDec / handleAddToCart
+    // **已經**先經 `ProductSheetsModel` 轉送到同一個 `attachment.template`，再呼叫這裡的 prop 作為
+    // host 的額外通知。故預設 MUST NOT 再呼叫 attachment（舊預設 `attachment.incQty()` 等會讓
+    // template 每次點擊收到兩次：數量 +2、加購送兩次）。host 沒給 → 不做事（同 onToggleFavorite）；
+    // host 給了 config.onX → 照樣被呼叫，sheet 本身的轉送不受影響。
+    onOpenCart: config.onOpenCart ?? ((): void => undefined),
+    onSelectVariant: config.onSelectVariant ?? ((): void => undefined),
+    onSetQty: config.onSetQty ?? ((): void => undefined),
+    onInc: config.onInc ?? ((): void => undefined),
+    onDec: config.onDec ?? ((): void => undefined),
+    onAddToCart: config.onAddToCart ?? ((): void => undefined),
     onToggleFavorite: config.onToggleFavorite ?? ((): void => undefined),
     onNotifyRestock: config.onNotifyRestock ?? ((): void => undefined),
     // 頻道/footer 分享預設（dropin-player-default-share-sheet-rn，B 等義）：host 設了 onShare → 覆蓋；

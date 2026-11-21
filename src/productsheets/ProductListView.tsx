@@ -62,8 +62,9 @@
 // randomness).
 
 import type { ReactElement } from 'react';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { View, Pressable, TextInput } from 'react-native';
+import type { GestureResponderHandlers } from 'react-native';
 import { Text } from '../TightText';
 
 import { ShareGlyph } from '../playershell/ShareGlyph';
@@ -345,6 +346,21 @@ export interface ProductListProps {
    * (search filtering, …).
    */
   readonly heightPct?: number;
+
+  /**
+   * The container's drag-resize/dismiss responder handlers (`useSheetDragGesture`'s
+   * `dragHandlers`), spread onto the PINNED header block (grab handle + collapsed header or
+   * expanded search row) — rb-rn-product-list-search-usability. The header block itself is the
+   * drag target: a drag that starts on its non-interactive area (grab handle band, title,
+   * paddings) resizes / dismisses the drawer, while its interactive children (search button,
+   * close button, search `TextInput`, 取消) become the touch responder first and keep their own
+   * taps — the same "header is the drag target, its buttons still win taps" shape as Flutter's
+   * `LBSheetScaffold` header `GestureDetector`. This replaces the earlier invisible absolute
+   * overlay sibling, which painted above the header and swallowed taps on the search field.
+   * `undefined` (demo / snapshot, a leaf rendered outside the container wiring) → the header
+   * block carries no handlers and no test id, byte-identical to before this prop existed.
+   */
+  readonly dragHandlers?: GestureResponderHandlers;
 }
 
 /**
@@ -381,6 +397,7 @@ export function ProductList(props: ProductListProps): ReactElement {
     searchOpenInitial = false,
     queryInitial = '',
     heightPct,
+    dragHandlers,
   } = props;
 
   // 縮圖 seek 連動關閉抽屜（rb-rn-product-bag-seek-dismiss，parity iOS rb-ios-product-bag-seek-dismiss
@@ -440,8 +457,17 @@ export function ProductList(props: ProductListProps): ReactElement {
   // (the previous plain non-scrolling column overflowed for a long list — this is the
   // documented follow-up's fix; the rows themselves are still plainly drawn inside the
   // scaffold ScrollView, not a lazy FlatList).
+  // rb-rn-product-list-search-usability: the header block is the drag target when the container
+  // wires `dragHandlers` (see that prop's doc) — no overlay sits above the search field.
+  // `collapsable={false}` keeps the header a real native view on Android, so a touch on its own
+  // blank area (grab handle band, paddings) resolves to it and the drag responder bubbles through
+  // it (a flattened layout-only view would hand that touch to the scaffold root instead).
   const header = (
-    <View>
+    <View
+      {...(dragHandlers != null
+        ? { ...dragHandlers, testID: LBTestIDs.bottomSheetDragHandle, collapsable: false }
+        : null)}
+    >
       <GrabHandle />
       {/* 收合：搜尋鈕可點展開 · 標題 · 關閉；展開：搜尋膠囊 + 取消（parity iOS/Android/Flutter）。 */}
       {searchOpen ? (
@@ -636,6 +662,12 @@ function SearchHeader(props: {
   onCancel: () => void;
 }): ReactElement {
   const { theme, query, onChangeQuery, onCancel } = props;
+  // rb-rn-product-list-search-usability — the WHOLE pill focuses the field: the pill is a
+  // `Pressable` (so a touch anywhere on it — glyph, side padding, top / bottom edge — becomes its
+  // responder instead of bubbling to the header's drag handlers) whose press focuses the
+  // `TextInput`; the `TextInput` itself stretches to the pill's full height. `accessible={false}`
+  // keeps the `TextInput` its own accessibility element (the pill adds no a11y node).
+  const inputRef = useRef<TextInput>(null);
   return (
     <View
       style={{
@@ -646,7 +678,9 @@ function SearchHeader(props: {
         paddingBottom: 12,
       }}
     >
-      <View
+      <Pressable
+        accessible={false}
+        onPress={() => inputRef.current?.focus()}
         style={{
           flex: 1,
           height: 36,
@@ -661,17 +695,25 @@ function SearchHeader(props: {
         <SearchGlyph color={TEXT_DIM} size={16} />
         <View style={{ width: 8 }} />
         <TextInput
+          ref={inputRef}
           testID={LBTestIDs.sheetSearchField}
           value={query}
           onChangeText={onChangeQuery}
           placeholder={SEARCH_PLACEHOLDER()}
           placeholderTextColor={TEXT_DIM}
-          style={{ flex: 1, padding: 0, color: theme.text, fontSize: 14 * theme.fontScale }}
+          style={{
+            flex: 1,
+            alignSelf: 'stretch',
+            padding: 0,
+            textAlignVertical: 'center',
+            color: theme.text,
+            fontSize: 14 * theme.fontScale,
+          }}
         />
         {/* Clear ("x") button removed — 取消 already collapses the search bar AND clears the
             query in one tap, making a separate clear affordance redundant
             (rb-search-bar-cancel-only). */}
-      </View>
+      </Pressable>
       <View style={{ width: 8 }} />
       <Pressable testID={LBTestIDs.sheetSearchCancel} onPress={onCancel}>
         <Text style={{ color: theme.accent, fontSize: 14 * theme.fontScale, fontWeight: '600' }}>

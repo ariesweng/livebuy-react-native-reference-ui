@@ -131,15 +131,16 @@
 
 import { useEffect, useRef, useState } from 'react';
 import type { ReactElement } from 'react';
-import { Pressable, View } from 'react-native';
+import { Dimensions, Platform, Pressable, View } from 'react-native';
 
-import { BottomSheetPresenter } from './BottomSheetPresenter';
-import { DRAG_HIT_HEIGHT, DRAG_HIT_SIDE_INSET, useSheetDragGesture } from './sheetDragGesture';
+import { BOTTOM_ANCHORED_SHEET_STYLE, BottomSheetPresenter } from './BottomSheetPresenter';
+import { useSheetDragGesture } from './sheetDragGesture';
+import { productListKeyboardHeightPct, productListKeyboardLift } from './productListKeyboardAvoidance';
 
 import type { ReferenceUITheme } from '../theme';
 import { ProductSheetsModel } from './ProductSheetsModel';
 import { LBTestIDs } from '../testing/LBTestIDs';
-import { useLBSafeAreaInsets } from '../safearea/LBSafeArea';
+import { useLBImeBottomInset, useLBSafeAreaInsets } from '../safearea/LBSafeArea';
 
 import { ProductList } from './ProductListView';
 import { ProductDetail } from './ProductDetailSheetView';
@@ -417,6 +418,18 @@ export function ProductSheetsView(props: ProductSheetsViewProps): ReactElement {
     onDismiss: onDismissList,
     onHeightPctChange: setListHeightPct,
   });
+  // rb-rn-product-list-search-usability — keyboard avoidance for the drawer's search field: iOS
+  // lifts the card by the measured keyboard overlap (Android's adjustResize window already does,
+  // so the lift is zero there) and caps a dragged height so the lifted card's top stays on screen.
+  // See `productListKeyboardAvoidance.ts`.
+  const listKeyboardLift = productListKeyboardLift(Platform.OS, useLBImeBottomInset(), safeArea.bottom);
+  const listRenderedHeightPct = productListKeyboardHeightPct(
+    listHeightPct,
+    listKeyboardLift,
+    safeArea.top,
+    safeArea.bottom,
+    Dimensions.get('window').height,
+  );
   // Product-image lightbox presentation state (rb-rn-product-image-zoom-lightbox): a LOCAL
   // presentation-only affordance (NOT view-model). A sheet's zoom badge sets it; the lightbox
   // close clears it. Default null → demo / snapshot don't mount the overlay (baselines unchanged).
@@ -870,7 +883,7 @@ export function ProductSheetsView(props: ProductSheetsViewProps): ReactElement {
             onPress={(): void => onDismissList?.()}
           />
           <View
-            style={{ position: 'absolute', left: 0, right: 0, bottom: 0 }}
+            style={{ position: 'absolute', left: 0, right: 0, bottom: listKeyboardLift }}
             onLayout={listCardOnLayout}
           >
             <ProductList
@@ -898,7 +911,11 @@ export function ProductSheetsView(props: ProductSheetsViewProps): ReactElement {
               // 名稱前標籤「直播價」→「搶購中」+ 介紹中橫幅文案「介紹中」→「開標中」。
               isFlashSale={model.isFlashSale}
               playbackPosition={Math.floor(model.position)}
-              heightPct={listHeightPct}
+              heightPct={listRenderedHeightPct}
+              // rb-rn-product-list-search-usability — the header block is the drag target (grab
+              // handle band + title + paddings); its search field / buttons keep their own taps.
+              // Replaces the invisible absolute hit-zone overlay that used to sit above the header.
+              dragHandlers={listDragHandlers}
               onOpenProduct={handleOpenProduct}
               onQuickAdd={handleQuickAdd}
               onNotifyRestock={handleOpenRestock}
@@ -906,22 +923,6 @@ export function ProductSheetsView(props: ProductSheetsViewProps): ReactElement {
               onShareProduct={onShareProduct}
               onOpenCart={handleOpenCart}
               onClose={onDismissList}
-            />
-            {/* Invisible drag hit-zone over the drawer's own grab handle band
-                (rb-rn-sheetkit-resize-dismiss-unify) — same shared gesture as the other 4 sheets.
-                rb-rn-sheetkit-drag-row-height: `left`/`right` inset by `DRAG_HIT_SIDE_INSET` so
-                this doesn't swallow taps on the header's search-toggle button (leading) / close
-                button (trailing) — see `sheetDragGesture.ts`'s `DRAG_HIT_SIDE_INSET` doc comment. */}
-            <View
-              testID={LBTestIDs.bottomSheetDragHandle}
-              {...listDragHandlers}
-              style={{
-                position: 'absolute',
-                top: 0,
-                left: DRAG_HIT_SIDE_INSET,
-                right: DRAG_HIT_SIDE_INSET,
-                height: DRAG_HIT_HEIGHT,
-              }}
             />
           </View>
         </>
@@ -946,7 +947,10 @@ export function ProductSheetsView(props: ProductSheetsViewProps): ReactElement {
       <BottomSheetPresenter
         visible={detailOrRestock != null}
         onDismiss={handleDismiss}
-        sheetStyle={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
+        // rb-rn-sheet-bottom-anchor — bottom-anchored, content-sized container (was full-bleed
+        // `top: 0 … bottom: 0`, which pinned the add-to-cart / notify-restock / detail cards to
+        // the TOP of the screen and let the container's transparent area swallow scrim taps).
+        sheetStyle={BOTTOM_ANCHORED_SHEET_STYLE}
         // rb-rn-sheetkit-resize-dismiss-unify — the unified drag-resize/dismiss gesture is now
         // ALWAYS on (no more `resizable` opt-in); this ONE presenter instance is SHARED by all
         // three sheet kinds (`ProductDetail` in either presentation + `NotifyRestockSheet`,

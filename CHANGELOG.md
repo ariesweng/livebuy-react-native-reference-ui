@@ -13,6 +13,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.19.0] - 2026-11-22
+
+> **reference-ui，minor，無 BREAKING。** peer `livebuy-react-native-ui` `^1.16.0` → `^1.17.0`（drop-in 把頻道商家 id 餵給 `1.17.0`
+> 才有的 `handleChannelShopId`）。公開 API 不變。
+> **驗證範圍**：`npm run typecheck`、`npx jest` 通過；iOS 與 Android 模擬器實測（正式機資料）。**未經真機實測。**
+
+### Fixed
+
+- **加購／補貨／商品明細面板畫在螢幕頂端**（`rb-rn-sheet-bottom-anchor`）：之前 iOS 的 ✕ 與拖曳把手壓在狀態列點不到、點背景也關不掉，
+  使用者只能關掉 App。現在面板貼齊螢幕底部，點背景可關閉。
+- **Android 進出畫中畫閃退**（`rb-rn-widget-preview-pip-unmount`）：`react-native-video` 每個影片都會監聽畫中畫，輪播預覽在畫中畫時搶走
+  畫面、離開時閃退。現在 Livebuy 播放器開著時（含縮小浮卡）預覽改顯示封面，播放器關閉後再恢復。
+- **同一個 host listener 掛在多個容器時每個事件收到兩次**（`rb-rn-container-listener-dedupe`）：例如 `LivebuyWidget` 與
+  `CollapsibleLivebuyPlayer` 都設 `config.eventListener`。現在同一個函式每個事件只收一次，與 iOS／Android／Flutter 相同。
+- **商品清單搜尋**（`rb-rn-product-list-search-usability`）：搜尋框上半部之前被面板頂端的拖曳區蓋住點不到，現在整個搜尋框都可點；
+  iOS 鍵盤升起時整個清單被蓋住，現在清單會往上移（Android 由系統 `adjustResize` 處理）。
+- **商品明細按一次「＋」數量跳 2、按一次加入購物車呼叫兩次**（`rb-rn-product-sheet-double-forward`；之前的版本都有）：容器的
+  `onOpenCart`／`onSelectVariant`／`onSetQty`／`onInc`／`onDec`／`onAddToCart` 預設會再轉給 view-model 一次。現在預設不做事，
+  host 給的回呼照常作為額外通知、只呼叫一次。
+- **drop-in 播放器加入購物車改用播放中影片的商家 id**（`rb-rn-add-to-cart-channel-shop-id-wiring`），對齊 iOS／Android。
+- **首次頻道資料早於 view-model 建立時畫面缺資料**（`rb-rn-channel-feed-backfill`）：標題列、聯繫商家鈕、直播預告、直播資訊、
+  載入封面、商品、觀看人數、字幕按鈕之前可能要換片才出現。現在 view-model 建立或重新掛上時會補餵最後一份頻道資料。
+
 ## [1.18.0] - 2026-11-21
 
 > **reference-ui，minor，無 BREAKING。** peer `livebuy-react-native-ui` `^1.15.0` → `^1.16.0`（畫面讀取 `1.16.0` 新增的搶購狀態）。

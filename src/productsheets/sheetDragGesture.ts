@@ -73,16 +73,17 @@ export const DISMISS_THRESHOLD_PX = 100;
 export const DRAG_HIT_HEIGHT = 44;
 
 /**
- * Horizontal inset applied to EACH side of the invisible drag hit-zone (rb-rn-sheetkit-drag-row-
- * height). Every leaf header in this package (`ProductListView` / `ProductDetailSheetView` /
- * `NotifyRestockSheetView` / `VideoInfoPanelView`) places its `SheetHeaderCloseButton` at
- * `right: 12` (a 32×32 tap target — see `SheetHeaderCloseButton.tsx`), and `ProductListView`'s
- * collapsed header additionally places a 32×32 search-toggle button flush against its leading
- * `paddingHorizontal: 16` edge — both fall within `DRAG_HIT_HEIGHT`'s vertical band, right below
- * the grab handle.
+ * Horizontal inset applied to EACH side of `BottomSheetPresenter`'s invisible drag hit-zone
+ * (rb-rn-sheetkit-drag-row-height). Every leaf header that presenter hosts
+ * (`ProductDetailSheetView` / `NotifyRestockSheetView` / `VideoInfoPanelView`) places its
+ * `SheetHeaderCloseButton` at `right: 12` (a 32×32 tap target — see `SheetHeaderCloseButton.tsx`),
+ * which falls within `DRAG_HIT_HEIGHT`'s vertical band, right below the grab handle.
+ * (`ProductListView`'s drawer no longer uses an overlay hit-zone at all — its header block is the
+ * drag target itself, see `ProductListProps.dragHandlers`, rb-rn-product-list-search-usability.
+ * The 48px search-button figure below is kept as the worst-case leading-edge header button.)
  *
- * The hit-zone is a SIBLING rendered AFTER `children` (see `BottomSheetPresenter` /
- * `ProductSheetsView`'s ProductList wiring), so it paints — and hit-tests — ABOVE those buttons:
+ * The hit-zone is a SIBLING rendered AFTER `children` (see `BottomSheetPresenter`), so it
+ * paints — and hit-tests — ABOVE those buttons:
  * React Native's touch hit-test, given two overlapping siblings, always resolves to whichever one
  * paints on top, and does NOT fall back to trying the other sibling once it has picked one. A
  * full-bleed `left: 0, right: 0` hit-zone would therefore swallow taps on those buttons within the
@@ -96,10 +97,9 @@ export const DRAG_HIT_HEIGHT = 44;
  * 32 width = 48 — see `sheetDragGesture.test.tsx`'s invariant assertions), while leaving the
  * CENTERED grab-handle band (36pt wide) — where a drag is actually expected to start — untouched.
  *
- * Does NOT fully cover `ProductListView`'s expanded `SearchHeader` (its `TextInput` spans
- * near-full-width, centered, not near either edge) — that overlap pre-dates this change (present,
- * just smaller, even at the old 32px height) and is out of this change's scope; see this change's
- * design.md "Known limitation".
+ * A horizontal inset cannot protect a near-full-width control (such as the product list's
+ * expanded search `TextInput`); that is why the product list drawer stopped using an overlay
+ * hit-zone (rb-rn-product-list-search-usability) instead of widening this inset.
  */
 export const DRAG_HIT_SIDE_INSET = 56;
 
@@ -255,7 +255,8 @@ export interface UseSheetDragGestureResult {
    * drag gesture, so a content-sized sheet the user hasn't touched yet stays content-sized.
    */
   readonly cardOnLayout: (e: LayoutChangeEvent) => void;
-  /** Spread onto the invisible drag hit-zone View. */
+  /** Spread onto the drag target View — `BottomSheetPresenter`'s invisible hit-zone overlay, or the
+   *  product list drawer's header block (`ProductListProps.dragHandlers`). */
   readonly dragHandlers: PanResponderInstance['panHandlers'];
 }
 

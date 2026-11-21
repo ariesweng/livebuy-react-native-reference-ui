@@ -338,17 +338,26 @@ export interface LivebuyPlayerConfig {
    * `setProductListPresented(true)`、開商品**列表** overlay）不是同一件事。
    */
   onOpenProduct?: (product: LBProduct) => void;
-  /** Cart-CTA「開啟購物車」. Default: `attachment.openCart()`. */
+  /**
+   * Cart-CTA「開啟購物車」—— **額外通知**。商品 sheet 本身已經把這次點擊轉送給 view-model
+   * （`template.openCart()`），此回呼只是讓 host 另外知道；不給則不做事。設了它**不會**取代、也不會
+   * 重複 sheet 的轉送（rb-rn-product-sheet-double-forward；先前文件寫的「Default: `attachment.openCart()`」
+   * 會讓 template 收到兩次，已移除）。以下 `onSelectVariant` / `onSetQty` / `onInc` / `onDec` /
+   * `onAddToCart` 同理。
+   */
   onOpenCart?: () => void;
-  /** Variant chip tap. Default: `attachment.selectVariant(gi, oi)`. */
+  /** Variant chip tap —— 額外通知；sheet 已轉送 `template.selectVariant(gi, oi)`。不給則不做事。 */
   onSelectVariant?: (groupIndex: number, optionIndex: number) => void;
-  /** Direct qty set. Default: `attachment.setQty(qty)`. */
+  /** Direct qty set —— 額外通知；sheet 已轉送 `template.setQty(qty)`。不給則不做事。 */
   onSetQty?: (qty: number) => void;
-  /** Qty `+`. Default: `attachment.incQty()`. */
+  /** Qty `+` —— 額外通知；sheet 已轉送 `template.incQty()`（每次點擊只加 1）。不給則不做事。 */
   onInc?: () => void;
-  /** Qty `-`. Default: `attachment.decQty()`. */
+  /** Qty `-` —— 額外通知；sheet 已轉送 `template.decQty()`。不給則不做事。 */
   onDec?: () => void;
-  /** 加入購物車. Default: `attachment.addToCart()`. */
+  /**
+   * 加入購物車 —— 額外通知；sheet 已轉送 `template.addToCart()`（每次點擊只加購一次）。不給則不做事。
+   * 注意：設了它**不會**阻止加購——加購仍由 sheet 經 view-model 送出，此回呼只是同時通知 host。
+   */
   onAddToCart?: () => void;
   /** 收藏（到貨追蹤 type=1）toggle. Default: forward to the host (no-op if unset). */
   onToggleFavorite?: (goodsGpn: string) => void;

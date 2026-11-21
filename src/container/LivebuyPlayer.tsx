@@ -55,6 +55,7 @@ import { autoAdvanceSwitchedItem, switchedVideoItem } from './collapsibleLogic';
 import { useContainerEventListener, subscribeSdkEvents } from './containerEventListener';
 import type { SdkEventHandler } from './containerEventListener';
 import { createForegroundResumeController } from './foregroundResumeController';
+import { beginLivebuyPlayerSession } from './livebuyPlayerSession';
 import type { ForegroundResumeController } from './foregroundResumeController';
 import { attachPlayerTemplate, LivebuyUI } from 'livebuy-react-native-ui';
 import type { PlayerTemplateAttachment } from 'livebuy-react-native-ui';
@@ -81,12 +82,9 @@ import type { VTTCue } from '../playershell/VTTSubtitleParser';
 import { liveEntryGate } from './liveEntryLogic';
 import { createMuteIconSeed, muteIconSeedTarget } from './muteIconSeed';
 import type { MuteIconSeed } from './muteIconSeed';
-import {
-  deriveHeaderChromeFields,
-  deriveServiceLinkAvailable,
-  deriveEndScreenNavRows,
-  deriveLiveDuration,
-} from './channelChrome';
+import { deriveLiveDuration } from './channelChrome';
+import { feedChannelToTemplate } from './channelTemplateFeed';
+import type { ChannelFeedInfo } from './channelTemplateFeed';
 import { overlayChromeVisibleInPip } from './pipChrome';
 import { LBSafeAreaScope, useLBSafeAreaBoundary } from '../safearea/LBSafeArea';
 
@@ -369,6 +367,16 @@ export function LivebuyPlayer(props: LivebuyPlayerProps): ReactElement {
   // Refs (read only at tap time). Replaced wholesale on every channel change.
   const channelGoodsRef = useRef<readonly LBProduct[]>([]);
   const channelOtherGoodsRef = useRef<readonly LBProduct[]>([]);
+  // rb-rn-channel-feed-backfill — the latest channel snapshot and the latest subtitle availability,
+  // updated on every `onChannelChange` / subtitle fetch. The attachment is created asynchronously
+  // (after `sdkConfig` resolves) and replaced when `sdkConfig` / `hostOptions` change, while the
+  // native bridge de-dupes channel snapshots (the same channel is not re-sent). So a channel that
+  // arrives before the attachment exists, or before a re-attach, would never reach the (new)
+  // template; the effect below re-feeds both to every attachment once it is created. `null` until
+  // the first channel / fetch result. (Supersedes rb-rn-add-to-cart-channel-shop-id-wiring's
+  // shop-id-only backfill.)
+  const lastChannelInfoRef = useRef<ChannelFeedInfo | null>(null);
+  const lastSubtitleAvailableRef = useRef<boolean | null>(null);
 
   // VOD CC 字幕（rb-react-native-subtitle-vtt-caption-display）：`subtitleCues` is REAL React
   // state (not a ref like `serviceLinkRef` above) — it must trigger a re-render so a completed
@@ -421,6 +429,18 @@ export function LivebuyPlayer(props: LivebuyPlayerProps): ReactElement {
   }
   const muteIconSeed = muteIconSeedRef.current;
   const attachment = useTemplateAttachment(sdkConfig, config.hostOptions, playerRef, muteIconSeed);
+  // rb-rn-channel-feed-backfill — backfill the latest channel snapshot and subtitle availability
+  // into a newly created / replaced attachment (see `lastChannelInfoRef`). `onChannelChange` keeps
+  // feeding on every callback as well.
+  useEffect(() => {
+    if (!attachment) return;
+    const info = lastChannelInfoRef.current;
+    if (info) feedChannelToTemplate(attachment.template, info);
+    const subtitleAvailable = lastSubtitleAvailableRef.current;
+    if (subtitleAvailable !== null) {
+      attachment.template.handleRailEnablement({ subtitleAvailable });
+    }
+  }, [attachment]);
 
   // rb-rn-edge-to-edge-safe-area — measure how much of the status bar / navigation / gesture bar /
   // cutout (and keyboard) THIS container's chrome still has to clear. The boundary applies NO
@@ -490,6 +510,14 @@ export function LivebuyPlayer(props: LivebuyPlayerProps): ReactElement {
     });
   }
   const vodEndedGate = vodEndedGateRef.current;
+
+  // rb-rn-widget-preview-pip-unmount — this container instance counts as one "Livebuy player session"
+  // for as long as it is mounted (a minimized `CollapsibleLivebuyPlayer` keeps it mounted → the session
+  // stays on). While any session is on, every reference-ui widget preview unmounts its
+  // `react-native-video` `<Video>` so no preview holds an Android PiP-mode listener that would hijack
+  // the PiP window (see `livebuyPlayerSession.ts`).
+  useEffect(() => beginLivebuyPlayerSession(), []);
+
   useEffect(() => {
     vodEndedMountedRef.current = true;
     return () => {
@@ -746,100 +774,14 @@ export function LivebuyPlayer(props: LivebuyPlayerProps): ReactElement {
           // rb-rn-drop-in-mute-icon-seed-wiring: channel info for this view means the wrapped
           // native Player exists, so a mute query from here on is evidence (see `muteIconSeed.ts`).
           muteIconSeed.playerReady();
-          // player-channel-chrome-wiring-reference-ui-rn — auto-derive the PlayerHeader top-bar
-          // chrome (title / hostName / shopLogo / shareUrl / isLive / isFinishedLiveReplay /
-          // isFlashSale) on every channel load, parity iOS/Android `ingestChannel`'s auto-feed (RN
-          // has no `ingestChannel`; `onChannelChange` is the host-fed equivalent trigger point —
-          // see `channelChrome.ts`). `isFinishedLiveReplay` is now computed too
-          // (isfinishedlivereplay-wiring-reference-ui-rn) — `channel-type-bridge-core-rn` bridged
-          // `channel.type` onto `LBPlayerChannelInfo`, so `deriveHeaderChromeFields` derives it
-          // via the existing `isFinishedLiveReplay(type, liveStatus)` pure function and this same
-          // call forwards it (partial-merge — no second call needed). `isFlashSale` is a straight
-          // pass-through of `info.isFlashSale` (rb-rn-flash-sale-live-signal-wiring) — the data
-          // source `channel-flash-sale-flag-core-rn` had already bridged it onto
-          // `LBPlayerChannelInfo`, but no caller fed it into `handleHeaderChrome` until now.
-          attachmentRef.current?.template.handleHeaderChrome(deriveHeaderChromeFields(info));
-          // Same channel load also flips the side-rail「聯繫商家」icon's visibility. Fired HERE,
-          // as its OWN independent call — NOT folded into the subtitle pipeline's `setAvailable`
-          // callback below — so it does not implicitly depend on
-          // `refreshSubtitleCuesIfUrlChanged`'s internal timing (design.md Decision 2).
-          // `handleRailEnablement` takes a `Partial<LBSideRailEnablement>` and merges per-field
-          // (verified against `OperationRail.handleEnablement`), so this call and the
-          // `subtitleAvailable`-only call below cannot clobber each other regardless of order.
-          attachmentRef.current?.template.handleRailEnablement({
-            serviceLinkAvailable: deriveServiceLinkAvailable(info.serviceLink),
-          });
-          // rn-intro-overlay-wiring-reference-ui — forward the channel's
-          // upcoming/intro-relevant fields to `handleUpcoming`, the ONLY entry point
-          // (RN has no separate `handleStartUrl`) that feeds `DefaultStartScreenState`'s
-          // `_hasStart` — which drives the StartScreen 略過介紹 skip button's `splash`
-          // phase — AND `DefaultUpcomingState` (直播預告 `active`/`introPlaying`/
-          // `scheduledStartAt`/`cover` view-model). Previously never called: this
-          // `onChannelChange` handler only called `handleHeaderChrome`/
-          // `handleRailEnablement` above, so `_hasStart` stayed permanently `false` and
-          // the skip button never appeared — same-shaped gap as the one
-          // `flutter-intro-overlay-wiring-reference-ui` fixed on Flutter first
-          // (parity-debt-ledger #19). Pure field pass-through (no derivation) —
-          // `handleUpcoming` itself derives `hasStart`/`introPlaying` internally.
-          attachmentRef.current?.template.handleUpcoming({
-            publishAt: info.publishAt,
-            cover: info.cover,
-            start: info.start,
-            liveStatus: info.liveStatus,
-            type: info.type,
-          });
-          // video-info-wiring-reference-ui-rn — forward the channel's info-tab fields to
-          // `handleInfo`, the ONLY entry point that feeds `DefaultInfoTab`'s
-          // `title`/`publishAt`/`shopName`/`shopIntro`/`shopLogo` — which in turn drives
-          // `VideoInfoPanel`'s「直播資訊」info tab (the panel hosting the shop-intro text
-          // plus the contact-shop button). Previously never called: this `onChannelChange`
-          // handler only called `handleHeaderChrome`/`handleRailEnablement`/`handleUpcoming`
-          // above, so `handleInfo`'s five fields stayed permanently at their empty-string
-          // constructor default — same-shaped gap as `handleUpcoming` above
-          // (rn-intro-overlay-wiring-reference-ui, parity-debt-ledger #19) and as the one
-          // `video-info-wiring-reference-ui-flutter` fixed on Flutter first
-          // (parity-debt-ledger #13). Pure field pass-through (no derivation) — `handleInfo`
-          // itself diff-then-notifies internally. `description` is deliberately excluded —
-          // `LBPlayerChannelInfo` has no such field.
-          attachmentRef.current?.template.handleInfo({
-            title: info.title,
-            publishAt: info.publishAt,
-            shopName: info.shopName,
-            shopIntro: info.shopIntro,
-            shopLogo: info.shopLogo,
-          });
-          // player-loading-cover-background-reference-ui-rn — the reference-ui wiring half of
-          // parity-debt-ledger item #8: `player-loading-cover-background-template-rn` (archived)
-          // already added `template.loadingCover`/`applyLoadingCover(cover)` to `react-native-ui`
-          // but left it deliberately unwired (headless-safe dead code). Pure pass-through — no
-          // derivation, same shape as the calls above — so the general (not upcoming-scoped)
-          // loading-phase cover background reaches `StartScreenView`'s `.loading` branch.
-          attachmentRef.current?.template.applyLoadingCover(info.cover);
-          // rn-moment-products-wiring-reference-ui — forward the channel's live-updating
-          // products / narratingProduct (rn-moment-products-bridge-core) to
-          // `handleMomentSnapshot`, the ONLY entry point that feeds `DefaultProductOverlayState`'s
-          // `products`/`activeProduct` from this source. Pure pass-through (no derivation) — same
-          // shape as the calls above. Because `onChannelChange` now re-fires on every native
-          // moment-state poll tick (not just channel load — see `rn-moment-products-bridge-core`'s
-          // design.md), this call naturally overwrites `channel.goods`'s load-time-only static
-          // snapshot with fresh data each round; no separate merge/priority logic needed.
-          // rb-rn-endscreen-live-empty-state — same call, now ALSO forwarding the channel's
-          // EndScreen watch-next targets (`channel.next`, rn-endscreen-next-bridge-core) via the
-          // pure `deriveEndScreenNavRows` fold (`channelChrome.ts`). Scope otherwise kept narrow
-          // on purpose: `handleMomentSnapshot`'s remaining fields (`isSubscribed`/`hasStart`/
-          // `hot`) are untouched here — each is either already wired elsewhere in this file, or
-          // (for `hot`) a retired reference-ui rendering path with no consumer left.
-          // rn-viewer-count-bridge-reference-ui — same call, now ALSO forwarding
-          // `info.viewerCount` (moment-state-sourced, same data path as `products`/
-          // `narratingProduct` above — read off the native `onMomentStateChange` callback's own
-          // argument, NOT `channel`; see `rn-viewer-count-bridge-core`). Pure pass-through, no
-          // derivation.
-          attachmentRef.current?.template.handleMomentSnapshot({
-            products: info.products,
-            activeProduct: info.narratingProduct,
-            viewerCount: info.viewerCount,
-            next: deriveEndScreenNavRows(info.next),
-          });
+          // Every channel-sourced view-model feed (header chrome, 聯繫商家 rail, upcoming / intro,
+          // info tab, loading cover, channel shop id, moment products / viewer count / watch-next)
+          // lives in `feedChannelToTemplate` (`channelTemplateFeed.ts`, which lists the change behind
+          // each field). rb-rn-channel-feed-backfill: the snapshot is also kept in
+          // `lastChannelInfoRef` so an attachment created / replaced later still receives it.
+          lastChannelInfoRef.current = info;
+          const template = attachmentRef.current?.template;
+          if (template) feedChannelToTemplate(template, info);
           // rb-rn-endscreen-live-duration — same `onChannelChange` re-fire cadence as the
           // `handleMomentSnapshot` call above (moment-state-sourced, NOT channel-sourced), but
           // bypasses the template entirely — see `liveDuration` state's own doc comment above for
@@ -857,10 +799,10 @@ export function LivebuyPlayer(props: LivebuyPlayerProps): ReactElement {
             subtitleUrl: info.subtitleUrl,
             lastFetchedUrlRef: lastFetchedSubtitleUrlRef,
             setCues: setSubtitleCues,
-            setAvailable: (available): void =>
-              attachmentRef.current?.template.handleRailEnablement({
-                subtitleAvailable: available,
-              }),
+            setAvailable: (available): void => {
+              lastSubtitleAvailableRef.current = available;
+              attachmentRef.current?.template.handleRailEnablement({ subtitleAvailable: available });
+            },
           });
         }}
         // rb-rn-dropin-playback-progress-and-error-wiring — feed terminal playback errors into the

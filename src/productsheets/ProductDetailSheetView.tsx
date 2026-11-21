@@ -203,6 +203,7 @@ import type {
   LBProductRecommendation,
 } from 'livebuy-react-native-ui';
 import { text, useReferenceUILanguage } from '../i18n';
+import { BidWaitingBanner, footerSlotsEmpty, resolveFooterSlots, resolveQtyHint } from './FlashSaleBid';
 
 // MARK: - Decorative design tokens (literal minimal hex)
 //
@@ -894,7 +895,19 @@ export function ProductDetail(props: ProductDetailProps): ReactElement {
   // called anywhere else in this file — and the visibility question is answered by the ONE
   // predicate `showsStockCaption` (merchant gate AND not-sold-out). The qty row below MUST
   // NOT re-derive either half; in particular it MUST NOT test `isSoldOut` for the caption.
-  const stockCaptionVisible = showsStockCaption(normalizeShowStock(showStock), isSoldOut);
+  const showStockOn = normalizeShowStock(showStock);
+  const stockCaptionVisible = showsStockCaption(showStockOn, isSoldOut);
+
+  // rb-rn-flash-sale-bid (parity iOS / Android): the three bid fields are OPTIONAL on the TS
+  // `LBProductDetailState` (live-bid-rn-template) — absent ≡ `false` / `0` / `false`, so a
+  // non-flash-sale detail renders exactly as before.
+  const bidWaiting = detail.bidWaiting === true;
+  const limitNum = detail.limitNum ?? 0;
+  // 數量列文字 (design `LBPQtyHint`): sold out > 每人限購 > 庫存. With `limitNum === 0` the hint is
+  // `stock` ⟺ `stockCaptionVisible` (it goes through the same `showsStockCaption` predicate).
+  const qtyHint = resolveQtyHint(isSoldOut, showStockOn, limitNum);
+  // Footer slots: `buyButtonHidden` drops the CTA; no slot left → no footer at all.
+  const footerSlots = resolveFooterSlots(!isAddToCart, isLive, detail.buyButtonHidden === true);
 
   // 加購請求中 → 鎖定 stepper / 規格 / CTA（rb-rn-cart-add-loading-state，不可改 payload）。
   const canDec = !isSoldOut && !addToCartInFlight && qty.qty > qty.min;
@@ -1124,7 +1137,20 @@ export function ProductDetail(props: ProductDetailProps): ReactElement {
           {QTY_LABEL()}
         </Text>
         <View style={{ flex: 1 }} />
-        {stockCaptionVisible ? (
+        {/* rb-rn-flash-sale-bid: 每人限購 replaces the stock caption (same style / slot) while
+            `limitNum > 0` and not sold out; otherwise the stock caption is still gated by
+            `stockCaptionVisible` alone. */}
+        {qtyHint.kind === 'limit' ? (
+          <Text
+            style={{
+              marginRight: 12,
+              color: TEXT_DIM,
+              fontSize: 12 * theme.fontScale,
+            }}
+          >
+            {text('bid_limit', { num: String(qtyHint.num) })}
+          </Text>
+        ) : stockCaptionVisible ? (
           <Text
             style={{
               marginRight: 12,
@@ -1217,8 +1243,11 @@ export function ProductDetail(props: ProductDetailProps): ReactElement {
   // `theme.surface.bg` inner). `.addToCart` (the COMPACT sheet) keeps a single plain
   // background — structurally BYTE-IDENTICAL to before this change — matching the design's
   // `AddToCartSheet` (screens.jsx L942-1029), which has no grey/white treatment at all.
-  const body = isAddToCart ? (
-    <View style={{ paddingHorizontal: 16, paddingTop: 6, paddingBottom: 12 }}>
+  // rb-rn-flash-sale-bid: `.addToCart` with `bidWaiting` — design `AddToCartSheet`: banner
+  // (marginTop 4, full-bleed) above the padded body, whose top inset grows 6 → 12. Without
+  // `bidWaiting` the body is byte-identical to before.
+  const addToCartBody = (
+    <View style={{ paddingHorizontal: 16, paddingTop: bidWaiting ? 12 : 6, paddingBottom: 12 }}>
       {/* `.addToCart` — COMPACT 96×96 horizontal product card (aligned with the
           NotifyRestock card): square photo placeholder + name + price inline. */}
       <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
@@ -1330,8 +1359,24 @@ export function ProductDetail(props: ProductDetailProps): ReactElement {
       {variantChipsBlock}
       {qtyRowBlock}
     </View>
+  );
+  const body = isAddToCart ? (
+    bidWaiting ? (
+      <View>
+        <View style={{ marginTop: 4 }}>
+          <BidWaitingBanner theme={theme} />
+        </View>
+        {addToCartBody}
+      </View>
+    ) : (
+      addToCartBody
+    )
   ) : (
     <View style={{ backgroundColor: BG_SUNKEN }}>
+      {/* rb-rn-flash-sale-bid: 「正在等待結果...」banner at the very top of the scroll body,
+          full-bleed (design `ProductDetailSheet`: `{bidWaiting && <LBPBidWaitingBanner />}`
+          before the white block). Absent → the tree is unchanged. */}
+      {bidWaiting ? <BidWaitingBanner theme={theme} /> : null}
       {/* White block #1 — 縮圖～收藏鈕（既有 paddingHorizontal:16 / paddingTop:6 /
           paddingBottom:12 沿用不變，只加 backgroundColor，比照設計稿
           `padding:'0 16px 16px'` 的灰底白卡結構）。 */}
@@ -1689,7 +1734,9 @@ export function ProductDetail(props: ProductDetailProps): ReactElement {
                 連結無法帶出正確時間點資訊；VOD / 回放（isLive === false）維持顯示。收藏鈕不受此旗標
                 影響（已搬到 body，見上）——其自身的可見性由獨立的 `showFavorite` 旗標控制
                 （rb-rn-subscribe-favorite-visibility-toggle，預設隱藏）。 */}
-            {!isAddToCart && !isLive ? (
+            {/* rb-rn-flash-sale-bid: slots decided by `resolveFooterSlots` (分享 ⟺ `.detail` &&
+                !isLive — same result as before; CTA ⟺ !buyButtonHidden). */}
+            {footerSlots.share ? (
               <>
                 <Pressable
                   testID={LBTestIDs.shareButton}
@@ -1710,13 +1757,14 @@ export function ProductDetail(props: ProductDetailProps): ReactElement {
                     {SHARE_LABEL()}
                   </Text>
                 </Pressable>
-                <View style={{ width: 12 }} />
+                {footerSlots.cta ? <View style={{ width: 12 }} /> : null}
               </>
             ) : null}
             {/* Primary 加入購物車 CTA (LBPButton primary — accent fill, white label).
                 DISABLED when sold out (qty.max === 0) — disabled fill = strokeStrong.
                 加購請求中（addToCartInFlight）→ spinner +「加入中…」、保 accent 底、點擊 no-op
                 （handleAddToCart guard），對齊設計 `LBPButton.loading`（rb-rn-cart-add-loading-state）。 */}
+            {footerSlots.cta ? (
             <Pressable
               testID={LBTestIDs.addToCartCta}
               accessibilityRole="button"
@@ -1749,6 +1797,7 @@ export function ProductDetail(props: ProductDetailProps): ReactElement {
                 {addToCartInFlight ? ADDING_LABEL() : ADD_TO_CART_LABEL()}
               </Text>
             </Pressable>
+            ) : null}
           </View>
     </View>
   );
@@ -1768,7 +1817,9 @@ export function ProductDetail(props: ProductDetailProps): ReactElement {
         theme={theme}
         header={header}
         body={body}
-        footer={footer}
+        // rb-rn-flash-sale-bid: no slot left (`.addToCart` / live `.detail` with buyButtonHidden)
+        // → no footer at all, incl. its top separator (design `!(live && buyButtonHidden)`).
+        footer={footerSlotsEmpty(footerSlots) ? undefined : footer}
         fillToCap={isAddToCart}
         capPct={heightPct}
         // Reset the scrollable body to the top whenever the OPEN PRODUCT changes — a「更多商品」

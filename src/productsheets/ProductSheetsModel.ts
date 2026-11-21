@@ -65,6 +65,8 @@ import type {
   LBQtyState,
   LBMiniCartPeek,
   LBCartCTAState,
+  LBBidOutcome,
+  LBBidWonItem,
 } from 'livebuy-react-native-ui';
 import type { LBProduct } from 'livebuy-react-native';
 import type { ProductRowMode } from './ProductRowOverlay';
@@ -338,6 +340,33 @@ export class ProductSheetsModel {
     return this.template?.addToCartInFlight ?? false;
   }
 
+  // -- Flash-sale bid (rb-rn-flash-sale-bid, binds live-bid-rn-template) --------
+  // Parity iOS / Android `ProductSheetsModel.bidOutcome` / `bidWonItems` / `bidWonPresented` /
+  // `shopLogo`. Demo instances → null / [] / false / ''.
+
+  /**
+   * Last bid outcome (`DefaultPlayerTemplate.bidOutcome`): reset to `null` at every attempt /
+   * detail open, so each result is a fresh value the container flashes a toast on.
+   */
+  get bidOutcome(): LBBidOutcome | null {
+    return this.template?.bidOutcome ?? null;
+  }
+
+  /** 「恭喜搶購成功」items (`DefaultPlayerTemplate.bidWon.items`). */
+  get bidWonItems(): readonly LBBidWonItem[] {
+    return this.template?.bidWon.items ?? [];
+  }
+
+  /** Whether the bid-won popup is up (`DefaultPlayerTemplate.bidWon.isPresented`). */
+  get bidWonPresented(): boolean {
+    return this.template?.bidWon.isPresented ?? false;
+  }
+
+  /** Merchant logo URL string for the bid-won popup (`playerHeaderState.shopLogo`). */
+  get shopLogo(): string {
+    return this.template?.playerHeaderState.shopLogo ?? '';
+  }
+
   // -- Surface 3: MiniCartPeek ← mini-cart peek -------------------------------
 
   /**
@@ -496,6 +525,19 @@ export class ProductSheetsModel {
   /** Forward a mini-cart dismiss → `template.dismissMiniCart()`. No-op for demo. */
   dismissMiniCart(): void {
     this.template?.dismissMiniCart();
+  }
+
+  /**
+   * Bid-won popup「確定」→ `template.confirmBidWin()` (confirms every listed win once, then
+   * closes). No-op for demo (rb-rn-flash-sale-bid).
+   */
+  confirmBidWin(): void {
+    this.template?.confirmBidWin();
+  }
+
+  /** Bid-won popup「取消」→ `template.dismissBidWon()` (closes without confirming). No-op for demo. */
+  dismissBidWon(): void {
+    this.template?.dismissBidWon();
   }
 
   /**

@@ -13,6 +13,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.18.0] - 2026-11-21
+
+> **reference-ui，minor，無 BREAKING。** peer `livebuy-react-native-ui` `^1.15.0` → `^1.16.0`（畫面讀取 `1.16.0` 新增的搶購狀態）。
+> **驗證範圍**：`npm run typecheck`、`npx jest`（含 8 個新 snapshot）通過。**未經真機或模擬器實測。**
+
+### Added
+
+- **搶購下標畫面**（`rb-rn-flash-sale-bid`，同 iOS／Android `4.32.0`）：商品明細與加購面板「正在等待結果...」紅色橫幅、「每人限購 N 組」
+  且「＋」到上限不可按、隱藏購買鈕（底部列全空時不畫、只剩分享時靠左）；下標結果 toast（成功「已加入搶購」、失敗依錯誤代碼）；
+  得標視窗「恭喜搶購成功」（商家 logo 或商店圖示、多筆左右滑＋分頁圓點、「確定」確認全部、「取消」只關閉、點背景不關閉）；
+  8 個新字串 key（五語系）。drop-in 把 `saleKeywordRequired` 帶給 view-model。
+
+### Changed
+
+- 領獎確認視窗商品提醒句 `win_submit_note_product` 的 en、id-ID 改用網頁版原句
+  `*The prize will be automatically added as pending checkout items.`（`rb-i18n-win-note-product-follow-frontend`）。
+
 ## [1.17.0] - 2026-11-18
 
 > **reference-ui，minor，無 BREAKING。** 公開 API 不變，peer 不變（`livebuy-react-native-ui` `^1.15.0`）。core `2.12.2`／ui `1.15.2` 不變。

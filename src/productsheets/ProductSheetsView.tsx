@@ -149,6 +149,9 @@ import { SelectVariantPromptModal } from './SelectVariantPromptModalView';
 import { NotifyRestockSheet } from './NotifyRestockSheetView';
 import { ProductImageZoomOverlay } from './ProductImageZoomOverlay';
 import { CartToastView } from './CartToastView';
+import { BidWonModalView } from './BidWonModalView';
+import { bidToastText, resolveBidToast } from './FlashSaleBid';
+import { resolveShopLogoUri } from '../playershell/PlayerHeaderBarView';
 import { cartLoadingFloorRemainingMs } from './cartLoadingFloor';
 import { variantPromptShouldPresent } from './variantPromptTrigger';
 import { AuthGateModal } from '../gapsurfaces/AuthGateModalView';
@@ -492,10 +495,14 @@ export function ProductSheetsView(props: ProductSheetsViewProps): ReactElement {
   const [cartToastVisible, setCartToastVisible] = useState(false);
   // rb-rn-cart-add-failure-toast: whether the visible toast is the FAILURE variant.
   const [cartToastIsError, setCartToastIsError] = useState(false);
+  // rb-rn-flash-sale-bid: label override for the visible toast (bid「已加入搶購」/ bid failure
+  // copy); `undefined` → `CartToastView`'s own default for `cartToastIsError`.
+  const [cartToastLabel, setCartToastLabel] = useState<string | undefined>(undefined);
   const lastCartCountRef = useRef<number>(-1);
   const cartToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const flashCartToast = (isError: boolean): void => {
+  const flashCartToast = (isError: boolean, label?: string): void => {
     setCartToastIsError(isError);
+    setCartToastLabel(label);
     setCartToastVisible(true);
     if (cartToastTimerRef.current != null) clearTimeout(cartToastTimerRef.current);
     cartToastTimerRef.current = setTimeout(() => setCartToastVisible(false), 1800);
@@ -517,6 +524,24 @@ export function ProductSheetsView(props: ProductSheetsViewProps): ReactElement {
     if (addToCartFailed) flashCartToast(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- flashCartToast only touches setters/refs
   }, [addToCartFailed]);
+  // rb-rn-flash-sale-bid (parity iOS `.onChange(of: model.bidOutcome)` / Android
+  // `LaunchedEffect(bidOutcome)`): each bid result — the template resets `bidOutcome` to null at
+  // every attempt, so every result is a NEW object — flashes the shared toast: `placed`
+  // 「已加入搶購」(success style; the view-model already closed the detail), `failed(code)` → error
+  // style with copy from `resolveBidToast` (the detail stays open, so its `limitNum` is readable).
+  // The first effect pass only records the bind-time value (no flash for an initial value).
+  const bidOutcome = model.bidOutcome;
+  const bidOutcomeSeededRef = useRef(false);
+  useEffect(() => {
+    if (!bidOutcomeSeededRef.current) {
+      bidOutcomeSeededRef.current = true;
+      return;
+    }
+    if (bidOutcome == null) return;
+    const content = resolveBidToast(bidOutcome, model.detail?.limitNum ?? 0);
+    flashCartToast(content.isError, bidToastText(content));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- flashCartToast only touches setters/refs; detail read at change time
+  }, [bidOutcome]);
   useEffect(
     () => () => {
       if (cartToastTimerRef.current != null) clearTimeout(cartToastTimerRef.current);
@@ -563,7 +588,9 @@ export function ProductSheetsView(props: ProductSheetsViewProps): ReactElement {
   const detail = model.detail;
   // rb-rn-skip-intro-under-product-sheets — relay "any product sheet presented" (list drawer or
   // detail / restock sheet) so the moments layer can hide the opening-video skip pill.
-  const anySheetPresented = presented || detail != null;
+  // rb-rn-flash-sale-bid: the「恭喜搶購成功」popup counts too (parity iOS / Android
+  // `anyProductSheetPresented`'s `bidWonPresented`).
+  const anySheetPresented = presented || detail != null || model.bidWonPresented;
   useEffect(() => {
     onSheetsPresentedChange?.(anySheetPresented);
   }, [anySheetPresented, onSheetsPresentedChange]);
@@ -989,6 +1016,24 @@ export function ProductSheetsView(props: ProductSheetsViewProps): ReactElement {
         />
       ) : null}
 
+      {/* 「恭喜搶購成功」bid-won popup (rb-rn-flash-sale-bid, parity iOS / Android) — centered modal
+          over the sheet stack and the other modals, below the toast. Bound to
+          `DefaultPlayerTemplate.bidWon`: 確定 → `confirmBidWin()` (confirm all listed wins once +
+          close); 取消 → `dismissBidWon()` (close only). Its scrim does not close it, and — being
+          the touch responder — keeps the player's vertical swipe-to-switch from seeing touches
+          while it is up. The merchant logo goes through the SAME gate as the header avatar, so
+          demo / snapshot (`live === false`) shows the glyph only. */}
+      {model.bidWonPresented && model.bidWonItems.length > 0 ? (
+        <BidWonModalView
+          theme={theme}
+          items={model.bidWonItems}
+          shopLogoUri={resolveShopLogoUri(live, model.shopLogo)}
+          live={live}
+          onConfirm={() => model.confirmBidWin()}
+          onCancel={() => model.dismissBidWon()}
+        />
+      ) : null}
+
       {/* 加購成功提示 toast — TOPMOST (last child), bottom-centered over the player frame. The
           wrapper is `pointerEvents="none"` so the toast never eats taps (iOS `allowsHitTesting(false)`
           parity); the下層 sheet / 手勢 stays interactive. Default-hidden → structural snapshots
@@ -1005,7 +1050,7 @@ export function ProductSheetsView(props: ProductSheetsViewProps): ReactElement {
             alignItems: 'center',
           }}
         >
-          <CartToastView theme={theme} isError={cartToastIsError} />
+          <CartToastView theme={theme} label={cartToastLabel} isError={cartToastIsError} />
         </View>
       ) : null}
     </View>

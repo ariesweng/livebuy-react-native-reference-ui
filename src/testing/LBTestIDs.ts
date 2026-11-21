@@ -197,6 +197,14 @@ export const LBTestIDs = {
   minicartPeek: 'lb_minicart_peek',
   minicartPeekClose: 'lb_minicart_peek_close',
   cartToast: 'lb_cart_toast',
+  // rb-rn-flash-sale-bid — flash-sale bid surfaces. Values verbatim iOS `LBAccessibilityID`
+  // (`bidWaitingBanner` / `bidWonModal` / `bidWonConfirm` / `bidWonCancel` /
+  // `bidWonPaginationDots`) and Android `LBTestTags.BID_*`.
+  bidWaitingBanner: 'lb_bid_waiting_banner',
+  bidWonModal: 'lb_bid_won_modal',
+  bidWonConfirm: 'lb_bid_won_confirm',
+  bidWonCancel: 'lb_bid_won_cancel',
+  bidWonPaginationDots: 'lb_bid_won_pagination_dots',
   sheetHeaderClose: 'lb_sheet_header_close',
   // rb-rn-product-detail-recommendations (design R21) — header 返回 affordance (breadcrumb
   // non-empty), 商品介紹文字區, 更多商品推薦格容器. Parity Android `SHEET_HEADER_BACK` /

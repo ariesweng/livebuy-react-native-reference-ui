@@ -58,6 +58,13 @@ export interface PlayerChannelChromeSource {
    * derivation — rb-rn-flash-sale-live-signal-wiring).
    */
   readonly isFlashSale: boolean;
+  /**
+   * 直播管家搶購場 flag (`channel.saleKeywordRequired`, parity `LBPlayerChannelInfo.saleKeywordRequired`,
+   * `false` when absent — the core folds it). Passed straight through to
+   * {@link DerivedHeaderChromeFields.saleKeywordRequired} (rb-rn-flash-sale-bid) so the view-model
+   * can hide the buy button of a product without a 搶購關鍵字.
+   */
+  readonly saleKeywordRequired: boolean;
 }
 
 /**
@@ -78,6 +85,7 @@ export interface DerivedHeaderChromeFields {
   readonly isLive: boolean;
   readonly isFinishedLiveReplay: boolean;
   readonly isFlashSale: boolean;
+  readonly saleKeywordRequired: boolean;
 }
 
 /**
@@ -103,6 +111,10 @@ export function deriveHeaderChromeFields(
     isLive: info.liveStatus === 1,
     isFinishedLiveReplay: isFinishedLiveReplay(info.type, info.liveStatus),
     isFlashSale: info.isFlashSale,
+    // rb-rn-flash-sale-bid — straight pass-through; `live-bid-rn-template` left this drop-in hop
+    // to the RN reference-ui flash-sale change. Without it the drop-in's `buyButtonHidden` stays
+    // `false` forever.
+    saleKeywordRequired: info.saleKeywordRequired,
   };
 }
 

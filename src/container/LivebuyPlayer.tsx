@@ -178,6 +178,11 @@ function useTemplateAttachment(
       // Platform.OS guard (dispatchBeginScrub/dispatchEndScrub).
       requestBeginScrub: () => playerRef.current?.beginScrub(),
       requestEndScrub: () => playerRef.current?.endScrub(),
+      // rb-rn-drop-in-open-cart-wiring: the product sheets' 「查看購物車」CTA
+      // (`template.openCart()`) forwards to this seam; without it the tap no-op'd and core never
+      // emitted `VIEW_CART`. Parity iOS TemplateAttachment.swift:301 / Android
+      // TemplateAttachment.kt:446 (`requestViewCart(productId)`).
+      onOpenCart: (productId?: string) => playerRef.current?.requestViewCart(productId),
       // rb-rn-drop-in-mute-icon-seed-wiring: seed the mute icon from the wrapped native Player's
       // actual mute state (the core keeps the user's mute preference for the whole app session,
       // so a reopened player starts with the same AUDIO state — without this the icon would say

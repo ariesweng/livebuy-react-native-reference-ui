@@ -13,6 +13,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.19.1] - 2026-11-22
+
+> **reference-ui，patch，無 BREAKING。** peer 維持 `livebuy-react-native-ui` `^1.17.0`。公開 API 不變。
+> **驗證範圍**：`tsc --noEmit`、`npx jest` 通過。**未經模擬器與真機實測。**
+
+### Fixed
+
+- **drop-in 播放器「查看購物車」點了沒反應、host 收不到 `VIEW_CART`**（`rb-rn-drop-in-open-cart-wiring`；`1.18.0`／`1.19.0` 都有）：
+  容器沒有把商品列表底部的「查看購物車」接到 core，現在會呼叫 `requestViewCart(productId)` 並派出 `VIEW_CART`，與 iOS／Android／Flutter 相同。
+  host 若另外設了 `config.onOpenCart`，它仍照常作為額外通知，同一次點擊兩者都會收到——兩邊都用來導頁的 host 請自行去重。
+
 ## [1.19.0] - 2026-11-22
 
 > **reference-ui，minor，無 BREAKING。** peer `livebuy-react-native-ui` `^1.16.0` → `^1.17.0`（drop-in 把頻道商家 id 餵給 `1.17.0`

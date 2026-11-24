@@ -46,9 +46,11 @@
 //       onTapPinnedProduct })  // 3. action callback (last, default no-op)
 //
 // The announce / caption / gesture hints carry no tap intent. The ONLY action is
-// the pinned card's tap, which is a host-wired core exit (`simulateProductTap`,
-// NOT owned by the shell — the host wires it to core). The surface forwards it
-// via `onTapPinnedProduct` and renders correctly with every callback omitted.
+// the pinned card's tap, which carries the TAPPED `LBProduct` (the currently shown
+// carousel page) out via `onTapPinnedProduct(product)` — NOT owned by the shell; the
+// turnkey container wires it to its product-tap seam (`config.onOpenProduct ??
+// defaultOpenProduct` → that product's DETAIL, rb-rn-pinned-card-opens-product). The
+// surface renders correctly with every callback omitted.
 //
 // One-way data flow: this component reads ONLY its passed-in values and NEVER
 // reaches back into PlayerShellModel or DefaultPlayerTemplate (D-1 / D-4).
@@ -235,11 +237,15 @@ export interface LiveOverlayChromeProps {
    */
   readonly live?: boolean;
   /**
-   * Pinned-card body tap. NO-ARG (cannot carry the tapped product) — the turnkey
-   * container routes it, via `PlayerShellView.onOpenProduct`, to opening the product
-   * LIST overlay, NOT a per-product detail sheet. Omitted → no-op (snapshot-safe).
+   * Pinned-card body tap. Carries the TAPPED `LBProduct` (for the multi-product carousel:
+   * the currently shown page, NOT always index 0) — parity iOS `((LBProduct) -> Void)?` /
+   * Android `(LBProduct) -> Unit`. The turnkey container routes it, via
+   * `PlayerShellView.onTapPinnedProduct`, to its product-tap seam (`config.onOpenProduct ??
+   * defaultOpenProduct` → that product's DETAIL, rb-rn-pinned-card-opens-product). Widened
+   * from the former no-arg `() => void`; a no-arg callback is still assignable (TS parameter
+   * bivariance by arity), so existing callers compile unchanged. Omitted → no-op (snapshot-safe).
    */
-  readonly onTapPinnedProduct?: () => void;
+  readonly onTapPinnedProduct?: (product: LBProduct) => void;
   /**
    * Host-wired pinned-card CLOSE (右上角 X). Carries the dismissed product id →
    * `PlayerShellView` hides it locally, per-product-id (mirroring the VOD now-introducing
@@ -391,8 +397,8 @@ export function LiveOverlayChrome(props: LiveOverlayChromeProps): ReactElement {
  *
  * Swipe direction gate: only a horizontal drag (`|dx| > |dy|`) flips the page; a vertical
  * drag falls through to the outer prev/next video swipe. Tapping a page dot jumps to it.
- * The card tap forwards via `onTap` (host-wired core exit — the shell never opens product
- * detail itself). Mirrors iOS `LiveOverlayChromeView.pinnedCardCarousel` / Android
+ * The card tap forwards the CURRENT page's product via `onTap(product)` (container-wired
+ * product-tap seam — the shell never opens product detail itself). Mirrors iOS `LiveOverlayChromeView.pinnedCardCarousel` / Android
  * `PinnedProductCarousel`. (問題 7, rb-rn-live-now-introducing-carousel).
  */
 function PinnedCardCarousel(props: {
@@ -400,7 +406,7 @@ function PinnedCardCarousel(props: {
   products: readonly LBProduct[];
   live: boolean;
   isLive: boolean;
-  onTap: () => void;
+  onTap: (product: LBProduct) => void;
   onDismiss: (id: string) => void;
 }): ReactElement | null {
   const { theme, products, live, isLive, onTap, onDismiss } = props;
@@ -522,7 +528,8 @@ function announceBanner(theme: ReferenceUITheme, text: string, onTap: () => void
  * Bottom-right white product card for the single narrating product. Mirrors
  * `LBLivePinnedCard`: image area + a dismissible close chip, accent narrate
  * tag (when narrating), 1-line name, accent live price. Card-body tap forwards to
- * `onTapPinnedProduct` (no-arg; the turnkey container opens the product LIST); the close chip is a
+ * `onTapPinnedProduct(product)` (the turnkey container opens THAT product's detail via
+ * `config.onOpenProduct ?? defaultOpenProduct`, rb-rn-pinned-card-opens-product); the close chip is a
  * nested Pressable that consumes its tap and forwards `onDismiss(product.id)` WITHOUT
  * bubbling to the card body (rb-rn-live-pinned-card-dismiss).
  */
@@ -531,7 +538,7 @@ function pinnedCard(
   product: LBProduct,
   live: boolean,
   isLive: boolean,
-  onTap: () => void,
+  onTap: (product: LBProduct) => void,
   onDismiss: (id: string) => void,
 ): ReactElement {
   // 售完商品的價格欄顯示「已售完」，取代價格（rb-rn-live-pinned-card-soldout-label，parity iOS
@@ -542,7 +549,9 @@ function pinnedCard(
   return (
     <Pressable
       testID={LBTestIDs.pinnedCard}
-      onPress={onTap}
+      // Carry THIS card's product (rb-rn-pinned-card-opens-product). Do NOT pass `onTap`
+      // directly: Pressable would hand it a GestureResponderEvent, not the product.
+      onPress={(): void => onTap(product)}
       style={{
         width: PINNED_CARD_WIDTH,
         backgroundColor: '#FFFFFF',

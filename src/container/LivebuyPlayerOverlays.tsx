@@ -355,7 +355,12 @@ export function LivebuyPlayerOverlays(props: LivebuyPlayerOverlaysProps): ReactE
           // in-place 換片，見 buildGoLiveHandler）。
           hasLiveNow={liveNow != null}
           onGoLive={goLive}
-          onOpenProduct={(): void => setProductListPresented(true)}
+          // LIVE 釘選卡 tap → 開「該商品」明細，與商品列表列、VOD now-introducing 卡同走
+          // sheet.onOpenProduct（= config.onOpenProduct ?? defaultOpenProduct：先送 native 點擊統計
+          // 再開明細；host 設了 onOpenProduct 就完全交給 host）。改前接的是 no-arg
+          // PlayerShellView.onOpenProduct → setProductListPresented(true)（開商品「列表」、不帶商品、
+          // 不經 config.onOpenProduct），rb-rn-pinned-card-opens-product（parity iOS / Android）。
+          onTapPinnedProduct={sheet.onOpenProduct}
           onComment={shell.onComment}
           // LIVE 底部 bar 暱稱按鈕 → 本地呈現 設定暱稱 modal（parity iOS / Android；不走 host 轉接的 rail 出口）。
           onNickname={shell.onNickname}

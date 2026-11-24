@@ -310,10 +310,12 @@ export interface LivebuyPlayerConfig {
   // -- product-sheets ---------------------------------------------------------
 
   /**
-   * 商品點擊。**四個**進場點共用此一 seam：(a) 商品列表列的名稱/價格欄與明細鈕
+   * 商品點擊。**五個**進場點共用此一 seam：(a) 商品列表列的名稱/價格欄與明細鈕
    * （`actionMode='detail'`）、(b) 同列的加購鈕（in-stock，`actionMode='addToCart'`）、
    * (c) 售完列的補貨鈴鐺（`actionMode='restock'`；經 `ProductSheetsView.handleOpenRestock`
-   * 記下模式後仍走這條出口）、(d) VOD now-introducing 卡片輪播。
+   * 記下模式後仍走這條出口）、(d) VOD now-introducing 卡片輪播、(e) LIVE 置頂商品卡
+   * （`PlayerShellView.onTapPinnedProduct`，帶被點的商品；rb-rn-pinned-card-opens-product 起，
+   * 改前是開商品列表、不經本 seam）。
    *
    * 注意 (c) 的 `ProductList` 層 `onNotifyRestock`（吃 `LBProduct`，開 sheet 的入口）與本 config
    * 的 {@link LivebuyPlayerConfig.onNotifyRestock}（吃 `goodsGpn: string`，訂閱 toggle）**同名但
@@ -334,8 +336,8 @@ export interface LivebuyPlayerConfig {
    * （`diversion == 1`）的分支需先由 core 橋接吐出該欄位，屬 `-core` 層、另行提案。容器**不會**以
    * `product.diversionUrl` 是否非空來推導 diversion（導購為頻道級決定，那樣推導會誤開外部瀏覽器）。
    *
-   * 注意這與同名但不同層的 `PlayerShellView.onOpenProduct`（no-arg，容器接成
-   * `setProductListPresented(true)`、開商品**列表** overlay）不是同一件事。
+   * 注意這與同名但不同層的 `PlayerShellView.onOpenProduct`（no-arg 的舊置頂卡 tap，只在未設
+   * `onTapPinnedProduct` 時作為退路；turnkey 容器已不再傳它）不是同一件事。
    */
   onOpenProduct?: (product: LBProduct) => void;
   /**

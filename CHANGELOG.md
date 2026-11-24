@@ -13,6 +13,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.19.2] - 2026-11-24
+
+> **reference-ui，patch，無 BREAKING。** peer 維持 `livebuy-react-native-ui` `^1.17.0`。既有公開 API 不變（`PlayerShellView` 新增一個可選 prop、
+> `LiveOverlayChrome.onTapPinnedProduct` 參數加寬，舊的無參數寫法照常編譯）。
+> **驗證範圍**：`tsc --noEmit`、`npx jest` 通過（來源 change 經獨立驗收）。**置頂卡未經模擬器與真機實測**（需直播中且有置頂商品的頻道）。
+
+### Fixed
+
+- **drop-in 直播置頂商品卡點了只開商品列表**（`rb-rn-pinned-card-opens-product`）：現在改開被點那個商品的明細，與商品列表、回放「介紹中」卡
+  走同一條路徑（`config.onOpenProduct ?? 預設`：先送原生點擊統計 `PRODUCT_CLICK`／`INFO_PRODUCT_VIEW`／`goods_pv`，再開明細），與 iOS／Android／Flutter
+  相同。商品列表改由側欄商品袋開，不受影響。
+
+### Added
+
+- `PlayerShellView` 新增可選 prop `onTapPinnedProduct?: (product: LBProduct) => void`（設了優先，沒設退回舊的無參數 `onOpenProduct`）；
+  `LiveOverlayChrome.onTapPinnedProduct` 由 `() => void` 加寬為 `(product: LBProduct) => void`。
+
+### ⚠️ 升級後行為差異
+
+- **設了 `config.onOpenProduct` 的 host**：點直播置頂卡現在也會呼叫它（帶該商品），以前只開商品列表。
+- **沒設的 host**：點置頂卡改開該商品的 SDK 明細，並送出上述點擊統計。若在 `configure` 傳了 `autoPipOnIntercept: true`，點置頂卡也會像點商品列表
+  一樣觸發子母畫面／暫停（預設 `false` 不受影響）。
+- 直接自己組 `PlayerShellView` 的 host 行為不變。
+
 ## [1.19.1] - 2026-11-22
 
 > **reference-ui，patch，無 BREAKING。** peer 維持 `livebuy-react-native-ui` `^1.17.0`。公開 API 不變。

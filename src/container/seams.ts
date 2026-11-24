@@ -587,7 +587,8 @@ export function buildSheetHandlers(deps: SeamDeps): {
 } {
   const { playerRef, attachment, config, shareSystem, switchVideo } = deps;
   return {
-    // 商品點擊（列表列名稱/明細鈕、列加購鈕、售完列補貨鈴鐺、VOD now-introducing 卡——**四個**
+    // 商品點擊（列表列名稱/明細鈕、列加購鈕、售完列補貨鈴鐺、VOD now-introducing 卡、LIVE 置頂卡
+    // 〔rb-rn-pinned-card-opens-product〕——**五個**
     // 進場點共用此一 seam；補貨鈴鐺經 ProductSheetsView.handleOpenRestock 記 actionMode='restock'
     // 後仍走這裡）。
     // DEFAULT: defaultOpenProduct —— telemetry + 開明細**兩個**出口，缺一即回到死按鈕（見該函式 doc）。

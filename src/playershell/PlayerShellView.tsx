@@ -76,7 +76,7 @@
 //       theme: ReferenceUITheme;
 //       announceText: string; pinnedProducts: readonly LBProduct[];
 //       hostCaption?: string; showGestureHints?: boolean;
-//       onTapPinnedProduct?: () => void;
+//       onTapPinnedProduct?: (product: LBProduct) => void;
 //   }): ReactElement
 //
 // NOTE: on RN `LBInfoTabState` BUNDLES `isSubscribed` (the template mirrors it
@@ -257,16 +257,26 @@ export interface PlayerShellViewProps {
    */
   readonly onGoLive?: () => void;
   /**
-   * LIVE 釘選卡卡體 tap. NO-ARG — it cannot carry the tapped product, so the turnkey
-   * container wires it to `setProductListPresented(true)` (opens the product LIST
-   * overlay), NOT to a per-product detail. Do NOT confuse this with the same-named but
-   * different-layer `LivebuyPlayerConfig.onOpenProduct` (carries an `LBProduct`, opens
-   * THAT product's DETAIL sheet — rb-rn-product-tap-wire). The per-product LIVE-pinned
-   * route is a known four-platform gap (Android passes the product through); closing it
-   * needs a signature change here and is deliberately out of scope (see that change's
-   * design.md D6).
+   * LEGACY LIVE 釘選卡卡體 tap — NO-ARG, kept only for source compatibility. It cannot carry
+   * the tapped product; prefer {@link onTapPinnedProduct}, which takes precedence whenever it
+   * is set (this prop is then never called). Used only as the fallback when
+   * `onTapPinnedProduct` is omitted (a host composing `PlayerShellView` directly with the old
+   * prop keeps its old behavior). The turnkey container no longer passes it
+   * (rb-rn-pinned-card-opens-product — it wires `onTapPinnedProduct` instead). Do NOT confuse
+   * this with the same-named but different-layer `LivebuyPlayerConfig.onOpenProduct` (carries
+   * an `LBProduct`, opens THAT product's DETAIL sheet — rb-rn-product-tap-wire).
    */
   readonly onOpenProduct?: () => void;
+  /**
+   * LIVE 釘選卡卡體 tap carrying the TAPPED `LBProduct` (multi-product carousel: the
+   * currently shown page) — parity iOS `PlayerShellView.onTapPinnedProduct` / Android
+   * `onTapPinnedProduct: (LBProduct) -> Unit`. The turnkey container wires it to the same
+   * product-tap seam as the product-list rows and the now-introducing card
+   * (`config.onOpenProduct ?? defaultOpenProduct` → telemetry + THAT product's detail sheet,
+   * rb-rn-pinned-card-opens-product). Takes precedence over the legacy no-arg
+   * {@link onOpenProduct}; both omitted → inert tap (demo / snapshot).
+   */
+  readonly onTapPinnedProduct?: (product: LBProduct) => void;
   /** LIVE bottom bar 留言 tap → host opens its comment composer (the bar's other
    *  buttons route through {@link onTapRailItem} by kind). */
   readonly onComment?: () => void;
@@ -916,6 +926,7 @@ export function PlayerShellView(props: PlayerShellViewProps): ReactElement {
     hasLiveNow = false,
     onGoLive,
     onOpenProduct,
+    onTapPinnedProduct,
     onComment,
     onNickname,
     onTapNowIntroducingProduct,
@@ -1769,7 +1780,12 @@ export function PlayerShellView(props: PlayerShellViewProps): ReactElement {
             // live-pinned-card-image-radius: load the real product photo only over a live
             // video surface (false / demo → placeholder, snapshot byte-stable).
             live={live}
-            onTapPinnedProduct={onOpenProduct}
+            // 釘選卡 tap 帶被點的商品（rb-rn-pinned-card-opens-product）：新 prop
+            // onTapPinnedProduct(product) 優先；未設才退回舊的 no-arg onOpenProduct（源碼相容）。
+            onTapPinnedProduct={(product: LBProduct): void => {
+              if (onTapPinnedProduct != null) onTapPinnedProduct(product);
+              else onOpenProduct?.();
+            }}
             // 釘選卡右上角 X → 逐商品本地隱藏（鏡像 VOD 的 onDismiss/dismissedVodIds；
             // 內層 Pressable 攔截點擊、不冒泡開明細）。rb-rn-live-pinned-card-dismiss。
             onDismissPinnedProduct={(id) =>

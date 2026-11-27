@@ -81,6 +81,7 @@ import type { LBProduct } from 'livebuy-react-native';
 import { LBTestIDs } from '../testing/LBTestIDs';
 import { LIVE_BOTTOM_BAR_HEIGHT } from './LiveBottomBarView';
 import { text, useReferenceUILanguage } from '../i18n';
+import { referenceUiIntString, referenceUiParseDecimal, referenceUiSafeInt } from '../referenceUiNumberFormat';
 
 /** Safety clearance (px) kept above `LiveBottomBarView`'s real height when positioning the bottom
  *  row (announce banner + pinned-card carousel) — and, since `PlayerShellView.tsx` imports this
@@ -854,16 +855,20 @@ function imageURL(product: LBProduct): string {
 }
 
 /**
- * The live-price label. Prefers the pre-formatted `priceShow`; falls back to
- * `NT$ <price>` when the show string is empty. RN `LBProduct.price` is a STRING
- * (JS Number-precision rule — no `.toInt()`), so the fallback uses it as-is.
- * Pure.
+ * The live-price label. Prefers the pre-formatted `priceShow` (trimmed); falls back to
+ * `NT$ <price>` when the show string is empty. RN `LBProduct.price` is the bridge's STRING
+ * form of the core `Double` (`"1990.0"` / `"1e+20"` / `"inf"` …), so the fallback parses it
+ * and truncates it toward zero to a 64-bit integer, exactly like iOS
+ * `LiveOverlayChromeView.livePriceText(_:)` (`"1990.0"` / `"1990.7"` → `NT$ 1990`). When the
+ * string is not a decimal literal (blank, `inf`, `nan`, …) or the value is not representable
+ * as an int64, it returns `""` (rb-rn-price-int-conversion-guard). Pure; exported for tests
+ * only (not re-exported from the package barrel).
  */
-function livePriceText(product: LBProduct): string {
+export function livePriceText(product: LBProduct): string {
   const show = product.priceShow.trim();
   if (show.length > 0) return show;
-  const price = product.price.trim();
-  return `NT$ ${price.length > 0 ? price : '0'}`;
+  const price = referenceUiSafeInt(referenceUiParseDecimal(product.price));
+  return price == null ? '' : `NT$ ${referenceUiIntString(price)}`;
 }
 
 export default LiveOverlayChrome;

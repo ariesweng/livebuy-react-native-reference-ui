@@ -14,6 +14,10 @@
 import { Linking } from 'react-native';
 
 import type { LBVideoItem } from 'livebuy-react-native';
+// rb-url-exit-policy-gate — deep-path value import of the PURE core URL open policy (zero
+// `react-native` dependency; the root barrel would load the native bridge — same reasoning as
+// `feedwin/FeedWinView.tsx`).
+import { LBURLOpenPolicy } from 'livebuy-react-native/src/LBURLOpenPolicy';
 
 /** Hosts whose lives are watched on their own platform (NOT in-app). Each entry
  *  matches the host itself and any sub-domain. Extend to add YouTube / IG live. */
@@ -43,15 +47,36 @@ function hostOf(urlString: string): string | null {
  * `notfacebook.com` do NOT match.
  */
 export function isExternalLiveURL(urlString: string): boolean {
-  const host = hostOf(urlString);
-  if (host == null) return false;
-  return EXTERNAL_HOSTS.some((base) => host === base || host.endsWith('.' + base));
+  return externalLiveOpenURL(urlString) !== null;
+}
+
+/** Schemes an external live URL may use (a subset of the core openable allowlist). */
+const WEB_SCHEME = /^https?:/i;
+
+/**
+ * The URL to open when [urlString] is an external live, else null
+ * (rb-url-exit-policy-gate). The string is first run through the core
+ * `LBURLOpenPolicy.decide` allowlist — a `null` decision (custom app scheme / `intent:` /
+ * `file:` / `javascript:` / …) is NEVER an external live, even with a `facebook.com` host.
+ * A live URL must additionally be `http` / `https` (`mailto` / `tel` / `sms` are openable but
+ * are not lives). The host allowlist then runs on the policy's `decision.url` (the trimmed
+ * string the policy judged), and that same string is what gets opened.
+ */
+export function externalLiveOpenURL(urlString: string): string | null {
+  const decision = LBURLOpenPolicy.decide(urlString);
+  if (decision === null || !WEB_SCHEME.test(decision.url)) return null;
+  const host = hostOf(decision.url);
+  if (host == null) return null;
+  return EXTERNAL_HOSTS.some((base) => host === base || host.endsWith('.' + base))
+    ? decision.url
+    : null;
 }
 
 /** The external-platform watch URL when this live's `liveurl` is an external broadcast
- *  (Facebook today), else null. Tapping such a live opens this URL externally. */
+ *  (Facebook today), else null. Tapping such a live opens this URL externally. The value
+ *  is the core policy's `decision.url` (rb-url-exit-policy-gate). */
 export function externalLiveWatchURL(item: LBVideoItem): string | null {
-  return isExternalLiveURL(item.liveurl) ? item.liveurl : null;
+  return externalLiveOpenURL(item.liveurl);
 }
 
 /**

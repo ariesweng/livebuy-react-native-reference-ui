@@ -11,6 +11,11 @@
 import type { LivebuyPlayerCoreRef } from 'livebuy-react-native';
 import type { LBProduct, LBVideoItem, LBWinner, LBAwardClaimInput } from 'livebuy-react-native';
 import { LBSideRailKind, LBAuthTriggerAction } from 'livebuy-react-native-ui';
+// rb-url-exit-policy-gate — PACKAGE-SCOPED DEEP PATH value import of the core URL open policy. It is a
+// pure module with ZERO `react-native` dependency, so this keeps `seams.ts` PURE in the sense above
+// (the root barrel is what loads the native bridge — same reasoning as `feedwin/FeedWinView.tsx`).
+import { LBURLOpenPolicy } from 'livebuy-react-native/src/LBURLOpenPolicy';
+import type { LBURLOpenDecision } from 'livebuy-react-native/src/LBURLOpenPolicy';
 import type { PlayerTemplateAttachment } from 'livebuy-react-native-ui';
 
 import { switchedVideoItem } from './collapsibleLogic';
@@ -191,11 +196,42 @@ export function lbShouldPresentChannelShare(shareUrl: string): boolean {
 }
 
 /**
- * 聯絡商家連結是否該開站內瀏覽器（dropin-service-link-default-browser-rn，parity
- * `lbShouldPresentChannelShare`）：`serviceLink` 非空才開（空 → no-op，不開空白頁）。
+ * 聯絡商家連結是否該開啟（dropin-service-link-default-browser-rn，parity
+ * `lbShouldPresentChannelShare`）。自 rb-url-exit-policy-gate 起判準是 core
+ * `LBURLOpenPolicy.decide(serviceLink) !== null`：空字串、無 scheme、不在允許清單的 scheme
+ * （`intent:` / `file:` / `javascript:` / 自訂 app scheme…）一律 false → no-op。
+ * 本函式只控制「預設 onServiceLink 開不開」，不控制「聯絡商家」確認框是否顯示。
  */
 export function lbShouldPresentServiceLink(serviceLink: string): boolean {
-  return serviceLink.length > 0;
+  return LBURLOpenPolicy.decide(serviceLink) !== null;
+}
+
+/**
+ * 聯絡商家連結的預設開啟（rb-url-exit-policy-gate，parity iOS view-model `openResolvedURL` /
+ * Android `presentServiceLink` / Flutter drop-in）：先經 core `LBURLOpenPolicy.decide`，
+ * `null` → no-op；`'inApp'`（livebuy.tv 網域）→ SDK in-app browser；`'external'` → 系統 URL router
+ * （`Linking.openURL`，由容器注入）。兩條分支都用 `decision.url`（policy trim 後的字串），不用原始字串。
+ * `switch` 對 `LBURLOpenTarget` 窮舉、無 `default` 落點（`never` 編譯期守門）。
+ */
+export function lbOpenServiceLink(
+  serviceLink: string,
+  openInAppBrowser: (url: string) => void,
+  openExternalURL: (url: string) => void,
+): void {
+  const decision: LBURLOpenDecision | null = LBURLOpenPolicy.decide(serviceLink);
+  if (decision === null) return;
+  switch (decision.target) {
+    case 'inApp':
+      openInAppBrowser(decision.url);
+      return;
+    case 'external':
+      openExternalURL(decision.url);
+      return;
+    default: {
+      const unhandled: never = decision.target;
+      return unhandled;
+    }
+  }
 }
 
 /**
@@ -248,6 +284,12 @@ export interface SeamDeps {
    * that change's design.md for why).
    */
   readonly openInAppBrowser: (url: string) => void;
+  /**
+   * Hand an ALREADY-DECIDED `'external'` URL to the system URL router (rb-url-exit-policy-gate):
+   * the 聯絡商家 default's `'external'` branch. Injected by the container as
+   * `(url) => void Linking.openURL(url)` so `seams.ts` stays pure (no `react-native` value import).
+   */
+  readonly openExternalURL: (url: string) => void;
   /** Reads the currently-shown video id (cover loads + in-place switches). */
   readonly currentVideoId: () => string;
   /**
@@ -422,7 +464,17 @@ export function buildShellHandlers(deps: SeamDeps): {
   onToggleSubscribe: () => void;
   onServiceLink: () => void;
 } {
-  const { playerRef, attachment, config, composer, nickname, login, serviceLink, openInAppBrowser } =
+  const {
+    playerRef,
+    attachment,
+    config,
+    composer,
+    nickname,
+    login,
+    serviceLink,
+    openInAppBrowser,
+    openExternalURL,
+  } =
     deps;
   return {
     onMinimize: config.onMinimize ?? ((): void => playerRef.minimize()),
@@ -506,14 +558,14 @@ export function buildShellHandlers(deps: SeamDeps): {
       }
     },
     // 聯絡商家 confirm「確定」預設（dropin-service-link-default-browser-rn）：host 設
-    // config.onServiceLink → 覆蓋；未設 → 讀容器 onChannelChange 收到的最新 serviceLink，非空才開站內
-    // 瀏覽器（lbShouldPresentServiceLink 閘）；空 → no-op（不退回 onTapRailItem — 與 onShare 對齊，
+    // config.onServiceLink → 覆蓋；未設 → 讀容器 onChannelChange 收到的最新 serviceLink，經 core
+    // LBURLOpenPolicy 裁決（rb-url-exit-policy-gate，lbOpenServiceLink）：inApp → 站內瀏覽器、external →
+    // Linking.openURL、不可開（空 / 不允許的 scheme）→ no-op（不退回 onTapRailItem — 與 onShare 對齊，
     // PlayerShellView 的 fallback 只在此 handler 完全未注入、即非容器用法時才觸發）。
     onServiceLink:
       config.onServiceLink ??
       ((): void => {
-        const url = serviceLink();
-        if (lbShouldPresentServiceLink(url)) openInAppBrowser(url);
+        lbOpenServiceLink(serviceLink(), openInAppBrowser, openExternalURL);
       }),
   };
 }

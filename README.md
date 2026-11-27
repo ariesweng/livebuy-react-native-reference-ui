@@ -14,7 +14,8 @@ this package for the fastest path to a working UI.
 > [`livebuy-react-native-ui`](https://github.com/ariesweng/livebuy-react-native-ui) (view-model
 > layer, peer dependency), which in turn requires
 > [`livebuy-react-native`](https://github.com/ariesweng/livebuy-react-native) (headless core).
-> npm installs are **not transitive** — declare all three packages, one dependency line each.
+> Declare all three packages, one git dependency line each — see Installation for why a missing
+> line is not harmless.
 
 ---
 
@@ -32,6 +33,15 @@ this package for the fastest path to a working UI.
 
 Then `npm install` (or `yarn` / `pnpm install`). No registry account or `.npmrc` token needed —
 these are plain public git dependencies.
+
+> **Declare every package you need.** This package declares
+> `peerDependencies.livebuy-react-native-ui`, and `livebuy-react-native-ui` declares
+> `peerDependencies.livebuy-react-native`, both as ordinary registry version ranges. npm 7+
+> installs missing peers automatically, so if either of them is not in your `dependencies`, npm
+> fetches a package with that name from registry.npmjs.org — where Livebuy does not publish it.
+> Only the packages you declare yourself are installed from this git channel — **so declare each
+> Livebuy package you use as its own `git+https://…` dependency line** (do not rely on
+> `legacy-peer-deps` to silence the peer).
 
 > **Why a git dependency and not npm registry?** The SDK is not (yet) published to the public npm
 > registry; this mirror repository is the supported remote consumption channel. The tag you pin

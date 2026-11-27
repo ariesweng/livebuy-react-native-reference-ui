@@ -14,7 +14,7 @@ import { useMemo, useRef, useState } from 'react';
 import { HeaderCloseHitTargetContext } from '../moments/headerCloseHitTarget';
 import type { HeaderCloseHitTarget } from '../moments/headerCloseHitTarget';
 import type { ReactElement, RefObject } from 'react';
-import { Share, View } from 'react-native';
+import { Linking, Share, View } from 'react-native';
 
 import { LivebuySDK, nicknameSetPreconditionRejection } from 'livebuy-react-native';
 import type { LivebuyPlayerCoreRef, LBVideoItem, LBProduct } from 'livebuy-react-native';
@@ -219,6 +219,10 @@ export function LivebuyPlayerOverlays(props: LivebuyPlayerOverlaysProps): ReactE
     // （已是既有 import），使 `seams.ts` 保持純粹（無 react-native / SDK value import）。host 設
     // config.onServiceLink 則完全覆蓋（不走此預設）。
     openInAppBrowser: (url: string): void => LivebuySDK.openInAppBrowser(url),
+    // rb-url-exit-policy-gate：聯絡商家 serviceLink 經 LBURLOpenPolicy 判為 'external' 時的系統開啟出口。
+    openExternalURL: (url: string): void => {
+      void Linking.openURL(url);
+    },
     serviceLink,
     currentVideoId,
     switchVideo,

@@ -13,6 +13,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.20.0] - 2026-11-27
+
+> **reference-ui，minor，無 BREAKING。** peer 維持 `livebuy-react-native-ui` `^1.17.0`；建議同時升到 ui `1.19.0`、core `2.16.0`。
+> 既有公開 API 不變（容器內部型別 `SeamDeps` 新增必填 `openExternalURL`，該型別不由套件入口匯出）。
+> **驗證範圍**：`tsc --noEmit`、`npx jest` 通過（來源 change 經獨立驗收）。**未經模擬器與真機實測。**
+
+### Fixed
+
+- **商品價格顯示成 `NT$ 1990.0`**（`rb-rn-price-int-conversion-guard`）：drop-in 商品價格與折扣百分比改用整數顯示（小數無條件捨去，同 iOS）。
+  `NaN`／無限大／超出 64 位元整數範圍／非數字字串顯示空白，算不出來的折扣不畫徽章。
+
+### Security
+
+- **外部直播與聯絡商家連結先過 URL 開啟策略**（`rb-url-exit-policy-gate`）：外部平台直播判定先經 `LBURLOpenPolicy.decide` 且只接受 `http`／`https`，
+  不合規協定即使網域命中白名單也不當外部直播（改走一般 in-app 播放）；預設聯絡商家（serviceLink）先 `decide`：不允許 → 不做事、
+  `livebuy.tv` → 站內瀏覽器、其他網址 → 系統開啟（`Linking.openURL`），與 iOS／Flutter 一致。
+
+### ⚠️ 升級後行為差異
+
+- 非 `livebuy.tv` 的聯絡商家連結由站內瀏覽器改為系統開啟。
+- 價格原本顯示小數的商品改顯示整數；異常價格顯示空白。
+
+### Known limitations
+
+- 極端長寬比的封面圖在 iOS 仍以原尺寸解碼（RN `<Image>` 沒有限制 iOS 解碼尺寸的屬性；ledger #63，Deferred）。
+
 ## [1.19.2] - 2026-11-24
 
 > **reference-ui，patch，無 BREAKING。** peer 維持 `livebuy-react-native-ui` `^1.17.0`。既有公開 API 不變（`PlayerShellView` 新增一個可選 prop、

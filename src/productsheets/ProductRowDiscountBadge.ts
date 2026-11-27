@@ -22,6 +22,8 @@
 // 33` matches; `round(33.708...) === 34` does NOT — this is the deciding evidence for `floor`
 // over `round` (the design source has no explicit rounding-rule comment; the demo data is the
 // only available ground truth).
+import { referenceUiSafeInt } from '../referenceUiNumberFormat';
+
 export const ProductRowDiscountBadge = {
   /**
    * `null` whenever there is nothing meaningful to show: `originalPrice` missing / not a
@@ -32,7 +34,15 @@ export const ProductRowDiscountBadge = {
    * than trusting the caller), a non-positive `originalPrice` (avoids a divide-by-zero), or a
    * computed percentage that floors down to `0` (e.g. `originalPrice: 101, price: 100` →
    * `0.99...%` → `floor` → `0` — a real, if rare, floor-rounding boundary, not an error —
-   * showing a misleading "0%" badge would be worse than showing nothing). Pure / testable.
+   * showing a misleading "0%" badge would be worse than showing nothing).
+   *
+   * Also `null` (rb-rn-price-int-conversion-guard, parity iOS `ProductRowDiscountBadge.percent`
+   * / Flutter `productRowDiscountPercent`) when the floored percentage is not representable as
+   * an int64 (`referenceUiSafeInt` → `null`: e.g. `price '-1e+20', originalPrice '1'` → about
+   * `1e22`, or two finite extremes whose difference overflows to `Infinity`). Every
+   * representable result keeps the existing `off > 0` rule with no upper bound. Render the
+   * returned number with `referenceUiIntString` so values at or above 2^53 print the same
+   * digits as iOS. Pure / testable.
    */
   percent(price: string, originalPrice: string | null): number | null {
     if (originalPrice == null) return null;
@@ -40,7 +50,10 @@ export const ProductRowDiscountBadge = {
     const originalPriceNum = Number(originalPrice);
     if (!Number.isFinite(priceNum) || !Number.isFinite(originalPriceNum)) return null;
     if (originalPriceNum <= priceNum || originalPriceNum <= 0) return null;
-    const off = Math.floor(((originalPriceNum - priceNum) / originalPriceNum) * 100);
+    const off = referenceUiSafeInt(
+      Math.floor(((originalPriceNum - priceNum) / originalPriceNum) * 100),
+    );
+    if (off == null) return null;
     return off > 0 ? off : null;
   },
 } as const;

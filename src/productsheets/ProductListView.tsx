@@ -86,6 +86,7 @@ import {
 import { ProductStatusBadge } from './ProductStatusBadge';
 import { ProductRowNameTag, type ProductRowNameTagValue } from './ProductRowNameTag';
 import { ProductRowDiscountBadge } from './ProductRowDiscountBadge';
+import { referenceUiIntString } from '../referenceUiNumberFormat';
 import { RemoteImage } from './RemoteImage';
 import { SheetHeaderCloseButton } from './SheetHeaderCloseButton';
 import { SheetScaffold } from './SheetScaffold';
@@ -1401,7 +1402,7 @@ function RowLayoutBody(props: {
                               fontWeight: '600',
                             }}
                           >
-                            {`(-${discountPercent}%)`}
+                            {`(-${referenceUiIntString(discountPercent)}%)`}
                           </Text>
                         ) : null}
                       </View>
